@@ -26,8 +26,6 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 ---
 
 
-![NMGUI2 Models tab](screenshots/screenshot1.png)
-
 ## Features
 
 ### Models tab
