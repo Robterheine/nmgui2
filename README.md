@@ -6,6 +6,8 @@ NMGUI2 is a PyQt6 desktop application that brings together everything a pharmaco
 
 It runs entirely offline on macOS, Windows and Linux. No browser. No server. No internet connection required during use.
 
+![NMGUI2 Models tab](screenshots/screenshot1.png)
+
 ---
 
 ## Table of contents
