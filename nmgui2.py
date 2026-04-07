@@ -1014,7 +1014,7 @@ def generate_html_report(model: dict) -> str:
         return 'bad'
 
     status_cls = 'good' if ('SUCCESSFUL' in status or 'COMPLETED' in status) else 'bad'
-    cov_str    = ('✓ Successful' if cov else '✗ Failed') if cov is not None else '—'
+    cov_str    = ('OK' if cov else 'FAILED') if cov is not None else '—'
     cov_cls    = 'good' if cov else ('bad' if cov is False else '')
     cn_str     = f'{cn:.1f}' if cn else '—'
     cn_cls     = 'warn' if cn and cn > 1000 else ('good' if cn else '')
@@ -1214,7 +1214,7 @@ class ParameterTable(QWidget):
         toolbar = QWidget(); toolbar.setFixedHeight(34)
         tl = QHBoxLayout(toolbar); tl.setContentsMargins(4,4,4,4); tl.setSpacing(6)
         tl.addStretch()
-        self.open_report_btn = QPushButton('📋 Open Report')
+        self.open_report_btn = QPushButton('Open Report')
         self.open_report_btn.setToolTip('Generate run report and open in browser')
         self.open_report_btn.setFixedHeight(26); self.open_report_btn.setEnabled(False)
         self.save_report_btn = QPushButton('Save Report…')
@@ -1354,7 +1354,7 @@ class ParameterTable(QWidget):
 # Model table
 # ══════════════════════════════════════════════════════════════════════════════
 
-COLS = ['★','Name','OFV','dOFV','Status','COV','CN','Method','nInd','nObs','nPar','AIC','Runtime']
+COLS = ['*','Name','OFV','dOFV','Status','COV','CN','Method','nInd','nObs','nPar','AIC','Runtime']
 (COL_STAR, COL_NAME, COL_OFV, COL_DOFV, COL_STATUS,
  COL_COV, COL_CN, COL_METHOD, COL_NIND, COL_NOBS, COL_NPAR, COL_AIC, COL_RT) = range(13)
 
@@ -1401,10 +1401,10 @@ class ModelTableModel(QAbstractTableModel):
         if not index.isValid(): return None
         m = self._models[index.row()]; col = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
-            if col == COL_STAR:   return '★' if m.get('star') else ''
+            if col == COL_STAR:   return '*' if m.get('star') else ''
             if col == COL_NAME:
                 s = m['stem']
-                if m.get('stale'): s += ' ⚠'
+                if m.get('stale'): s += ' !'
                 if m.get('status_tag'): s += f" [{m['status_tag']}]"
                 if m['path'] == self._ref_path: s += ' [REF]'
                 return s
@@ -1420,7 +1420,7 @@ class ModelTableModel(QAbstractTableModel):
             if col == COL_STATUS: return (m.get('minimization_message') or '')[:35]
             if col == COL_COV:
                 cv = m.get('covariance_step')
-                return '' if cv is None else ('✓' if cv else '✗')
+                return '' if cv is None else ('OK' if cv else '--')
             if col == COL_CN:
                 cn = m.get('condition_number')
                 if cn is None: return ''
@@ -1534,7 +1534,7 @@ class ModelsTab(QWidget):
         top = QHBoxLayout()
         self.dir_edit = QLineEdit(self._directory); self.dir_edit.returnPressed.connect(self._scan)
         browse = QPushButton('Browse…'); browse.clicked.connect(self._browse)
-        scan   = QPushButton('⟳ Rescan'); scan.clicked.connect(self._scan)
+        scan   = QPushButton('Rescan'); scan.clicked.connect(self._scan)
         top.addWidget(QLabel('Directory:')); top.addWidget(self.dir_edit,1)
         top.addWidget(browse); top.addWidget(scan)
         v.addLayout(top)
@@ -1557,7 +1557,7 @@ class ModelsTab(QWidget):
         self.table.verticalHeader().setVisible(False)
         # Column header tooltips
         _col_tips = {
-            COL_STAR:   '★  Starred / flagged model',
+            COL_STAR:   '*  Starred / flagged model',
             COL_NAME:   'Model name (stem of .mod file)',
             COL_OFV:    'Objective Function Value',
             COL_DOFV:   'ΔOFV relative to the best model in this directory',
@@ -1623,7 +1623,7 @@ class ModelsTab(QWidget):
         # 1 — Editor
         ed_w = QWidget(); ed_v = QVBoxLayout(ed_w); ed_v.setContentsMargins(0,0,0,0)
         ed_top = QHBoxLayout(); ed_top.setContentsMargins(4,4,4,0)
-        self.save_btn = QPushButton('💾 Save'); self.save_btn.setObjectName('primary')
+        self.save_btn = QPushButton('Save'); self.save_btn.setObjectName('primary')
         self.save_btn.clicked.connect(self._save_model)
         self.lst_btn  = QPushButton('View .lst'); self.lst_btn.clicked.connect(self._view_lst)
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
@@ -1643,9 +1643,9 @@ class ModelsTab(QWidget):
         rf.addRow('PsN tool:', self.tool_combo); rf.addRow('Extra args:', self.args_edit)
         rf.addRow('', self.clean_cb); run_v.addLayout(rf)
         run_btn_row = QHBoxLayout(); run_btn_row.setSpacing(8)
-        self.run_btn  = QPushButton('▶  Run');  self.run_btn.setObjectName('primary')
+        self.run_btn  = QPushButton('Run');  self.run_btn.setObjectName('primary')
         self.run_btn.clicked.connect(self._run_model)
-        self.stop_btn = QPushButton('■  Stop'); self.stop_btn.clicked.connect(self._stop_run)
+        self.stop_btn = QPushButton('Stop'); self.stop_btn.clicked.connect(self._stop_run)
         self.stop_btn.setEnabled(False)
         nmtran_btn = QPushButton('NMTRAN msgs…'); nmtran_btn.clicked.connect(self._show_nmtran)
         run_btn_row.addWidget(self.run_btn); run_btn_row.addWidget(self.stop_btn)
@@ -1836,14 +1836,14 @@ class ModelsTab(QWidget):
         m = self._current_model
         if not m: return
         menu = QMenu(self)
-        menu.addAction('★ Toggle star', self._toggle_star)
+        menu.addAction('* Toggle star', self._toggle_star)
         menu.addAction('Duplicate…', self._duplicate)
         menu.addSeparator()
         is_ref = (m['path'] == self._ref_model_path)
         if is_ref:
-            menu.addAction('✕ Clear reference model', self._clear_reference)
+            menu.addAction('[x] Clear reference model', self._clear_reference)
         else:
-            menu.addAction('◎ Set as reference model', self._set_reference)
+            menu.addAction('( ) Set as reference model', self._set_reference)
         if len(self._all_models) > 1:
             comp_menu = menu.addMenu('Compare with…')
             for other in self._all_models:
@@ -2213,8 +2213,8 @@ class IndFitWidget(QWidget):
         ctrl = QHBoxLayout()
         self.grid_cb = QComboBox(); self.grid_cb.addItems(list(self.GRIDS.keys()))
         self.grid_cb.currentTextChanged.connect(self._render)
-        self.prev_btn = QPushButton('◀'); self.prev_btn.clicked.connect(self._prev)
-        self.next_btn = QPushButton('▶'); self.next_btn.clicked.connect(self._next)
+        self.prev_btn = QPushButton('<'); self.prev_btn.clicked.connect(self._prev)
+        self.next_btn = QPushButton('>'); self.next_btn.clicked.connect(self._next)
         self.page_lbl = QLabel(''); self.page_lbl.setFixedWidth(80)
         ctrl.addWidget(QLabel('Grid:')); ctrl.addWidget(self.grid_cb)
         ctrl.addStretch(); ctrl.addWidget(self.prev_btn); ctrl.addWidget(self.page_lbl); ctrl.addWidget(self.next_btn)
@@ -2500,7 +2500,7 @@ class AncestryTreeWidget(QWidget):
 
             # Star
             if m.get('star'):
-                star = self._scene.addText('★')
+                star = self._scene.addText('*')
                 star.setDefaultTextColor(QColor('#f5c518'))
                 star.setPos(x + 4, y + 2)
                 f = star.font(); f.setPointSize(9); star.setFont(f)
@@ -2691,7 +2691,7 @@ class FilterRow(QWidget):
     """Single filter row: column  operator  value  🗑"""
     removed = pyqtSignal(object)
     changed = pyqtSignal()
-    OPERATORS = ['=', '≠', '<', '≤', '>', '≥', 'contains']
+    OPERATORS = ['=', '!=', '<', '<=', '>', '>=', 'contains']
 
     def __init__(self, columns, parent=None):
         super().__init__(parent)
@@ -2704,7 +2704,7 @@ class FilterRow(QWidget):
         self.op_cb.currentTextChanged.connect(self.changed)
         self.val_cb = QComboBox(); self.val_cb.setMinimumWidth(110); self.val_cb.setEditable(True)
         self.val_cb.currentTextChanged.connect(self.changed)
-        rem = QPushButton('🗑'); rem.setFixedWidth(32)
+        rem = QPushButton('[x]'); rem.setFixedWidth(36)
         rem.clicked.connect(lambda: self.removed.emit(self))
         h.addWidget(self.col_cb); h.addWidget(self.op_cb)
         h.addWidget(self.val_cb, 1); h.addWidget(rem)
@@ -2970,8 +2970,8 @@ class DataExplorerWidget(QWidget):
         self.tbl_val_cb = QComboBox(); self.tbl_val_cb.setMinimumWidth(100); self.tbl_val_cb.setEditable(True)
         apply_btn = QPushButton('Filter'); apply_btn.setFixedWidth(70); apply_btn.clicked.connect(self._apply_tbl_filter)
         clear_btn = QPushButton('Clear');  clear_btn.setFixedWidth(60);  clear_btn.clicked.connect(self._clear_tbl_filter)
-        self.prev_btn = QPushButton('◀'); self.prev_btn.setFixedWidth(28); self.prev_btn.clicked.connect(self._prev_page)
-        self.next_btn = QPushButton('▶'); self.next_btn.setFixedWidth(28); self.next_btn.clicked.connect(self._next_page)
+        self.prev_btn = QPushButton('<'); self.prev_btn.setFixedWidth(28); self.prev_btn.clicked.connect(self._prev_page)
+        self.next_btn = QPushButton('>'); self.next_btn.setFixedWidth(28); self.next_btn.clicked.connect(self._next_page)
         self.page_lbl = QLabel(''); self.page_lbl.setFixedWidth(80)
         filt_row.addWidget(QLabel('Filter:')); filt_row.addWidget(self.tbl_col_cb)
         filt_row.addWidget(QLabel('=')); filt_row.addWidget(self.tbl_val_cb)
@@ -3640,9 +3640,9 @@ class VPCTab(QWidget):
 
         # ── Buttons ───────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        self.run_btn  = QPushButton('▶ Generate VPC'); self.run_btn.clicked.connect(self._run)
+        self.run_btn  = QPushButton('Generate VPC'); self.run_btn.clicked.connect(self._run)
         self.run_btn.setStyleSheet(f'background:{C_GREEN};color:#000;font-weight:bold;padding:5px 18px;')
-        self.stop_btn = QPushButton('■ Stop'); self.stop_btn.clicked.connect(self._stop)
+        self.stop_btn = QPushButton('Stop'); self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.setEnabled(False)
         self.r_status_lbl = QLabel('Checking R…')
         self.r_status_lbl.setStyleSheet(f'color:{C_FG2};')
@@ -3661,7 +3661,7 @@ class VPCTab(QWidget):
         itl = QHBoxLayout(img_toolbar); itl.setContentsMargins(8,4,8,4); itl.setSpacing(8)
         self.tool_lbl = QLabel('')
         self.tool_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
-        self._open_btn   = QPushButton('⬆ Open in viewer')
+        self._open_btn   = QPushButton('Open in viewer')
         self._savepng_btn = QPushButton('Save high-res PNG…')
         self._savepdf_btn = QPushButton('Save PDF…')
         for b in (self._open_btn, self._savepng_btn, self._savepdf_btn):
@@ -3718,7 +3718,7 @@ class VPCTab(QWidget):
         self.custom_script_cb.setToolTip(
             'When checked, the script below is used as-is.\n'
             'When unchecked, the script is rebuilt from settings on each run.')
-        reset_btn = QPushButton('↺ Reset from settings')
+        reset_btn = QPushButton('Reset from settings')
         reset_btn.setFixedHeight(24)
         reset_btn.setToolTip('Regenerate the R script from the current settings panel')
         reset_btn.clicked.connect(self._reset_r_script)
@@ -4700,8 +4700,8 @@ class LstViewerDialog(QDialog):
         self._search.returnPressed.connect(self._find_next)
         self._match_lbl = QLabel('')
         self._match_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
-        prev_btn = QPushButton('▲'); prev_btn.setFixedWidth(32); prev_btn.clicked.connect(self._find_prev)
-        next_btn = QPushButton('▼'); next_btn.setFixedWidth(32); next_btn.clicked.connect(self._find_next)
+        prev_btn = QPushButton('^'); prev_btn.setFixedWidth(32); prev_btn.clicked.connect(self._find_prev)
+        next_btn = QPushButton('v'); next_btn.setFixedWidth(32); next_btn.clicked.connect(self._find_next)
         search_row.addWidget(self._search, 1); search_row.addWidget(prev_btn)
         search_row.addWidget(next_btn); search_row.addWidget(self._match_lbl)
         v.addLayout(search_row)
@@ -5399,7 +5399,7 @@ class MainWindow(QMainWindow):
         self._rs_btn.clicked.connect(self._launch_rstudio_global)
         hl.addWidget(logo_lbl); hl.addWidget(name_lbl); hl.addWidget(ver_lbl)
         hl.addSpacing(16); hl.addWidget(self._ctx_lbl, 1)
-        about_btn = QPushButton('ℹ About')
+        about_btn = QPushButton('? About')
         about_btn.setFixedHeight(28)
         about_btn.setToolTip('About NMGUI')
         about_btn.clicked.connect(self._show_about)
@@ -5420,12 +5420,12 @@ class MainWindow(QMainWindow):
 
         self._nav_items = []
         nav_defs = [
-            ('Models',     '📁', 'Ctrl+1'),
-            ('Tree',       '🌿', 'Ctrl+2'),
-            ('Evaluation', '📊', 'Ctrl+3'),
-            ('VPC',        '🔬', 'Ctrl+4'),
-            ('History',    '🕐', 'Ctrl+5'),
-            ('Settings',   '⚙',  'Ctrl+6'),
+            ('Models',     'M', 'Ctrl+1'),
+            ('Tree',       'T', 'Ctrl+2'),
+            ('Evaluation', 'E', 'Ctrl+3'),
+            ('VPC',        'V', 'Ctrl+4'),
+            ('History',    'H', 'Ctrl+5'),
+            ('Settings',   'S', 'Ctrl+6'),
         ]
         for i,(label,icon,shortcut) in enumerate(nav_defs):
             btn = QPushButton()
@@ -5436,13 +5436,14 @@ class MainWindow(QMainWindow):
             bv = QVBoxLayout(btn); bv.setContentsMargins(0,8,0,8); bv.setSpacing(1)
             icon_lbl = QLabel(icon); icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             text_lbl = QLabel(label); text_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            # Set colour via palette — bypasses macOS native style overrides
-            for lbl, size in ((icon_lbl, 22), (text_lbl, 10)):
+            # Use QFont directly — most reliable cross-platform approach
+            for lbl, pt, bold in ((icon_lbl, 16, True), (text_lbl, 8, False)):
                 pal = lbl.palette()
                 pal.setColor(pal.ColorRole.WindowText, QColor(C_FG))
                 lbl.setPalette(pal)
                 lbl.setAutoFillBackground(False)
-                lbl.setStyleSheet(f'font-size:{size}px;background:transparent;')
+                f = lbl.font(); f.setPointSize(pt); f.setBold(bold); lbl.setFont(f)
+                lbl.setStyleSheet('background:transparent;')
             bv.addWidget(icon_lbl); bv.addWidget(text_lbl)
             btn.clicked.connect(lambda _, n=i: self._nav_to(n))
             sv.addWidget(btn)
