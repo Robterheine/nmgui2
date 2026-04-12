@@ -364,6 +364,20 @@ QCheckBox::indicator:checked {{
     background: {t['accent']};
     border-color: {t['accent']};
 }}
+QRadioButton {{ color: {t['fg']}; spacing: 6px; }}
+QRadioButton::indicator {{
+    width: 14px; height: 14px;
+    border: 2px solid {t['fg3']};
+    border-radius: 8px;
+    background: {t['bg2']};
+}}
+QRadioButton::indicator:hover {{
+    border-color: {t['fg2']};
+}}
+QRadioButton::indicator:checked {{
+    background: {t['accent']};
+    border-color: {t['accent']};
+}}
 QMenu {{
     background: {t['bg2']};
     color: {t['fg']};
