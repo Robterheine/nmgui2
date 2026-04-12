@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QSplitter, QTableWidget, QTableWidgetItem, QHeaderView,
     QLabel, QPushButton, QLineEdit, QFileDialog, QPlainTextEdit, QTextEdit,
     QComboBox, QCheckBox, QDoubleSpinBox, QGroupBox, QSizePolicy,
-    QDialog, QMessageBox, QDialogButtonBox,
+    QDialog, QMessageBox, QDialogButtonBox, QRadioButton, QButtonGroup,
     QAbstractItemView, QMenu, QInputDialog, QFormLayout,
     QListWidget, QListWidgetItem, QStackedWidget,
 )
@@ -5049,60 +5049,72 @@ class ParameterUncertaintyTab(QWidget):
         left_panel = QWidget()
         left_panel.setFixedWidth(180)
         left_v = QVBoxLayout(left_panel)
-        left_v.setContentsMargins(0, 0, 0, 0)
-        left_v.setSpacing(12)
+        left_v.setContentsMargins(8, 8, 8, 8)
+        left_v.setSpacing(16)
 
         # Model info
         self.model_lbl = QLabel('No model selected')
         self.model_lbl.setWordWrap(True)
-        self.model_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 11px;')
+        self.model_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 12px;')
         left_v.addWidget(self.model_lbl)
 
         # Method selection
-        method_grp = QGroupBox('Method')
-        method_v = QVBoxLayout(method_grp)
-        self.bootstrap_rb = QCheckBox('Bootstrap')
+        method_lbl = QLabel('METHOD')
+        method_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        left_v.addWidget(method_lbl)
+        
+        self._method_group = QButtonGroup(self)
+        self.bootstrap_rb = QRadioButton('Bootstrap')
         self.bootstrap_rb.setChecked(True)
-        self.sir_rb = QCheckBox('SIR')
-        self.bootstrap_rb.toggled.connect(self._on_method_change)
-        self.sir_rb.toggled.connect(self._on_method_change)
-        # Make them mutually exclusive manually
-        self.bootstrap_rb.toggled.connect(lambda c: self.sir_rb.setChecked(not c) if c else None)
-        self.sir_rb.toggled.connect(lambda c: self.bootstrap_rb.setChecked(not c) if c else None)
-        method_v.addWidget(self.bootstrap_rb)
-        method_v.addWidget(self.sir_rb)
-        left_v.addWidget(method_grp)
+        self.sir_rb = QRadioButton('SIR')
+        self._method_group.addButton(self.bootstrap_rb, 0)
+        self._method_group.addButton(self.sir_rb, 1)
+        self._method_group.buttonClicked.connect(self._on_method_change)
+        left_v.addWidget(self.bootstrap_rb)
+        left_v.addWidget(self.sir_rb)
+
+        # Spacer
+        left_v.addSpacing(8)
 
         # Mode selection
-        mode_grp = QGroupBox('Mode')
-        mode_v = QVBoxLayout(mode_grp)
-        self.run_new_rb = QCheckBox('Run new')
+        mode_lbl = QLabel('MODE')
+        mode_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        left_v.addWidget(mode_lbl)
+        
+        self._mode_group = QButtonGroup(self)
+        self.run_new_rb = QRadioButton('Run new')
         self.run_new_rb.setChecked(True)
-        self.load_existing_rb = QCheckBox('Load existing')
-        self.run_new_rb.toggled.connect(self._on_mode_change)
-        self.load_existing_rb.toggled.connect(self._on_mode_change)
-        self.run_new_rb.toggled.connect(lambda c: self.load_existing_rb.setChecked(not c) if c else None)
-        self.load_existing_rb.toggled.connect(lambda c: self.run_new_rb.setChecked(not c) if c else None)
-        mode_v.addWidget(self.run_new_rb)
-        mode_v.addWidget(self.load_existing_rb)
-        left_v.addWidget(mode_grp)
+        self.load_existing_rb = QRadioButton('Load existing')
+        self._mode_group.addButton(self.run_new_rb, 0)
+        self._mode_group.addButton(self.load_existing_rb, 1)
+        self._mode_group.buttonClicked.connect(self._on_mode_change)
+        left_v.addWidget(self.run_new_rb)
+        left_v.addWidget(self.load_existing_rb)
 
         # Detected results (for load mode)
-        self.detected_grp = QGroupBox('Found results')
-        detected_v = QVBoxLayout(self.detected_grp)
+        left_v.addSpacing(8)
+        self.detected_lbl = QLabel('FOUND RESULTS')
+        self.detected_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        self.detected_lbl.hide()
+        left_v.addWidget(self.detected_lbl)
+        
         self.results_combo = QComboBox()
         self.results_combo.addItem('(none found)')
-        detected_v.addWidget(self.results_combo)
+        self.results_combo.hide()
+        left_v.addWidget(self.results_combo)
+        
         browse_btn = QPushButton('Browse other…')
+        browse_btn.setFixedHeight(28)
         browse_btn.clicked.connect(self._browse_folder)
-        detected_v.addWidget(browse_btn)
-        left_v.addWidget(self.detected_grp)
-        self.detected_grp.hide()
+        browse_btn.hide()
+        self._browse_btn = browse_btn
+        left_v.addWidget(browse_btn)
 
         # PSN status
+        left_v.addSpacing(12)
         self.psn_lbl = QLabel('Checking PsN…')
         self.psn_lbl.setWordWrap(True)
-        self.psn_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px;')
+        self.psn_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 11px;')
         left_v.addWidget(self.psn_lbl)
 
         left_v.addStretch()
@@ -5243,20 +5255,6 @@ class ParameterUncertaintyTab(QWidget):
         self.boot_skip_cov_cb.setChecked(True)
         form.addRow('', self.boot_skip_cov_cb)
 
-        # Cluster options
-        cluster_grp = QGroupBox('Cluster submission')
-        cluster_grp.setCheckable(True)
-        cluster_grp.setChecked(False)
-        self.boot_cluster_grp = cluster_grp
-        cg_v = QVBoxLayout(cluster_grp)
-        self.boot_cluster_type = QComboBox()
-        self.boot_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
-        cg_v.addWidget(self.boot_cluster_type)
-        self.boot_cluster_opts = QLineEdit()
-        self.boot_cluster_opts.setPlaceholderText('Additional options (e.g., -p short)')
-        cg_v.addWidget(self.boot_cluster_opts)
-        form.addRow(cluster_grp)
-
         # Output directory
         dir_row = QHBoxLayout()
         self.boot_dir_edit = QLineEdit()
@@ -5267,6 +5265,31 @@ class ParameterUncertaintyTab(QWidget):
         dir_browse.clicked.connect(lambda: self._browse_output_dir(self.boot_dir_edit))
         dir_row.addWidget(dir_browse)
         form.addRow('Output dir:', dir_row)
+
+        # Cluster options - collapsible
+        self.boot_cluster_cb = QCheckBox('Submit to cluster')
+        self.boot_cluster_cb.setChecked(False)
+        form.addRow('', self.boot_cluster_cb)
+        
+        # Cluster options container (hidden by default)
+        self._boot_cluster_container = QWidget()
+        cluster_layout = QFormLayout(self._boot_cluster_container)
+        cluster_layout.setContentsMargins(20, 0, 0, 0)
+        cluster_layout.setSpacing(6)
+        
+        self.boot_cluster_type = QComboBox()
+        self.boot_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
+        cluster_layout.addRow('Scheduler:', self.boot_cluster_type)
+        
+        self.boot_cluster_opts = QLineEdit()
+        self.boot_cluster_opts.setPlaceholderText('e.g., -p short --mem=4G')
+        cluster_layout.addRow('Options:', self.boot_cluster_opts)
+        
+        self._boot_cluster_container.hide()
+        form.addRow('', self._boot_cluster_container)
+        
+        # Connect checkbox to show/hide cluster options
+        self.boot_cluster_cb.toggled.connect(self._boot_cluster_container.setVisible)
 
         return w
 
@@ -5300,20 +5323,6 @@ class ParameterUncertaintyTab(QWidget):
         self.sir_threads_spin.setDecimals(0)
         form.addRow('Threads:', self.sir_threads_spin)
 
-        # Cluster options
-        cluster_grp = QGroupBox('Cluster submission')
-        cluster_grp.setCheckable(True)
-        cluster_grp.setChecked(False)
-        self.sir_cluster_grp = cluster_grp
-        cg_v = QVBoxLayout(cluster_grp)
-        self.sir_cluster_type = QComboBox()
-        self.sir_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
-        cg_v.addWidget(self.sir_cluster_type)
-        self.sir_cluster_opts = QLineEdit()
-        self.sir_cluster_opts.setPlaceholderText('Additional options')
-        cg_v.addWidget(self.sir_cluster_opts)
-        form.addRow(cluster_grp)
-
         # Output directory
         dir_row = QHBoxLayout()
         self.sir_dir_edit = QLineEdit()
@@ -5324,6 +5333,31 @@ class ParameterUncertaintyTab(QWidget):
         dir_browse.clicked.connect(lambda: self._browse_output_dir(self.sir_dir_edit))
         dir_row.addWidget(dir_browse)
         form.addRow('Output dir:', dir_row)
+
+        # Cluster options - collapsible
+        self.sir_cluster_cb = QCheckBox('Submit to cluster')
+        self.sir_cluster_cb.setChecked(False)
+        form.addRow('', self.sir_cluster_cb)
+        
+        # Cluster options container (hidden by default)
+        self._sir_cluster_container = QWidget()
+        cluster_layout = QFormLayout(self._sir_cluster_container)
+        cluster_layout.setContentsMargins(20, 0, 0, 0)
+        cluster_layout.setSpacing(6)
+        
+        self.sir_cluster_type = QComboBox()
+        self.sir_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
+        cluster_layout.addRow('Scheduler:', self.sir_cluster_type)
+        
+        self.sir_cluster_opts = QLineEdit()
+        self.sir_cluster_opts.setPlaceholderText('e.g., -p short --mem=4G')
+        cluster_layout.addRow('Options:', self.sir_cluster_opts)
+        
+        self._sir_cluster_container.hide()
+        form.addRow('', self._sir_cluster_container)
+        
+        # Connect checkbox to show/hide cluster options
+        self.sir_cluster_cb.toggled.connect(self._sir_cluster_container.setVisible)
 
         return w
 
@@ -5352,7 +5386,7 @@ class ParameterUncertaintyTab(QWidget):
             self.run_btn.setEnabled(False)
             self.psn_lbl.setStyleSheet(f'color: {T("red")}; font-size: 10px;')
 
-    def _on_method_change(self):
+    def _on_method_change(self, *args):
         if self.run_new_rb.isChecked():
             if self.bootstrap_rb.isChecked():
                 self._config_stack.setCurrentIndex(0)
@@ -5362,15 +5396,19 @@ class ParameterUncertaintyTab(QWidget):
                 self.run_btn.setText('Run SIR')
         self._detect_existing_results()
 
-    def _on_mode_change(self):
+    def _on_mode_change(self, *args):
         if self.run_new_rb.isChecked():
-            self.detected_grp.hide()
+            self.detected_lbl.hide()
+            self.results_combo.hide()
+            self._browse_btn.hide()
             self.run_btn.show()
             self.stop_btn.show()
             self.load_btn.hide()
             self._on_method_change()
         else:
-            self.detected_grp.show()
+            self.detected_lbl.show()
+            self.results_combo.show()
+            self._browse_btn.show()
             self.run_btn.hide()
             self.stop_btn.hide()
             self.load_btn.show()
@@ -5461,7 +5499,7 @@ class ParameterUncertaintyTab(QWidget):
         if self.boot_skip_cov_cb.isChecked():
             cmd.append('-skip_covariance_step')
 
-        if self.boot_cluster_grp.isChecked():
+        if self.boot_cluster_cb.isChecked():
             cluster_type = self.boot_cluster_type.currentText()
             cmd.append(f'-run_on_{cluster_type}')
             opts = self.boot_cluster_opts.text().strip()
@@ -5484,7 +5522,7 @@ class ParameterUncertaintyTab(QWidget):
         cmd.append(f'-iterations={int(self.sir_iterations_spin.value())}')
         cmd.append(f'-threads={int(self.sir_threads_spin.value())}')
 
-        if self.sir_cluster_grp.isChecked():
+        if self.sir_cluster_cb.isChecked():
             cluster_type = self.sir_cluster_type.currentText()
             cmd.append(f'-run_on_{cluster_type}')
             opts = self.sir_cluster_opts.text().strip()
