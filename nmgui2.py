@@ -7132,7 +7132,7 @@ class MainWindow(QMainWindow):
         body = QHBoxLayout(); body.setContentsMargins(0,0,0,0); body.setSpacing(0)
 
         # Sidebar
-        self._sidebar = QWidget(); self._sidebar.setFixedWidth(72)
+        self._sidebar = QWidget(); self._sidebar.setFixedWidth(82)
         self._sidebar.setObjectName('sidebar')
         sv = QVBoxLayout(self._sidebar); sv.setContentsMargins(0,8,0,8); sv.setSpacing(2)
 
@@ -7151,7 +7151,7 @@ class MainWindow(QMainWindow):
             btn = QPushButton()
             btn.setObjectName('navBtn')
             btn.setCheckable(True)
-            btn.setFixedHeight(68); btn.setFixedWidth(72)
+            btn.setFixedHeight(68); btn.setFixedWidth(82)
             btn.setToolTip(f'{label}  ({shortcut})')
             bv = QVBoxLayout(btn); bv.setContentsMargins(4, 8, 4, 6); bv.setSpacing(3)
 
