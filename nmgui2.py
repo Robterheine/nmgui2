@@ -7,7 +7,7 @@ Drop next to parser.py and run:
     python3 nmgui2.py
 """
 
-import os, sys, json, re, time, math, shlex, subprocess, signal, threading
+import os, sys, json, re, time, math, shlex, subprocess, signal, threading, hashlib
 from pathlib import Path
 from datetime import datetime
 
@@ -701,14 +701,28 @@ def load_meta():
 
 def save_meta(meta):
     with _cfg_lock:
-        META_FILE.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+        tmp_path = META_FILE.with_suffix('.tmp')
+        try:
+            tmp_path.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+            tmp_path.replace(META_FILE)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
 def get_meta_entry(meta, path):
     e = meta.get(str(path), {})
     if isinstance(e, str): e = {'comment': e, 'star': False, 'based_on': None}
-    return {'comment': e.get('comment',''), 'star': e.get('star', False),
-            'based_on': e.get('based_on', None), 'status': e.get('status',''),
-            'notes': e.get('notes','')}
+    return {
+        'comment': e.get('comment',''), 
+        'star': e.get('star', False),
+        'based_on': e.get('based_on', None), 
+        'status': e.get('status',''),
+        'notes': e.get('notes',''),
+        # Annotation system fields
+        'decision': e.get('decision', ''),
+        'tags': e.get('tags', []),
+        'param_notes': e.get('param_notes', {}),
+    }
 
 def load_settings():
     if SETTINGS_FILE.exists():
@@ -736,6 +750,187 @@ def load_runs():
 
 def save_runs(runs):
     RUNS_FILE.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
+
+# ── Run Records (per-project audit trail) ────────────────────────────────────
+RUN_RECORDS_FILE = 'nmgui_run_records.json'
+
+def _file_hash(path):
+    """Compute SHA-256 hash of a file."""
+    try:
+        h = hashlib.sha256()
+        with open(path, 'rb') as f:
+            for chunk in iter(lambda: f.read(65536), b''):
+                h.update(chunk)
+        return f'sha256:{h.hexdigest()[:16]}'
+    except Exception:
+        return None
+
+def _detect_nonmem_version(cwd):
+    """Attempt to detect NONMEM version from environment or output."""
+    import shutil as sh
+    # Check for nmfe script version
+    for ver in ['75', '74', '73']:
+        if (Path(cwd) / f'nmfe{ver}').exists() or sh.which(f'nmfe{ver}'):
+            return f'7.{ver[1]}'
+    # Try to get from psn
+    try:
+        r = subprocess.run(['psn', '-nm_versions'], capture_output=True, text=True, timeout=5, env=get_login_env())
+        if r.stdout:
+            match = re.search(r'default is (\d+\.\d+)', r.stdout)
+            if match: return match.group(1)
+    except Exception: pass
+    return 'unknown'
+
+def _detect_psn_version():
+    """Detect PsN version."""
+    try:
+        r = subprocess.run(['psn', '-version'], capture_output=True, text=True, timeout=5, env=get_login_env())
+        if r.stdout:
+            match = re.search(r'PsN\s+(\d+\.\d+\.\d+)', r.stdout)
+            if match: return match.group(1)
+    except Exception: pass
+    return 'unknown'
+
+def load_run_records(project_dir):
+    """Load run records from project directory."""
+    rr_path = Path(project_dir) / RUN_RECORDS_FILE
+    if rr_path.exists():
+        try: return json.loads(rr_path.read_text('utf-8'))
+        except Exception: pass
+    return []
+
+def save_run_records(project_dir, records):
+    """Save run records to project directory (atomic write)."""
+    rr_path = Path(project_dir) / RUN_RECORDS_FILE
+    tmp_path = rr_path.with_suffix('.tmp')
+    try:
+        tmp_path.write_text(json.dumps(records, indent=2, default=str), encoding='utf-8')
+        tmp_path.replace(rr_path)  # Atomic on POSIX
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+def create_run_record(model_path, cmd, tool):
+    """Create a new run record at run start."""
+    model_path = Path(model_path)
+    cwd = model_path.parent
+    
+    # Read control stream
+    try:
+        control_stream = model_path.read_text('utf-8', errors='replace')
+    except Exception:
+        control_stream = ''
+    
+    # Find data file from control stream
+    data_file = None
+    data_hash = None
+    data_rows = None
+    data_subjects = None
+    data_match = re.search(r'\$DATA\s+(\S+)', control_stream)
+    if data_match:
+        data_ref = data_match.group(1)
+        # Resolve relative path
+        data_path = (cwd / data_ref).resolve() if not Path(data_ref).is_absolute() else Path(data_ref)
+        if data_path.exists():
+            data_file = str(data_path.name)
+            data_hash = _file_hash(data_path)
+            # Count rows and subjects
+            try:
+                lines = data_path.read_text('utf-8', errors='replace').strip().split('\n')
+                data_rows = len(lines) - 1  # Exclude header
+                # Count unique IDs (first column, skip header)
+                if len(lines) > 1:
+                    ids = set()
+                    for line in lines[1:]:
+                        parts = re.split(r'[,\s]+', line.strip())
+                        if parts: ids.add(parts[0])
+                    data_subjects = len(ids)
+            except Exception: pass
+    
+    record = {
+        'run_id': f"{model_path.stem}_{int(time.time())}",
+        'model_path': str(model_path),
+        'model_stem': model_path.stem,
+        'control_stream_hash': _file_hash(model_path),
+        'control_stream_snapshot': control_stream,
+        'data_file': data_file,
+        'data_file_hash': data_hash,
+        'data_n_rows': data_rows,
+        'data_n_subjects': data_subjects,
+        'tool': tool,
+        'command': cmd,
+        'nonmem_version': _detect_nonmem_version(str(cwd)),
+        'psn_version': _detect_psn_version(),
+        'nmgui_version': APP_VERSION,
+        'started': datetime.now().isoformat(),
+        'completed': None,
+        'duration_seconds': None,
+        'status': 'running',
+        'exit_code': None,
+        'ofv': None,
+        'minimization_successful': None,
+        'covariance_step': None,
+        'warnings': [],
+        'output_hashes': {},
+    }
+    return record
+
+def finalize_run_record(record, model_path, exit_code):
+    """Finalize run record after completion."""
+    model_path = Path(model_path)
+    cwd = model_path.parent
+    stem = model_path.stem
+    
+    record['completed'] = datetime.now().isoformat()
+    record['exit_code'] = exit_code
+    record['status'] = 'completed' if exit_code == 0 else f'failed ({exit_code})'
+    
+    # Calculate duration
+    try:
+        started = datetime.fromisoformat(record['started'])
+        completed = datetime.fromisoformat(record['completed'])
+        record['duration_seconds'] = int((completed - started).total_seconds())
+    except Exception: pass
+    
+    # Parse results if run succeeded
+    run_dir = cwd / stem
+    lst_path = run_dir / f'{stem}.lst'
+    if not lst_path.exists():
+        lst_path = cwd / f'{stem}.lst'
+    
+    if lst_path.exists() and HAS_PARSER:
+        try:
+            parsed = parse_lst(str(lst_path))
+            record['ofv'] = parsed.get('ofv')
+            record['minimization_successful'] = parsed.get('min_successful', False)
+            record['covariance_step'] = parsed.get('cov_step', False)
+            # Extract warnings
+            warnings = []
+            if parsed.get('near_boundary'): warnings.append('PARAMETER NEAR BOUNDARY')
+            if parsed.get('eta_shrinkage'):
+                high_shr = [s for s in parsed['eta_shrinkage'] if s and s > 30]
+                if high_shr: warnings.append(f'HIGH ETA SHRINKAGE (>{30}%)')
+            record['warnings'] = warnings
+        except Exception: pass
+    
+    # Hash output files
+    output_files = ['lst', 'ext', 'phi', 'cov', 'cor', 'coi']
+    for ext in output_files:
+        for loc in [run_dir / f'{stem}.{ext}', cwd / f'{stem}.{ext}']:
+            if loc.exists():
+                record['output_hashes'][ext] = _file_hash(loc)
+                break
+    
+    return record
+
+def get_all_tags(meta):
+    """Collect all unique tags from meta entries for autocomplete."""
+    tags = set()
+    for entry in meta.values():
+        if isinstance(entry, dict):
+            for tag in entry.get('tags', []):
+                tags.add(tag)
+    return sorted(tags)
 
 def get_login_env():
     env = os.environ.copy()
@@ -2036,6 +2231,8 @@ class ModelsTab(QWidget):
         self.comment_edit = QLineEdit(); self.comment_edit.setPlaceholderText('Short label…')
         self.comment_edit.editingFinished.connect(self._save_meta_fields)
         info_v.addWidget(self.comment_edit)
+        
+        # Status row
         status_row = QHBoxLayout()
         status_row.addWidget(QLabel('Status:'))
         self.status_tag_combo = QComboBox()
@@ -2043,9 +2240,28 @@ class ModelsTab(QWidget):
         self.status_tag_combo.currentTextChanged.connect(self._save_meta_fields)
         status_row.addWidget(self.status_tag_combo); status_row.addStretch()
         info_v.addLayout(status_row)
+        
+        # Decision row (annotation system)
+        decision_row = QHBoxLayout()
+        decision_row.addWidget(QLabel('Decision:'))
+        self.decision_combo = QComboBox()
+        self.decision_combo.addItems(['', 'Include', 'Sensitivity', 'Exploratory', 'Rejected'])
+        self.decision_combo.currentTextChanged.connect(self._save_meta_fields)
+        self.decision_combo.setToolTip('Categorize model for reporting/submission')
+        decision_row.addWidget(self.decision_combo); decision_row.addStretch()
+        info_v.addLayout(decision_row)
+        
+        # Tags row (annotation system)
+        info_v.addWidget(QLabel('Tags'))
+        self.tags_edit = QLineEdit()
+        self.tags_edit.setPlaceholderText('Comma-separated: pediatric, renal, covariate...')
+        self.tags_edit.setToolTip('Add tags for filtering and search')
+        self.tags_edit.editingFinished.connect(self._save_meta_fields)
+        info_v.addWidget(self.tags_edit)
+        
         info_v.addWidget(QLabel('Notes'))
         self.notes_edit = QTextEdit(); self.notes_edit.setPlaceholderText('Rationale, decisions…')
-        self.notes_edit.setMaximumHeight(160)
+        self.notes_edit.setMaximumHeight(140)
         orig_focusOut = self.notes_edit.focusOutEvent
         self.notes_edit.focusOutEvent = lambda e: (self._save_meta_fields(), orig_focusOut(e))
         info_v.addWidget(self.notes_edit)
@@ -2171,9 +2387,25 @@ class ModelsTab(QWidget):
         else:
             filtered = self._all_models
         
-        # Filter by search text
+        # Filter by search text (searches stem, comment, tags, decision, notes)
         if self._search_text:
-            filtered = [m for m in filtered if self._search_text in m.get('stem', '').lower()]
+            def matches_search(m):
+                search = self._search_text
+                if search in m.get('stem', '').lower():
+                    return True
+                # Search in meta fields
+                meta_e = get_meta_entry(self._meta, m.get('path', ''))
+                if search in meta_e.get('comment', '').lower():
+                    return True
+                if search in meta_e.get('decision', '').lower():
+                    return True
+                if search in meta_e.get('notes', '').lower():
+                    return True
+                for tag in meta_e.get('tags', []):
+                    if search in tag.lower():
+                        return True
+                return False
+            filtered = [m for m in filtered if matches_search(m)]
         
         # Repopulate table
         self._table_model.load(filtered)
@@ -2296,6 +2528,11 @@ class ModelsTab(QWidget):
         self.notes_edit.setPlainText(meta_e['notes'])
         idx = self.status_tag_combo.findText(meta_e['status'])
         self.status_tag_combo.setCurrentIndex(max(0, idx))
+        # Load annotation fields
+        decision_idx = self.decision_combo.findText(meta_e.get('decision', ''))
+        self.decision_combo.setCurrentIndex(max(0, decision_idx))
+        tags = meta_e.get('tags', [])
+        self.tags_edit.setText(', '.join(tags) if tags else '')
         
         # Dataset info
         data_file = m.get('data_file', '')
@@ -2355,6 +2592,7 @@ class ModelsTab(QWidget):
         menu.addAction('Copy folder path', self._copy_folder_path)
         menu.addSeparator()
         menu.addAction('View .lst', self._view_lst)
+        menu.addAction('View run record…', self._view_run_record)
         menu.addAction('NMTRAN messages…', self._show_nmtran)
         menu.exec(QCursor.pos())
 
@@ -2428,6 +2666,23 @@ class ModelsTab(QWidget):
         dlg = LstViewerDialog(m['stem'], text, self)
         dlg.show()  # non-modal so user can keep working
 
+    def _view_run_record(self):
+        m = self._current_model
+        if not m: return
+        cwd = str(Path(m['path']).parent)
+        records = load_run_records(cwd)
+        # Find most recent record for this model
+        model_stem = m.get('stem', '')
+        matching = [r for r in records if r.get('model_stem') == model_stem]
+        if not matching:
+            QMessageBox.information(self, 'No Record', 
+                f'No run record found for {model_stem}.\n\n'
+                'Run records are created when you execute a model through NMGUI.')
+            return
+        # Show the most recent record
+        dlg = RunRecordDialog(matching[0], self)
+        dlg.exec()
+
     def current_directory(self):
         return self._directory
 
@@ -2450,6 +2705,10 @@ class ModelsTab(QWidget):
         e['comment'] = self.comment_edit.text().strip()
         e['notes']   = self.notes_edit.toPlainText().strip()
         e['status']  = self.status_tag_combo.currentText()
+        # Annotation fields
+        e['decision'] = self.decision_combo.currentText()
+        tags_text = self.tags_edit.text().strip()
+        e['tags'] = [t.strip() for t in tags_text.split(',') if t.strip()] if tags_text else []
         self._meta[m['path']] = e; save_meta(self._meta)
 
     def _duplicate(self):
@@ -2498,23 +2757,50 @@ class ModelsTab(QWidget):
         self._run_worker.line_out.connect(self.console.appendPlainText)
         self._run_worker.finished.connect(self._on_run_done)
         self._run_worker.start()
+        
+        # Legacy run history (global)
         runs = load_runs()
         runs.insert(0,{'id':f"{m['stem']}_{int(time.time())}","run_name":m['stem'],
                        "model":model_path,"tool":tool,"command":cmd,"working_dir":cwd,
                        "status":"running","started":datetime.now().isoformat(),"finished":None})
         save_runs(runs[:200])
+        
+        # Project-level run record (audit trail)
+        self._current_run_record = create_run_record(model_path, cmd, tool)
+        self._current_run_model_path = model_path
+        records = load_run_records(cwd)
+        records.insert(0, self._current_run_record)
+        save_run_records(cwd, records[:500])  # Keep last 500 records
+        
     def _on_run_done(self, rc):
         self.run_btn.setEnabled(True); self.stop_btn.setEnabled(False)
         s = 'finished' if rc == 0 else f'failed (code {rc})'
         self.console.appendPlainText(f'\n[Process {s}]')
         self.status_msg.emit(f'Run {s}')
-        # Update the most recent run record with final status and end time
+        
+        # Update legacy run history
         runs = load_runs()
         if runs:
             runs[0]['status']   = 'ok' if rc == 0 else f'failed ({rc})'
             runs[0]['finished'] = datetime.now().isoformat()
             runs[0]['exit_code'] = rc
             save_runs(runs)
+        
+        # Finalize project-level run record
+        if hasattr(self, '_current_run_record') and self._current_run_record:
+            model_path = getattr(self, '_current_run_model_path', None)
+            if model_path:
+                cwd = str(Path(model_path).parent)
+                self._current_run_record = finalize_run_record(
+                    self._current_run_record, model_path, rc)
+                # Update the record in storage
+                records = load_run_records(cwd)
+                if records and records[0].get('run_id') == self._current_run_record.get('run_id'):
+                    records[0] = self._current_run_record
+                    save_run_records(cwd, records)
+            self._current_run_record = None
+            self._current_run_model_path = None
+        
         QTimer.singleShot(1500, self._scan)
     def _stop_run(self):
         if self._run_worker: self._run_worker.stop()
@@ -7274,6 +7560,144 @@ class KeyboardShortcutsDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(close_btn)
         v.addLayout(btn_row)
+
+
+class RunRecordDialog(QDialog):
+    """Dialog to display a run record for audit purposes."""
+    def __init__(self, record, parent=None):
+        super().__init__(parent)
+        self.record = record
+        self.setWindowTitle(f'Run Record: {record.get("model_stem", "unknown")}')
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(500)
+        
+        v = QVBoxLayout(self); v.setSpacing(12); v.setContentsMargins(16, 16, 16, 16)
+        
+        # Header
+        header = QLabel(f'<b style="font-size:16px;">{record.get("model_stem", "unknown")}</b>')
+        v.addWidget(header)
+        
+        # Info grid
+        info = QGridLayout(); info.setSpacing(8)
+        row = 0
+        
+        def add_row(label, value):
+            nonlocal row
+            lbl = QLabel(f'<b>{label}:</b>')
+            lbl.setStyleSheet(f'color:{T("fg2")};')
+            val = QLabel(str(value) if value else '—')
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            val.setWordWrap(True)
+            info.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignTop)
+            info.addWidget(val, row, 1)
+            row += 1
+        
+        add_row('Run ID', record.get('run_id'))
+        add_row('Status', record.get('status'))
+        add_row('Started', record.get('started'))
+        add_row('Completed', record.get('completed'))
+        if record.get('duration_seconds'):
+            mins, secs = divmod(record['duration_seconds'], 60)
+            add_row('Duration', f'{mins}m {secs}s')
+        add_row('Tool', record.get('tool'))
+        add_row('NONMEM version', record.get('nonmem_version'))
+        add_row('PsN version', record.get('psn_version'))
+        add_row('NMGUI version', record.get('nmgui_version'))
+        
+        v.addLayout(info)
+        
+        # Separator
+        from PyQt6.QtWidgets import QFrame
+        sep1 = QFrame(); sep1.setFrameShape(QFrame.Shape.HLine)
+        sep1.setStyleSheet(f'color:{T("border")};'); v.addWidget(sep1)
+        
+        # Results section
+        results_lbl = QLabel('<b>Results</b>')
+        v.addWidget(results_lbl)
+        
+        results = QGridLayout(); results.setSpacing(8)
+        row = 0
+        
+        def add_result(label, value):
+            nonlocal row
+            lbl = QLabel(f'{label}:')
+            lbl.setStyleSheet(f'color:{T("fg2")};')
+            val = QLabel(str(value) if value is not None else '—')
+            val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            results.addWidget(lbl, row, 0)
+            results.addWidget(val, row, 1)
+            row += 1
+        
+        add_result('OFV', f'{record.get("ofv"):.4f}' if record.get('ofv') else None)
+        add_result('Minimization', 'Successful' if record.get('minimization_successful') else 
+                   ('Failed' if record.get('minimization_successful') is False else None))
+        add_result('Covariance step', 'Yes' if record.get('covariance_step') else 
+                   ('No' if record.get('covariance_step') is False else None))
+        
+        warnings = record.get('warnings', [])
+        if warnings:
+            add_result('Warnings', ', '.join(warnings))
+        
+        v.addLayout(results)
+        
+        # Separator
+        sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
+        sep2.setStyleSheet(f'color:{T("border")};'); v.addWidget(sep2)
+        
+        # Hashes section
+        hashes_lbl = QLabel('<b>File Hashes</b>')
+        v.addWidget(hashes_lbl)
+        
+        hashes = QGridLayout(); hashes.setSpacing(4)
+        hashes.addWidget(QLabel('Control stream:'), 0, 0)
+        cs_hash = QLabel(record.get('control_stream_hash', '—'))
+        cs_hash.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        cs_hash.setStyleSheet('font-family: monospace; font-size: 11px;')
+        hashes.addWidget(cs_hash, 0, 1)
+        
+        hashes.addWidget(QLabel('Data file:'), 1, 0)
+        df_hash = QLabel(record.get('data_file_hash', '—'))
+        df_hash.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        df_hash.setStyleSheet('font-family: monospace; font-size: 11px;')
+        hashes.addWidget(df_hash, 1, 1)
+        
+        if record.get('data_file'):
+            hashes.addWidget(QLabel('Data file name:'), 2, 0)
+            hashes.addWidget(QLabel(record.get('data_file')), 2, 1)
+        
+        out_hashes = record.get('output_hashes', {})
+        r = 3
+        for ext, h in out_hashes.items():
+            hashes.addWidget(QLabel(f'{ext.upper()} hash:'), r, 0)
+            h_lbl = QLabel(h)
+            h_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            h_lbl.setStyleSheet('font-family: monospace; font-size: 11px;')
+            hashes.addWidget(h_lbl, r, 1)
+            r += 1
+        
+        v.addLayout(hashes)
+        v.addStretch()
+        
+        # Buttons
+        btn_row = QHBoxLayout()
+        export_btn = QPushButton('Export JSON')
+        export_btn.clicked.connect(self._export_json)
+        close_btn = QPushButton('Close')
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(export_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        v.addLayout(btn_row)
+    
+    def _export_json(self):
+        stem = self.record.get('model_stem', 'record')
+        dst, _ = QFileDialog.getSaveFileName(
+            self, 'Export Run Record', 
+            str(HOME / f'{stem}_run_record.json'),
+            'JSON files (*.json)')
+        if not dst: return
+        Path(dst).write_text(json.dumps(self.record, indent=2, default=str), encoding='utf-8')
+        QMessageBox.information(self, 'Exported', f'Run record exported to:\n{dst}')
 
 
 class AboutDialog(QDialog):
