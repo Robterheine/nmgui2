@@ -120,10 +120,10 @@ THEMES = {
         'bg2':       '#22222c',
         'bg3':       '#2a2a36',
         'bg4':       '#32323f',
-        'border':    '#3a3a50',
+        'border':    '#7a7a94',   # 3:1+ contrast on all backgrounds
         'fg':        '#dde0ee',
-        'fg2':       '#7a7d9a',
-        'fg3':       '#55586e',
+        'fg2':       '#9a9db8',   # WCAG AA compliant
+        'fg3':       '#6a6d88',
         'accent':    '#4c8aff',
         'accent_h':  '#6aa0ff',
         'accent_bg': '#1a2a4a',
@@ -134,14 +134,14 @@ THEMES = {
         'star':      '#f0c040',
         'sel':       '#1e3a5a',
         'pg_bg':     '#1a1a20',
-        'pg_fg':     '#9090aa',
+        'pg_fg':     '#9a9db8',
     },
     'light': {
         'bg':        '#f2f2f7',
         'bg2':       '#ffffff',
         'bg3':       '#e8e8f0',
         'bg4':       '#d8d8e8',
-        'border':    '#c0c0d0',
+        'border':    '#7878a0',   # 3:1+ contrast on all backgrounds
         'fg':        '#1a1a2e',
         'fg2':       '#5a5a70',
         'fg3':       '#9090a0',
@@ -154,8 +154,8 @@ THEMES = {
         'yellow':    '#b45309',
         'star':      '#d97706',
         'sel':       '#dbeafe',
-        'pg_bg':     '#ffffff',   # white plot background — max contrast
-        'pg_fg':     '#1a1a2e',   # near-black axes, labels, titles
+        'pg_bg':     '#ffffff',
+        'pg_fg':     '#1a1a2e',
     }
 }
 
@@ -413,8 +413,8 @@ QWidget#evalTopBar {{
     border-bottom: 1px solid {t['border']};
 }}
 QPushButton#pillBtn {{
-    background: transparent;
-    border: 1px solid transparent;
+    background: {t['bg3']};
+    border: 1px solid {t['border']};
     border-radius: 6px;
     color: {t['fg2']};
     padding: 3px 14px;
@@ -422,8 +422,9 @@ QPushButton#pillBtn {{
     min-width: 0;
 }}
 QPushButton#pillBtn:hover {{
-    background: {t['bg3']};
+    background: {t['bg4']};
     color: {t['fg']};
+    border-color: {t['fg2']};
 }}
 QPushButton#pillBtn:checked {{
     background: {t['accent']};
@@ -450,7 +451,7 @@ QPushButton#filterBtn:checked {{
     border-color: {t['accent']};
 }}
 QPushButton#innerPillBtn {{
-    background: transparent;
+    background: {t['bg2']};
     border: 1px solid {t['border']};
     border-radius: 5px;
     color: {t['fg2']};
@@ -461,10 +462,11 @@ QPushButton#innerPillBtn {{
 QPushButton#innerPillBtn:hover {{
     background: {t['bg3']};
     color: {t['fg']};
+    border-color: {t['fg2']};
 }}
 QPushButton#innerPillBtn:checked {{
-    background: {t['bg3']};
-    color: {t['fg']};
+    background: {t['accent']};
+    color: #ffffff;
     border-color: {t['accent']};
     font-weight: 600;
 }}
