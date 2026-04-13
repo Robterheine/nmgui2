@@ -86,7 +86,7 @@ META_FILE      = CONFIG_DIR / 'model_meta.json'
 SETTINGS_FILE  = CONFIG_DIR / 'settings.json'
 BOOKMARKS_FILE = CONFIG_DIR / 'bookmarks.json'
 RUNS_FILE      = CONFIG_DIR / 'runs.json'
-APP_VERSION    = '2.1.0'
+APP_VERSION    = '2.2.0'
 _cfg_lock      = threading.Lock()
 
 # ── Parameter Uncertainty Diagnostic Thresholds ──────────────────────────────
@@ -429,6 +429,24 @@ QPushButton#pillBtn:checked {{
     background: {t['accent']};
     color: #ffffff;
     font-weight: 600;
+    border-color: {t['accent']};
+}}
+QPushButton#filterBtn {{
+    background: {t['bg3']};
+    border: 1px solid {t['border']};
+    border-radius: 4px;
+    color: {t['fg2']};
+    padding: 2px 10px;
+    font-size: 11px;
+    min-width: 50px;
+}}
+QPushButton#filterBtn:hover {{
+    background: {t['bg4']};
+    color: {t['fg']};
+}}
+QPushButton#filterBtn:checked {{
+    background: {t['accent']};
+    color: #ffffff;
     border-color: {t['accent']};
 }}
 QPushButton#innerPillBtn {{
@@ -1462,17 +1480,19 @@ class ParameterTable(QWidget):
         tl.addWidget(self.open_report_btn); tl.addWidget(self.save_report_btn)
         tl.addWidget(self.csv_btn)
         v.addWidget(toolbar)
-        self.table = QTableWidget(0,6)
-        self.table.setHorizontalHeaderLabels(['Param','Name','Estimate','SE','RSE%','Units'])
+        self.table = QTableWidget(0,8)
+        self.table.setHorizontalHeaderLabels(['Param','Name','Estimate','SE','RSE%','Shrink%','Etabar','Units'])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         # Sensible initial widths — all freely draggable
-        hh.resizeSection(0, 90)   # Param
-        hh.resizeSection(1, 180)  # Name — wide but draggable
-        hh.resizeSection(2, 90)   # Estimate
-        hh.resizeSection(3, 75)   # SE
-        hh.resizeSection(4, 65)   # RSE%
-        hh.resizeSection(5, 60)   # Units
+        hh.resizeSection(0, 85)   # Param
+        hh.resizeSection(1, 140)  # Name — wide but draggable
+        hh.resizeSection(2, 85)   # Estimate
+        hh.resizeSection(3, 65)   # SE
+        hh.resizeSection(4, 55)   # RSE%
+        hh.resizeSection(5, 55)   # Shrink%
+        hh.resizeSection(6, 55)   # Etabar p
+        hh.resizeSection(7, 50)   # Units
         hh.setStretchLastSection(False)
         hh.setMinimumSectionSize(40)
         self.table.setAlternatingRowColors(True)
@@ -1480,9 +1500,6 @@ class ParameterTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setShowGrid(False)
         v.addWidget(self.table)
-        self.shr_label = QLabel('')
-        self.shr_label.setStyleSheet(f'color:{C_FG2};font-size:11px;padding:2px;')
-        v.addWidget(self.shr_label)
 
     def _open_report(self):
         if not self._model: return
@@ -1542,45 +1559,120 @@ class ParameterTable(QWidget):
             w.writerows(rows)
         self.parent().parent().status_msg.emit(f'Parameters exported: {Path(dst).name}') if hasattr(self,'parent') else None
 
-    def load(self, model):
+    def load(self, model, parent_model=None):
         self._model = model if model.get('has_run') else None
         has = self._model is not None
         self.open_report_btn.setEnabled(has)
         self.save_report_btn.setEnabled(has)
         self.csv_btn.setEnabled(has)
         self.table.setRowCount(0)
+        
+        # Get shrinkage and etabar arrays
+        eta_shr = model.get('eta_shrinkage', [])
+        eps_shr = model.get('eps_shrinkage', [])
+        etabar_pval = model.get('etabar_pval', [])
+        
+        # Build parent parameter lookup for comparison
+        parent_params = {}
+        if parent_model and parent_model.get('has_run'):
+            for block, key in [('THETA', 'thetas'), ('OMEGA', 'omegas'), ('SIGMA', 'sigmas')]:
+                for i, val in enumerate(parent_model.get(key, [])):
+                    parent_params[f'{block}({i+1})'] = val
+        
         blocks = [
             ('THETA', model.get('thetas',[]), model.get('theta_ses',[]),
-             model.get('theta_names',[]), model.get('theta_units',[]), model.get('theta_fixed',[])),
+             model.get('theta_names',[]), model.get('theta_units',[]), model.get('theta_fixed',[]), [], []),
             ('OMEGA', model.get('omegas',[]), model.get('omega_ses',[]),
-             model.get('omega_names',[]), model.get('omega_units',[]), model.get('omega_fixed',[])),
+             model.get('omega_names',[]), model.get('omega_units',[]), model.get('omega_fixed',[]), eta_shr, etabar_pval),
             ('SIGMA', model.get('sigmas',[]), model.get('sigma_ses',[]),
-             model.get('sigma_names',[]), model.get('sigma_units',[]), model.get('sigma_fixed',[])),
+             model.get('sigma_names',[]), model.get('sigma_units',[]), model.get('sigma_fixed',[]), eps_shr, []),
         ]
         rows = []
-        for block, ests, ses, names, units, fixed in blocks:
+        for block, ests, ses, names, units, fixed, shrinkage, etabar in blocks:
             for i, est in enumerate(ests):
                 se   = ses[i] if i < len(ses) else None
                 nm   = names[i] if i < len(names) else ''
                 un   = units[i] if i < len(units) else ''
                 fx   = fixed[i] if i < len(fixed) else False
-                rows.append((f'{block}({i+1})', nm, fmt_num(est), fmt_num(se) if se is not None else '...', fmt_rse(est,se), un, fx))
+                shr  = shrinkage[i] if i < len(shrinkage) else None
+                ebp  = etabar[i] if i < len(etabar) else None
+                param_key = f'{block}({i+1})'
+                parent_val = parent_params.get(param_key)
+                rows.append((param_key, nm, est, fmt_num(est), fmt_num(se) if se is not None else '...', 
+                            fmt_rse(est,se), shr, ebp, un, fx, parent_val))
         self.table.setRowCount(len(rows))
         R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         L = Qt.AlignmentFlag.AlignLeft  | Qt.AlignmentFlag.AlignVCenter
         grey = QBrush(QColor(C_FG2))
-        for row, (lbl,nm,est,se,rse,un,fx) in enumerate(rows):
-            for col, (txt, align) in enumerate([(lbl,L),(nm,L),(est,R),(se,R),(rse,R),(un,L)]):
+        changed_color = QColor('#4c8aff')  # Blue for changed parameters
+        
+        for row, (lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val) in enumerate(rows):
+            # Check if parameter changed from parent
+            changed_from_parent = False
+            parent_tooltip = None
+            if parent_val is not None and est_raw is not None:
+                # Consider changed if differs by more than 0.1% or absolute diff > 1e-6
+                if abs(est_raw) > 1e-10:
+                    pct_diff = abs(est_raw - parent_val) / abs(est_raw) * 100
+                    changed_from_parent = pct_diff > 0.1
+                else:
+                    changed_from_parent = abs(est_raw - parent_val) > 1e-6
+                if changed_from_parent:
+                    parent_tooltip = f'Changed from {fmt_num(parent_val)} in parent model'
+            
+            # Shrinkage text and color
+            if shr is not None:
+                shr_txt = f'{shr:.1f}'
+                if shr < 20:
+                    shr_color = QColor(C_GREEN)
+                elif shr < 30:
+                    shr_color = QColor(C_ORANGE)
+                else:
+                    shr_color = QColor(C_RED)
+            else:
+                shr_txt = ''
+                shr_color = None
+            
+            # Etabar p-value text and color
+            if ebp is not None:
+                ebp_txt = f'{ebp:.3f}' if ebp >= 0.001 else '<.001'
+                if ebp < 0.01:
+                    ebp_color = QColor(C_RED)
+                elif ebp < 0.05:
+                    ebp_color = QColor(C_ORANGE)
+                else:
+                    ebp_color = None
+            else:
+                ebp_txt = ''
+                ebp_color = None
+            
+            for col, (txt, align) in enumerate([(lbl,L),(nm,L),(est,R),(se,R),(rse,R),(shr_txt,R),(ebp_txt,R),(un,L)]):
                 item = QTableWidgetItem(txt)
                 item.setTextAlignment(align)
-                if fx: item.setForeground(grey); item.setToolTip('FIXED')
+                if fx: 
+                    item.setForeground(grey)
+                    item.setToolTip('FIXED')
+                # Highlight changed estimate (col 2 = Estimate)
+                elif col == 2 and changed_from_parent:
+                    item.setText(f'△ {est}')
+                    item.setForeground(QBrush(changed_color))
+                    item.setToolTip(parent_tooltip)
+                # Apply shrinkage color
+                elif col == 5 and shr_color:
+                    item.setForeground(QBrush(shr_color))
+                    if shr is not None and shr >= 30:
+                        item.setToolTip(f'High shrinkage ({shr:.1f}%) — parameter poorly estimated')
+                    elif shr is not None and shr >= 20:
+                        item.setToolTip(f'Moderate shrinkage ({shr:.1f}%)')
+                # Apply etabar color
+                elif col == 6 and ebp is not None:
+                    if ebp_color:
+                        item.setForeground(QBrush(ebp_color))
+                    if ebp < 0.01:
+                        item.setToolTip(f'Significant etabar (p={ebp:.4f}) — systematic bias in random effect')
+                    elif ebp < 0.05:
+                        item.setToolTip(f'Marginally significant etabar (p={ebp:.3f})')
                 self.table.setItem(row, col, item)
-        # Shrinkage
-        shr = model.get('eta_shrinkage',[])
-        if shr:
-            self.shr_label.setText('ETA shrinkage: ' + '  '.join(f'ETA{i+1}: {v:.1f}%' for i,v in enumerate(shr)))
-        else:
-            self.shr_label.setText('')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1653,12 +1745,12 @@ class ModelTableModel(QAbstractTableModel):
             if col == COL_STATUS: return (m.get('minimization_message') or '')[:35]
             if col == COL_COV:
                 cv = m.get('covariance_step')
-                return '' if cv is None else ('OK' if cv else '--')
+                return '' if cv is None else ('✓' if cv else '✗')
             if col == COL_CN:
                 cn = m.get('condition_number')
                 if cn is None: return ''
-                if cn >= 10000: return f'{cn:.2e}'
-                if cn >= 1000:  return f'{cn:.0f}'
+                if cn >= 10000: return f'⚠ {cn:.2e}'
+                if cn >= 1000:  return f'⚠ {cn:.0f}'
                 return f'{cn:.1f}'
             if col == COL_METHOD: return m.get('estimation_method','')
             if col == COL_NIND:  return str(m['n_individuals']) if m.get('n_individuals') else ''
@@ -1781,8 +1873,41 @@ class ModelsTab(QWidget):
         # Splitter
         spl = QSplitter(Qt.Orientation.Horizontal)
         # Left: table
-        left = QWidget(); lv = QVBoxLayout(left); lv.setContentsMargins(0,0,0,0)
+        left = QWidget(); lv = QVBoxLayout(left); lv.setContentsMargins(0,0,0,0); lv.setSpacing(4)
         left.setMinimumWidth(320)
+        
+        # Filter row: search + buttons
+        filter_row = QHBoxLayout(); filter_row.setSpacing(6)
+        
+        # Search field
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText('Filter models...')
+        self._search_edit.setClearButtonEnabled(True)
+        self._search_edit.setFixedHeight(24)
+        self._search_edit.setFixedWidth(150)
+        self._search_edit.setAccessibleName('Filter models by name')
+        self._search_edit.textChanged.connect(self._on_search_changed)
+        self._search_text = ''
+        self._search_timer = QTimer()
+        self._search_timer.setSingleShot(True)
+        self._search_timer.timeout.connect(self._apply_filter_and_search)
+        filter_row.addWidget(self._search_edit)
+        
+        # Filter buttons
+        self._filter_btns = []
+        for label, filter_val in [('All', 'all'), ('Completed', 'completed'), ('Failed', 'failed')]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setFixedHeight(24)
+            btn.setObjectName('filterBtn')
+            btn.clicked.connect(lambda checked, f=filter_val: self._apply_filter(f))
+            filter_row.addWidget(btn)
+            self._filter_btns.append((btn, filter_val))
+        self._filter_btns[0][0].setChecked(True)  # 'All' selected by default
+        self._current_filter = 'all'
+        filter_row.addStretch()
+        lv.addLayout(filter_row)
+        
         self.table = _ModelsTable()
         self.table.setColumnCount(len(COLS)); self.table.setHorizontalHeaderLabels(COLS)
         self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
@@ -1817,6 +1942,7 @@ class ModelsTab(QWidget):
         self.table.setSortingEnabled(True)
         self.table.setShowGrid(False)
         self.table.itemSelectionChanged.connect(self._on_select)
+        self.table.itemDoubleClicked.connect(self._on_double_click)
         # Right-click handled by _ModelsTable.contextMenuEvent via C++ virtual dispatch
         self.table.right_clicked.connect(self._on_right_click)
         # Keyboard navigation only — no viewport filter needed
@@ -1893,6 +2019,19 @@ class ModelsTab(QWidget):
         # 3 — Info
         info_w = QWidget(); info_v = QVBoxLayout(info_w)
         info_v.setContentsMargins(10,10,10,10); info_v.setSpacing(8)
+        
+        # Dataset info section
+        ds_lbl = QLabel('DATASET')
+        ds_lbl.setStyleSheet(f'color:{C_FG2};font-size:10px;font-weight:600;letter-spacing:0.5px;')
+        info_v.addWidget(ds_lbl)
+        self._ds_info = QLabel('No model selected')
+        self._ds_info.setWordWrap(True)
+        self._ds_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._ds_info.setStyleSheet(f'color:{C_FG};font-size:11px;background:{C_BG3};padding:6px;border-radius:4px;')
+        info_v.addWidget(self._ds_info)
+        
+        info_v.addSpacing(8)
+        
         info_v.addWidget(QLabel('Comment'))
         self.comment_edit = QLineEdit(); self.comment_edit.setPlaceholderText('Short label…')
         self.comment_edit.editingFinished.connect(self._save_meta_fields)
@@ -1964,7 +2103,6 @@ class ModelsTab(QWidget):
         # Reset right panel
         self._current_model = None
         self.param_table.table.setRowCount(0)
-        self.param_table.shr_label.setText('')
         self.editor.clear()
         self.comment_edit.clear()
         self.notes_edit.clear()
@@ -2006,6 +2144,65 @@ class ModelsTab(QWidget):
             f'{n} model{"s" if n!=1 else ""}, {nr} with results  ·  '
             f'{Path(self._directory).name}  ·  scanned in {elapsed:.1f}s')
 
+    def _on_search_changed(self, text):
+        """Handle search text changes with debounce."""
+        self._search_text = text.strip().lower()
+        self._search_timer.start(80)  # 80ms debounce
+
+    def _apply_filter_and_search(self):
+        """Apply both status filter and search filter."""
+        self._apply_filter(self._current_filter)
+
+    def _apply_filter(self, filter_type):
+        """Filter the model list by status and search text."""
+        self._current_filter = filter_type
+        # Update button states
+        for btn, val in self._filter_btns:
+            btn.setChecked(val == filter_type)
+        
+        # Filter by status
+        if filter_type == 'all':
+            filtered = self._all_models
+        elif filter_type == 'completed':
+            filtered = [m for m in self._all_models if m.get('minimization_successful') is True]
+        elif filter_type == 'failed':
+            filtered = [m for m in self._all_models if m.get('minimization_successful') is False 
+                       or (m.get('has_run') and m.get('minimization_successful') is None)]
+        else:
+            filtered = self._all_models
+        
+        # Filter by search text
+        if self._search_text:
+            filtered = [m for m in filtered if self._search_text in m.get('stem', '').lower()]
+        
+        # Repopulate table
+        self._table_model.load(filtered)
+        self.table.setRowCount(len(filtered)); self.table.setSortingEnabled(False)
+        for row, m in enumerate(filtered):
+            for col in range(len(COLS)):
+                idx = self._table_model.index(row, col)
+                txt = self._table_model.data(idx, Qt.ItemDataRole.DisplayRole) or ''
+                fg  = self._table_model.data(idx, Qt.ItemDataRole.ForegroundRole)
+                tip = self._table_model.data(idx, Qt.ItemDataRole.ToolTipRole)
+                item = QTableWidgetItem(txt)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter |
+                    (Qt.AlignmentFlag.AlignRight if col >= COL_OFV else Qt.AlignmentFlag.AlignLeft))
+                if fg:  item.setForeground(fg)
+                if tip: item.setToolTip(tip)
+                if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
+                self.table.setItem(row, col, item)
+        self.table.setSortingEnabled(True)
+        
+        # Update status bar
+        n_total = len(self._all_models)
+        n_shown = len(filtered)
+        if self._search_text:
+            self.status_msg.emit(f'{n_shown} model{"s" if n_shown!=1 else ""} matching "{self._search_text}"')
+        elif filter_type == 'all':
+            self.status_msg.emit(f'{n_shown} model{"s" if n_shown!=1 else ""}')
+        else:
+            self.status_msg.emit(f'{n_shown} of {n_total} models ({filter_type})')
+
     # ── Selection ─────────────────────────────────────────────────────────────
     def eventFilter(self, obj, event):
         """Keyboard navigation on the models table."""
@@ -2026,6 +2223,31 @@ class ModelsTab(QWidget):
                     self.table.setCurrentCell(row + 1, self.table.currentColumn())
                 return True
         return super().eventFilter(obj, event)
+
+    def _on_double_click(self, item):
+        """Open the .lst file in the system default application."""
+        row = item.row()
+        item0 = self.table.item(row, 0)
+        if item0 is None: return
+        model_row = item0.data(Qt.ItemDataRole.UserRole)
+        if model_row is None: model_row = row
+        m = self._table_model.model_at(model_row)
+        if not m: return
+        
+        # Try .lst file first, fall back to .mod
+        lst_path = m.get('lst_path')
+        if lst_path and Path(lst_path).exists():
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(lst_path)))
+            self.status_msg.emit(f'Opened: {Path(lst_path).name}')
+        elif m.get('path') and Path(m['path']).exists():
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(m['path'])))
+            self.status_msg.emit(f'Opened: {Path(m["path"]).name} (no .lst file)')
+        else:
+            self.status_msg.emit('No output file available')
 
     def _on_right_click(self, row):
         """Called by _ModelsTable.contextMenuEvent via C++ virtual dispatch."""
@@ -2054,7 +2276,19 @@ class ModelsTab(QWidget):
 
     def _load_detail(self, m):
         m = _align_param_names(m)  # fix misaligned omega/sigma names from SAME blocks
-        self.param_table.load(m)
+        
+        # Find parent model if based_on is specified
+        parent_model = None
+        based_on = m.get('based_on')
+        if based_on:
+            # Search for parent model in _all_models by stem
+            parent_stem = based_on.replace('.mod', '').replace('.ctl', '')
+            for candidate in self._all_models:
+                if candidate.get('stem') == parent_stem:
+                    parent_model = _align_param_names(candidate)
+                    break
+        
+        self.param_table.load(m, parent_model)
         try: self.editor.setPlainText(Path(m['path']).read_text('utf-8', errors='replace'))
         except Exception: self.editor.setPlainText('')
         meta_e = get_meta_entry(self._meta, m['path'])
@@ -2062,6 +2296,39 @@ class ModelsTab(QWidget):
         self.notes_edit.setPlainText(meta_e['notes'])
         idx = self.status_tag_combo.findText(meta_e['status'])
         self.status_tag_combo.setCurrentIndex(max(0, idx))
+        
+        # Dataset info
+        data_file = m.get('data_file', '')
+        n_ind = m.get('n_individuals')
+        n_obs = m.get('n_observations')
+        
+        ds_parts = []
+        if data_file:
+            ds_parts.append(f'File: {data_file}')
+        if n_ind:
+            ds_parts.append(f'Individuals: {n_ind:,}')
+        if n_obs:
+            ds_parts.append(f'Observations: {n_obs:,}')
+        if based_on:
+            ds_parts.append(f'Based on: {based_on}')
+        
+        # Get $INPUT columns if available
+        try:
+            content = Path(m['path']).read_text('utf-8', errors='replace')
+            input_match = re.search(r'\$INPUT\s+(.+?)(?:\$|;|\n\s*\n)', content, re.DOTALL | re.IGNORECASE)
+            if input_match:
+                cols = re.findall(r'([A-Z][A-Z0-9_]*)', input_match.group(1).upper())
+                # Remove DROP columns
+                cols = [c for c in cols if c not in ('DROP', 'SKIP')]
+                if cols:
+                    ds_parts.append(f'Columns: {", ".join(cols[:10])}{"..." if len(cols) > 10 else ""}')
+        except Exception:
+            pass
+        
+        if ds_parts:
+            self._ds_info.setText('\n'.join(ds_parts))
+        else:
+            self._ds_info.setText('No dataset information available')
 
     # ── Context menu ──────────────────────────────────────────────────────────
     def _ctx_menu(self):
@@ -2084,9 +2351,27 @@ class ModelsTab(QWidget):
                     act = comp_menu.addAction(other['stem'])
                     act.triggered.connect(lambda _, o=other: self._compare(m, o))
         menu.addSeparator()
+        menu.addAction('Copy .mod path', self._copy_mod_path)
+        menu.addAction('Copy folder path', self._copy_folder_path)
+        menu.addSeparator()
         menu.addAction('View .lst', self._view_lst)
         menu.addAction('NMTRAN messages…', self._show_nmtran)
         menu.exec(QCursor.pos())
+
+    def _copy_mod_path(self):
+        m = self._current_model
+        if not m or not m.get('path'): return
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(str(m['path']))
+        self.status_msg.emit(f'Copied: {m["path"]}')
+
+    def _copy_folder_path(self):
+        m = self._current_model
+        if not m or not m.get('path'): return
+        from PyQt6.QtWidgets import QApplication
+        folder = str(Path(m['path']).parent)
+        QApplication.clipboard().setText(folder)
+        self.status_msg.emit(f'Copied: {folder}')
 
     def _set_reference(self):
         m = self._current_model
@@ -6924,6 +7209,69 @@ class SettingsTab(QWidget):
         save_bookmarks(bms); self.bm_list.takeItem(row)
 
 
+class KeyboardShortcutsDialog(QDialog):
+    """Non-modal dialog showing keyboard shortcuts."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Keyboard Shortcuts')
+        self.setFixedWidth(420)
+        self.setModal(False)  # Non-modal so users can try shortcuts while viewing
+        
+        v = QVBoxLayout(self); v.setContentsMargins(20,20,20,20); v.setSpacing(16)
+        
+        # Define shortcuts by category
+        shortcuts = [
+            ('Navigation', [
+                ('Ctrl+1 – 7', 'Switch sidebar tabs'),
+                ('Ctrl+Q', 'Quit application'),
+                ('Ctrl+Shift+T', 'Toggle light/dark theme'),
+                ('F1 or Ctrl+/', 'Show this help'),
+            ]),
+            ('Models Tab', [
+                ('Up / Down', 'Navigate model list'),
+                ('Enter', 'Switch to Output tab'),
+                ('Space', 'Toggle star on selected model'),
+                ('Double-click', 'Open .lst file in default app'),
+            ]),
+            ('Editor', [
+                ('Ctrl+S', 'Save control stream'),
+                ('Ctrl+Z / Ctrl+Y', 'Undo / Redo'),
+            ]),
+            ('General', [
+                ('Escape', 'Close dialog'),
+            ]),
+        ]
+        
+        for section, keys in shortcuts:
+            # Section header
+            header = QLabel(section)
+            header.setStyleSheet(f'font-weight:600;font-size:12px;color:{T("fg")};margin-top:4px;')
+            v.addWidget(header)
+            
+            # Shortcuts grid
+            for key, desc in keys:
+                row = QHBoxLayout(); row.setSpacing(12)
+                key_lbl = QLabel(key)
+                key_lbl.setFixedWidth(120)
+                key_lbl.setStyleSheet(f'font-family:monospace;font-size:11px;color:{T("accent")};background:{T("bg3")};padding:2px 6px;border-radius:3px;')
+                desc_lbl = QLabel(desc)
+                desc_lbl.setStyleSheet(f'font-size:12px;color:{T("fg2")};')
+                row.addWidget(key_lbl)
+                row.addWidget(desc_lbl, 1)
+                v.addLayout(row)
+        
+        v.addStretch()
+        
+        # Close button
+        close_btn = QPushButton('Close')
+        close_btn.setFixedWidth(80)
+        close_btn.clicked.connect(self.close)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        v.addLayout(btn_row)
+
+
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -7092,11 +7440,29 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_act); file_menu.addAction(rescan_act)
         file_menu.addSeparator(); file_menu.addAction(quit_act)
         help_menu = mb.addMenu('Help')
+        shortcuts_act = QAction('Keyboard Shortcuts…', self)
+        shortcuts_act.setShortcut(QKeySequence('F1'))
+        shortcuts_act.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        shortcuts_act.triggered.connect(self._show_shortcuts)
         about_act = QAction('About NMGUI…', self); about_act.triggered.connect(self._show_about)
         github_act = QAction('GitHub Repository…', self)
         github_act.triggered.connect(
             lambda: __import__('webbrowser').open('https://github.com/robterheine/NMGUI2'))
+        help_menu.addAction(shortcuts_act)
+        help_menu.addSeparator()
         help_menu.addAction(about_act); help_menu.addSeparator(); help_menu.addAction(github_act)
+        # Alt shortcut for help (Ctrl+/)
+        help_shortcut = QAction(self)
+        help_shortcut.setShortcut(QKeySequence('Ctrl+/'))
+        help_shortcut.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        help_shortcut.triggered.connect(self._show_shortcuts)
+        self.addAction(help_shortcut)
+        # Theme toggle shortcut (Ctrl+Shift+T)
+        theme_shortcut = QAction(self)
+        theme_shortcut.setShortcut(QKeySequence('Ctrl+Shift+T'))
+        theme_shortcut.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+        theme_shortcut.triggered.connect(self._toggle_theme)
+        self.addAction(theme_shortcut)
         # Keyboard shortcuts for sidebar navigation
         # ApplicationShortcut fires regardless of which child widget has focus
         for i in range(7):
@@ -7109,6 +7475,7 @@ class MainWindow(QMainWindow):
     def _open_directory(self): self._nav_to(0); self.models_tab._browse()
     def _rescan(self):         self._nav_to(0); self.models_tab._scan()
     def _show_about(self):     AboutDialog(self).exec()
+    def _show_shortcuts(self): KeyboardShortcutsDialog(self).show()
 
     def _build_ui(self):
         central = QWidget()
@@ -7311,6 +7678,18 @@ class MainWindow(QMainWindow):
             pal.setColor(pal.ColorRole.WindowText, QColor(C_FG))
             text_lbl.setPalette(pal)
         self.statusBar().showMessage(f'Theme: {theme_name.capitalize()}')
+
+    def _toggle_theme(self):
+        """Toggle between dark and light themes."""
+        global _active_theme
+        new_theme = 'light' if _active_theme == 'dark' else 'dark'
+        self._apply_theme(new_theme)
+        # Update settings combo to match
+        self.settings_tab.theme_combo.setCurrentText(new_theme.capitalize())
+        # Save preference
+        s = load_settings()
+        s['theme'] = new_theme
+        save_settings(s)
 
     def _check_deps(self):
         missing = []
