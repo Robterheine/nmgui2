@@ -4076,6 +4076,7 @@ class VPCWorker(QThread):
 
 class VPCTab(QWidget):
     status_msg = pyqtSignal(str)
+    _r_check_done = pyqtSignal(bool, dict, str)  # has_r, pkgs, rscript_path
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -4083,6 +4084,7 @@ class VPCTab(QWidget):
         self._worker  = None
         self._rscript = None
         self._pkg_avail = {'vpc': False, 'xpose': False, 'xpose4': False}
+        self._r_check_done.connect(self._on_r_check_done)
         self._build_ui()
         QTimer.singleShot(500, self._check_r)
 
@@ -4262,20 +4264,22 @@ class VPCTab(QWidget):
     def _check_r(self):
         def _do():
             has_r, pkgs = _check_r_packages()
-            self._rscript = _find_rscript()
-            self._pkg_avail = pkgs
-            if not has_r:
-                self.r_status_lbl.setText('R not found'); return
-            parts = []
-            for p in ('vpc','xpose','xpose4'):
-                parts.append(f'{p} ✓' if pkgs.get(p) else f'{p} ✗')
-                # Grey out unavailable tools
-            self.r_status_lbl.setText('R: ' + '  '.join(parts))
-            # Update tool combo
-            for i in range(self.tool_cb.count()):
-                t = self.tool_cb.itemText(i)
-                # Can't easily grey items in QComboBox without delegates; just update label
+            rscript = _find_rscript()
+            # Emit signal to update UI from main thread
+            self._r_check_done.emit(has_r, pkgs, rscript or '')
         threading.Thread(target=_do, daemon=True).start()
+
+    def _on_r_check_done(self, has_r, pkgs, rscript):
+        """Slot called on main thread when R check completes."""
+        self._rscript = rscript if rscript else None
+        self._pkg_avail = pkgs
+        if not has_r:
+            self.r_status_lbl.setText('R not found')
+            return
+        parts = []
+        for p in ('vpc','xpose','xpose4'):
+            parts.append(f'{p} ✓' if pkgs.get(p) else f'{p} ✗')
+        self.r_status_lbl.setText('R: ' + '  '.join(parts))
 
     def _browse_vpc(self):
         d = str(Path(self._model['path']).parent) if self._model else str(HOME)
@@ -7359,11 +7363,41 @@ class AboutDialog(QDialog):
         v.addWidget(body)
 
         # Footer buttons
-        foot = QWidget(); foot.setStyleSheet(f'background:{C_BG3};border-top:1px solid {C_BORDER};')
-        fl = QHBoxLayout(foot); fl.setContentsMargins(16,10,16,10)
+        foot = QWidget(); foot.setStyleSheet(f'background:{T("bg3")};border-top:1px solid {T("border")};')
+        fl = QHBoxLayout(foot); fl.setContentsMargins(16,12,16,12)
         gh_btn = QPushButton('Open GitHub')
+        gh_btn.setFixedHeight(32)
+        gh_btn.setStyleSheet(f'''
+            QPushButton {{
+                background: {T("bg2")};
+                color: {T("fg")};
+                border: 1px solid {T("border")};
+                border-radius: 6px;
+                padding: 4px 16px;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: {T("bg3")};
+                border-color: {T("fg2")};
+            }}
+        ''')
         gh_btn.clicked.connect(lambda: __import__('webbrowser').open('https://github.com/robterheine/NMGUI2'))
-        close = QPushButton('Close'); close.setObjectName('primary')
+        close = QPushButton('Close')
+        close.setFixedHeight(32)
+        close.setStyleSheet(f'''
+            QPushButton {{
+                background: {T("accent")};
+                color: #ffffff;
+                border: none;
+                border-radius: 6px;
+                padding: 4px 24px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background: #3a7ae0;
+            }}
+        ''')
         close.clicked.connect(self.accept)
         fl.addWidget(gh_btn); fl.addStretch(); fl.addWidget(close)
         v.addWidget(foot)
@@ -7707,8 +7741,9 @@ class MainWindow(QMainWindow):
                 with urllib.request.urlopen(url, timeout=5) as r:
                     tag = _j.loads(r.read()).get('tag_name','').lstrip('v')
                 if tag and tag > APP_VERSION:
-                    self.statusBar().showMessage(
-                        f'Update available: v{tag}  —  github.com/robterheine/NMGUI2/releases')
+                    # Use QTimer to safely update UI from main thread
+                    QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+                        f'Update available: v{tag}  —  github.com/robterheine/NMGUI2/releases'))
             except Exception:
                 pass
         threading.Thread(target=_fetch, daemon=True).start()
