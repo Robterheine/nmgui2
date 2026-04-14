@@ -7,9 +7,21 @@ Drop next to parser.py and run:
     python3 nmgui2.py
 """
 
-import os, sys, json, re, time, math, shlex, subprocess, signal, threading, hashlib
+import os, sys, json, re, time, math, shlex, subprocess, signal, threading, hashlib, logging
 from pathlib import Path
 from datetime import datetime
+
+# ── Logging setup ────────────────────────────────────────────────────────────
+_log_path = Path.home() / '.nmgui' / 'nmgui_debug.log'
+_log_path.parent.mkdir(parents=True, exist_ok=True)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(_log_path, encoding='utf-8'),
+    ]
+)
+_log = logging.getLogger('nmgui2')
 
 # ── Qt ────────────────────────────────────────────────────────────────────────
 from PyQt6.QtWidgets import (
@@ -698,7 +710,7 @@ def load_meta():
     with _cfg_lock:
         if META_FILE.exists():
             try: return json.loads(META_FILE.read_text('utf-8'))
-            except Exception: pass
+            except Exception as e: _log.warning(f'Failed to load meta: {e}')
     return {}
 
 def save_meta(meta):
@@ -729,7 +741,7 @@ def get_meta_entry(meta, path):
 def load_settings():
     if SETTINGS_FILE.exists():
         try: return json.loads(SETTINGS_FILE.read_text('utf-8'))
-        except Exception: pass
+        except Exception as e: _log.warning(f'Failed to load settings: {e}')
     return {'working_directory': str(HOME), 'psn_path': '', 'nonmem_path': ''}
 
 def save_settings(s):
@@ -738,7 +750,7 @@ def save_settings(s):
 def load_bookmarks():
     if BOOKMARKS_FILE.exists():
         try: return json.loads(BOOKMARKS_FILE.read_text('utf-8'))
-        except Exception: pass
+        except Exception as e: _log.warning(f'Failed to load bookmarks: {e}')
     return []
 
 def save_bookmarks(b):
@@ -747,7 +759,7 @@ def save_bookmarks(b):
 def load_runs():
     if RUNS_FILE.exists():
         try: return json.loads(RUNS_FILE.read_text('utf-8'))
-        except Exception: pass
+        except Exception as e: _log.warning(f'Failed to load runs: {e}')
     return []
 
 def save_runs(runs):
@@ -780,7 +792,7 @@ def _detect_nonmem_version(cwd):
         if r.stdout:
             match = re.search(r'default is (\d+\.\d+)', r.stdout)
             if match: return match.group(1)
-    except Exception: pass
+    except Exception as e: _log.debug(f'Could not detect NONMEM version: {e}')
     return 'unknown'
 
 def _detect_psn_version():
@@ -790,7 +802,7 @@ def _detect_psn_version():
         if r.stdout:
             match = re.search(r'PsN\s+(\d+\.\d+\.\d+)', r.stdout)
             if match: return match.group(1)
-    except Exception: pass
+    except Exception as e: _log.debug(f'Could not detect PsN version: {e}')
     return 'unknown'
 
 def load_run_records(project_dir):
@@ -798,7 +810,7 @@ def load_run_records(project_dir):
     rr_path = Path(project_dir) / RUN_RECORDS_FILE
     if rr_path.exists():
         try: return json.loads(rr_path.read_text('utf-8'))
-        except Exception: pass
+        except Exception as e: _log.warning(f'Failed to load run records from {rr_path}: {e}')
     return []
 
 def save_run_records(project_dir, records):
@@ -847,7 +859,7 @@ def create_run_record(model_path, cmd, tool):
                         parts = re.split(r'[,\s]+', line.strip())
                         if parts: ids.add(parts[0])
                     data_subjects = len(ids)
-            except Exception: pass
+            except Exception as e: _log.debug(f'Could not count data rows/subjects: {e}')
     
     record = {
         'run_id': f"{model_path.stem}_{int(time.time())}",
@@ -892,7 +904,7 @@ def finalize_run_record(record, model_path, exit_code):
         started = datetime.fromisoformat(record['started'])
         completed = datetime.fromisoformat(record['completed'])
         record['duration_seconds'] = int((completed - started).total_seconds())
-    except Exception: pass
+    except Exception as e: _log.debug(f'Could not calculate run duration: {e}')
     
     # Parse results if run succeeded
     run_dir = cwd / stem
@@ -904,8 +916,8 @@ def finalize_run_record(record, model_path, exit_code):
         try:
             parsed = parse_lst(str(lst_path))
             record['ofv'] = parsed.get('ofv')
-            record['minimization_successful'] = parsed.get('min_successful', False)
-            record['covariance_step'] = parsed.get('cov_step', False)
+            record['minimization_successful'] = parsed.get('minimization_successful')
+            record['covariance_step'] = parsed.get('covariance_step')
             # Extract warnings
             warnings = []
             if parsed.get('near_boundary'): warnings.append('PARAMETER NEAR BOUNDARY')
@@ -913,7 +925,7 @@ def finalize_run_record(record, model_path, exit_code):
                 high_shr = [s for s in parsed['eta_shrinkage'] if s and s > 30]
                 if high_shr: warnings.append(f'HIGH ETA SHRINKAGE (>{30}%)')
             record['warnings'] = warnings
-        except Exception: pass
+        except Exception as e: _log.warning(f'Failed to parse LST for run record: {e}')
     
     # Hash output files
     output_files = ['lst', 'ext', 'phi', 'cov', 'cor', 'coi']
@@ -942,7 +954,7 @@ def get_login_env():
             r = subprocess.run([shell,'-l','-c','echo $PATH'],
                                capture_output=True, text=True, timeout=5)
             if r.stdout.strip(): env['PATH'] = r.stdout.strip()
-        except Exception: pass
+        except Exception as e: _log.debug(f'Could not get login shell PATH: {e}')
     return env
 
 def find_tool(name):
@@ -956,7 +968,7 @@ def find_tool(name):
                                capture_output=True, text=True, timeout=5)
             found = r.stdout.strip()
             if found and Path(found).is_file(): return found
-        except Exception: pass
+        except Exception as e: _log.debug(f'Could not find tool {name}: {e}')
     return None
 
 
@@ -1029,6 +1041,11 @@ class ScanWorker(QThread):
         super().__init__()
         self.directory = directory
         self.meta = meta
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the scan."""
+        self._cancelled = True
 
     def run(self):
         if not HAS_PARSER:
@@ -1037,6 +1054,10 @@ class ScanWorker(QThread):
             models = []
             p = Path(self.directory)
             for f in sorted(p.iterdir()):
+                # Check for cancellation
+                if self._cancelled:
+                    _log.debug('ScanWorker cancelled')
+                    return
                 if not f.is_file() or f.suffix.lower() not in ('.mod','.ctl'):
                     continue
                 m = {k: v for k, v in {
@@ -1109,7 +1130,7 @@ class ScanWorker(QThread):
                         lst_mtime = lst_path.stat().st_mtime
                         if mod_mtime > lst_mtime+2: m['stale'] = True
                         elif data_mtime and data_mtime > lst_mtime+2: m['stale'] = True
-                    except Exception: pass
+                    except Exception as e: _log.debug(f'Parse error for {f.name}: {e}')
                 meta_e = get_meta_entry(self.meta, f)
                 m.update({'comment':meta_e['comment'],'star':meta_e['star'],
                           'based_on':meta_e['based_on'],'status_tag':meta_e['status'],
@@ -1148,7 +1169,7 @@ class RunWorker(QThread):
             try:
                 if IS_WIN: self._proc.terminate()
                 else: os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
-            except Exception: pass
+            except Exception as e: _log.debug(f'Error stopping process: {e}')
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2330,8 +2351,8 @@ class ModelsTab(QWidget):
         # Terminate any in-flight scan before starting a new one
         if self._scan_worker and self._scan_worker.isRunning():
             self._scan_worker.result.disconnect()
-            self._scan_worker.terminate()
-            self._scan_worker.wait(0)
+            self._scan_worker.cancel()  # Cooperative cancellation
+            self._scan_worker.wait(500)  # Wait up to 500ms
         w = ScanWorker(d, self._meta)
         w.result.connect(self._on_scan)
         w.error.connect(lambda e: self.status_msg.emit(f'Scan error: {e}'))
@@ -2752,9 +2773,9 @@ class ModelsTab(QWidget):
         self.run_btn.setEnabled(False); self.stop_btn.setEnabled(True)
         if self._run_worker:
             try: self._run_worker.line_out.disconnect()
-            except Exception: pass
+            except Exception: pass  # Signal may not be connected
             try: self._run_worker.finished.disconnect()
-            except Exception: pass
+            except Exception: pass  # Signal may not be connected
         self._run_worker = RunWorker(cmd, cwd)
         self._run_worker.line_out.connect(self.console.appendPlainText)
         self._run_worker.finished.connect(self._on_run_done)
@@ -3888,11 +3909,13 @@ class DataExplorerWidget(QWidget):
         path = current.data(Qt.ItemDataRole.UserRole)
         if not path: path = str(Path(self._model_dir) / current.text())
         if not HAS_PARSER: return
-        h, r = read_table_file(path, max_rows=10000)
+        MAX_ROWS = 10000
+        h, r = read_table_file(path, max_rows=MAX_ROWS)
         if h is None: return
-        self._load_data(h, r, Path(path).name)
+        truncated = len(r) >= MAX_ROWS
+        self._load_data(h, r, Path(path).name, truncated)
 
-    def _load_data(self, header, rows, name=''):
+    def _load_data(self, header, rows, name='', truncated=False):
         self._header = [h.upper() for h in header]; self._rows = rows
         self._filtered_rows = rows; self._page = 0
         # Update table filter combo
@@ -3911,7 +3934,10 @@ class DataExplorerWidget(QWidget):
             if self.x_cb.currentIndex()==0 and 'PRED' in self._header: self.x_cb.setCurrentText('PRED')
             if self.y_cb.currentIndex()==0  and 'DV'   in self._header: self.y_cb.setCurrentText('DV')
         self._render_table()
-        self.info_lbl.setText(f'{name}  ·  {len(rows)} rows, {len(header)} columns')
+        if truncated:
+            self.info_lbl.setText(f'{name}  ·  {len(rows):,} rows, {len(header)} columns [TRUNCATED]')
+        else:
+            self.info_lbl.setText(f'{name}  ·  {len(rows):,} rows, {len(header)} columns')
 
     # Also accept (header, rows) directly (called from EvaluationTab for sdtab auto-load)
     def load(self, header, rows):
@@ -3993,7 +4019,7 @@ class DataExplorerWidget(QWidget):
         if xcol not in H or ycol not in H: return
         self.pw.clear()
         try: self._legend.clear()
-        except Exception: pass
+        except Exception: pass  # Legend may not exist yet
         xi = H.index(xcol); yi = H.index(ycol)
 
         def passes(row):
@@ -4042,7 +4068,7 @@ class DataExplorerWidget(QWidget):
                 ax = np.array([float(r[xi]) for r in rows_f])
                 self.pw.plot([ax[np.isfinite(ax)].min(), ax[np.isfinite(ax)].max()],[0,0],
                              pen=pg.mkPen('#aaaaaa',width=1.5,style=Qt.PenStyle.DashLine))
-            except Exception: pass
+            except Exception: pass  # Reference line is non-critical
 
         if self.refyx_cb.isChecked():
             try:
@@ -4050,7 +4076,7 @@ class DataExplorerWidget(QWidget):
                 mn=min(ax[np.isfinite(ax)].min(),ay[np.isfinite(ay)].min())
                 mx=max(ax[np.isfinite(ax)].max(),ay[np.isfinite(ay)].max())
                 self.pw.plot([mn,mx],[mn,mx],pen=pg.mkPen(C_RED,width=1.5))
-            except Exception: pass
+            except Exception: pass  # Reference line is non-critical
 
         filt_desc = '  '.join(
             f'[{fr.col_cb.currentText()} {fr.op_cb.currentText()} {fr.val_cb.currentText()}]'
@@ -4192,12 +4218,18 @@ class EvaluationTab(QWidget):
         path=self.file_edit.text().strip()
         if not path or not Path(path).is_file(): self.status_msg.emit('File not found'); return
         if not HAS_PARSER: self.status_msg.emit('parser.py not available'); return
-        h,r=read_table_file(path,max_rows=15000)
+        MAX_ROWS = 15000
+        h,r=read_table_file(path,max_rows=MAX_ROWS)
         if h is None: self.status_msg.emit('Could not parse file'); return
         self._header=h; self._rows=r; self._reload()
         fname = Path(path).name
-        self._table_lbl.setText(f'·  {fname}  ({len(r)} rows, {len(h)} cols)')
-        self.status_msg.emit(f'Loaded {len(r)} rows, {len(h)} columns — {fname}')
+        truncated = len(r) >= MAX_ROWS
+        if truncated:
+            self._table_lbl.setText(f'·  {fname}  (first {len(r):,} rows, {len(h)} cols) [TRUNCATED]')
+            self.status_msg.emit(f'Showing first {len(r):,} of file — {fname} (file has more rows)')
+        else:
+            self._table_lbl.setText(f'·  {fname}  ({len(r):,} rows, {len(h)} cols)')
+            self.status_msg.emit(f'Loaded {len(r):,} rows, {len(h)} columns — {fname}')
 
     def _reload(self):
         if self._header is None: return
@@ -4261,7 +4293,7 @@ class EvaluationTab(QWidget):
                     try:
                         r=parse_phi_file(str(p))
                         if r.get('obj'): self.waterfall.load(r)
-                    except Exception: pass
+                    except Exception as e: _log.debug(f'Failed to parse phi file {p}: {e}')
                     return
 
     def _try_ext(self, model):
@@ -4274,7 +4306,7 @@ class EvaluationTab(QWidget):
                     try:
                         r=parse_ext_file(str(p))
                         if r: self.conv.load(r)
-                    except Exception: pass
+                    except Exception as e: _log.debug(f'Failed to parse ext file {p}: {e}')
                     return
 
 
@@ -4293,7 +4325,7 @@ def _find_rscript():
                                 capture_output=True, text=True, timeout=5)
             found = rv.stdout.strip()
             if found and Path(found).is_file(): return found
-        except Exception: pass
+        except Exception as e: _log.debug(f'Could not find Rscript: {e}')
     return None
 
 def _sanitize_r(s):
@@ -4597,6 +4629,72 @@ class VPCTab(QWidget):
             # Run dir for xpose — use lst directory (where sdtabs live)
             self.run_dir_edit.setText(str(lst_dir))
 
+    def _validate_stratify_column(self, vpc_folder, strat_columns):
+        """Validate stratification column(s) exist and have reasonable cardinality."""
+        vpc_path = Path(vpc_folder)
+        
+        # Parse column names (comma-separated)
+        cols = [c.strip() for c in strat_columns.split(',') if c.strip()]
+        if not cols:
+            return True, ""
+        
+        # Try to find data columns from vpctab or vpc_results.csv
+        header = None
+        data_rows = []
+        
+        # Try vpctab files first
+        for vpctab in vpc_path.glob('vpctab*'):
+            if vpctab.is_file():
+                try:
+                    lines = vpctab.read_text('utf-8', errors='replace').strip().split('\n')
+                    # Skip TABLE lines
+                    data_lines = [l for l in lines if not l.startswith('TABLE')]
+                    if data_lines:
+                        header = data_lines[0].split()
+                        data_rows = [l.split() for l in data_lines[1:100]]  # Sample first 100
+                        break
+                except Exception:
+                    continue
+        
+        # Fallback to m1/vpc_simulation.1.npctab.dta or similar
+        if not header:
+            for f in (vpc_path / 'm1').glob('*.dta') if (vpc_path / 'm1').is_dir() else []:
+                try:
+                    lines = f.read_text('utf-8', errors='replace').strip().split('\n')
+                    data_lines = [l for l in lines if not l.startswith('TABLE')]
+                    if data_lines:
+                        header = data_lines[0].split()
+                        data_rows = [l.split() for l in data_lines[1:100]]
+                        break
+                except Exception:
+                    continue
+        
+        if not header:
+            # Can't validate without header - allow it but warn
+            _log.warning(f'Could not find VPC data to validate stratification column: {strat_columns}')
+            return True, ""
+        
+        # Check each column
+        for col in cols:
+            if col not in header:
+                return False, f"Column '{col}' not found in VPC data.\n\nAvailable columns: {', '.join(header[:20])}"
+            
+            # Check cardinality
+            if data_rows:
+                try:
+                    idx = header.index(col)
+                    unique_vals = set(row[idx] for row in data_rows if len(row) > idx)
+                    n_unique = len(unique_vals)
+                    
+                    if n_unique < 2:
+                        return False, f"Column '{col}' has only 1 unique value - cannot stratify."
+                    if n_unique > 20:
+                        return False, f"Column '{col}' has {n_unique} unique values (sampled from first 100 rows).\n\nStratification with >20 levels is not recommended. Use a categorical column."
+                except Exception:
+                    pass
+        
+        return True, ""
+
     def _build_r_script(self):
         tool       = self.tool_cb.currentText()
         vpc_folder = self.vpc_folder_edit.text().strip()
@@ -4707,6 +4805,14 @@ tryCatch({{
             QMessageBox.warning(self,'R not found','Rscript not found. Is R installed and on PATH?')
             return
 
+        # Validate stratification column if specified
+        strat = self.stratify_edit.text().strip()
+        if strat:
+            valid, msg = self._validate_stratify_column(vpc_folder, strat)
+            if not valid:
+                QMessageBox.warning(self, 'Stratification error', msg)
+                return
+
         _, output_png = self._build_r_script()   # always need output_png
 
         if self.custom_script_cb.isChecked():
@@ -4726,7 +4832,7 @@ tryCatch({{
         # Delete stale PNG
         if Path(output_png).is_file():
             try: Path(output_png).unlink()
-            except Exception: pass
+            except Exception: pass  # File may be locked
         try:
             Path(script_path).write_text(script_txt, 'utf-8')
         except Exception as e:
@@ -4739,9 +4845,9 @@ tryCatch({{
         self.tool_lbl.setText(f'Backend: {self.tool_cb.currentText()}')
         if self._worker:
             try: self._worker.line_out.disconnect()
-            except Exception: pass
+            except Exception: pass  # Signal may not be connected
             try: self._worker.finished.disconnect()
-            except Exception: pass
+            except Exception: pass  # Signal may not be connected
         self._worker = VPCWorker(script_path, output_png, self._rscript, get_login_env())
         self._worker.line_out.connect(self._on_line)
         self._worker.finished.connect(self._on_done)
@@ -4891,7 +4997,7 @@ tryCatch({{
     def _on_export_done(self, success, path_or_err, kind, dst, tmp):
         self.run_btn.setEnabled(True)
         try: tmp.unlink()
-        except Exception: pass
+        except Exception: pass  # Temp file cleanup is non-critical
         if success and Path(dst).is_file():
             self.console.appendPlainText(f'[OK] {kind} saved to {dst}')
             self.status_msg.emit(f'{kind} exported: {Path(dst).name}')
@@ -4909,7 +5015,7 @@ tryCatch({{
             if IS_WIN:   os.startfile(path)
             elif IS_MAC: subprocess.Popen(['open', path])
             else:        subprocess.Popen(['xdg-open', path])
-        except Exception: pass
+        except Exception as e: _log.debug(f'Could not open file {path}: {e}')
 
     def _stop(self):
         if self._worker: self._worker.terminate()
@@ -5171,6 +5277,40 @@ class BootstrapParser:
 
         checks.append({
             'name': 'CI validity',
+            'status': status,
+            'value': value,
+            'interpretation': interp
+        })
+
+        # 5. Boundary proximity check (OMEGA parameters near zero)
+        boundary_issues = []
+        for col in self.param_cols:
+            if not col.startswith('OMEGA'):
+                continue
+            sample_vals = [s[col] for s in self.samples_df if col in s]
+            if not sample_vals:
+                continue
+            # Count samples near zero (< 0.001 or within 1% of zero)
+            n_near_zero = sum(1 for v in sample_vals if abs(v) < 0.001)
+            frac_at_zero = n_near_zero / len(sample_vals)
+            if frac_at_zero > 0.15:  # More than 15% near boundary
+                boundary_issues.append(f'{col} ({frac_at_zero*100:.0f}% near zero)')
+
+        if not boundary_issues:
+            status = 'pass'
+            value = 'No boundary issues'
+            interp = 'OMEGA parameters well away from zero boundary.'
+        elif len(boundary_issues) <= 2:
+            status = 'warning'
+            value = f'{len(boundary_issues)} OMEGA(s) cluster near zero: {", ".join(boundary_issues[:2])}'
+            interp = 'Percentile CIs may be biased upward. Consider log-transform or different parameterization.'
+        else:
+            status = 'warning'
+            value = f'{len(boundary_issues)} OMEGAs near zero boundary'
+            interp = 'Multiple variance parameters hitting zero. CIs unreliable for these parameters.'
+
+        checks.append({
+            'name': 'Boundary proximity',
             'status': status,
             'value': value,
             'interpretation': interp
