@@ -2,11 +2,11 @@
 
 **A standalone desktop application for NONMEM pharmacometric modelling workflows**
 
-NMGUI2 is a PyQt6 desktop application that brings together everything a pharmacometrician needs in one window: browse and compare NONMEM models, evaluate goodness-of-fit, run PsN tools, read `.lst` output, and visualise model lineage — without switching between terminals, text editors and R.
+NMGUI2 is a PyQt6 desktop application that brings together everything a pharmacometrician needs in one window: browse and compare NONMEM models, evaluate goodness-of-fit, run PsN tools, analyse bootstrap and SIR results, visualise model lineage, and read `.lst` output — without switching between terminals, text editors and R.
 
 It runs entirely offline on macOS, Windows and Linux. No browser. No server. No internet connection required during use.
 
-![NMGUI2 Models tab](screenshots/screenshot2.png)
+![NMGUI2 Models tab](screenshots/screenshot.png)
 
 ---
 
@@ -31,37 +31,132 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 ## Features
 
 ### Models tab
-- Scans a directory for `.mod` files and displays all models in a sortable table
+- Scans a directory for `.mod` / `.ctl` files and displays all models in a sortable, filterable table
 - Columns: OFV, ΔOFV (relative to best or user-selected reference), minimisation status, covariance step, condition number, estimation method, individuals, observations, parameters, AIC, runtime
-- Colour-coded: green = successful, red = failed/terminated, orange = boundary/stale
-- **Right-click context menu** on any model: toggle star, duplicate, set reference model, compare with another model, view `.lst`, show NM-TRAN messages
+- Colour-coded rows: green = successful, red = failed/terminated, orange = boundary/stale
+- Filter buttons: All, Completed, Failed — plus free-text search
+- **Right-click context menu** on any model: toggle star, duplicate, set reference model, compare with another model, view `.lst`, show NM-TRAN messages, view run record
 - Keyboard navigation: ↑↓ move rows, Space toggles star, Enter jumps to Output
 
 ### Model detail panel
-**Parameters** — full THETA/OMEGA/SIGMA table with names, estimates, SE, RSE%, 95% CI, SD. Handles `BLOCK(n) SAME` designs correctly. Export to CSV and HTML report.
 
-**Editor** — syntax-highlighted `.mod` editor with save.
+**Parameters** — full THETA/OMEGA/SIGMA table with names (parsed from control stream comments), estimates, SE, RSE%, 95% CI, SD for variance parameters. Handles `BLOCK(n)` and `BLOCK(n) SAME` designs correctly. Export to CSV and HTML report.
 
-**Run** — launch any PsN tool with live console output and stop button.
+**Editor** — syntax-highlighted `.mod` editor with save functionality.
 
-**Info** — comment, status tag (base/candidate/final), notes — all persisted.
+**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments and live console output. Stop button to terminate running jobs. Option to clean previous run directory first.
 
-**Output** — structured HTML rendering of the `.lst` file in-app: summary card, NM-TRAN warnings, convergence table, parameters, ETABAR/shrinkage, correlation and covariance matrices, eigenvalues and condition number. "Open in browser" exports full HTML.
+**Info** — comment, status tag (base/candidate/final/reject), notes — all persisted in project metadata.
 
-### Ancestry tree
-Interactive node graph of model lineage based on `";; 1. Based on:"` PsN metadata. Zoom, pan, double-click to select a model.
+**Output** — structured HTML rendering of the `.lst` file in-app:
+- Summary card with key results
+- NM-TRAN warnings section
+- Convergence table (iteration history)
+- Parameter estimates with SEs and names
+- ETABAR statistics with p-values
+- Shrinkage (ETA and EPS)
+- Correlation and covariance matrices
+- Eigenvalues and condition number
+- "Open in browser" exports full HTML
 
-### Model Evaluation
-GOF 2×2, CWRES histogram, QQ plot with Shapiro-Wilk, ETA vs covariate, individual fits, OFV waterfall, convergence traces, and a reactive data explorer with multi-filter scatter plots.
+### Ancestry tree (Tree tab)
+Interactive node graph of model lineage based on `";; 1. Based on:"` PsN metadata or manually set parent. Zoom, pan, double-click any node to select that model in the Models tab. Visual indicators for starred and final models.
+
+### Model Evaluation (Evaluation tab)
+Comprehensive diagnostic plots and data exploration:
+
+- **GOF 2×2** — DV vs PRED, DV vs IPRED, CWRES vs TIME, CWRES vs PRED with unity/zero reference lines
+- **Individual fits** — paginated DV/IPRED/PRED vs TIME per subject, customisable columns per page
+- **CWRES histogram** — with normal distribution overlay
+- **QQ plot** — CWRES vs theoretical quantiles with Shapiro-Wilk test and 95% confidence band
+- **ETA vs covariate** — scatter plots of ETAs against continuous covariates
+- **OFV waterfall** — ranked ΔOFV bar chart across all models
+- **Convergence traces** — parameter trajectories from `.ext` file
+- **Data explorer** — interactive scatter plot with multi-filter capability, grouping/colouring by any column, paginated data table view
+
+Auto-loads `sdtab` files when a model is selected. Shows truncation warning if data exceeds 15,000 rows.
 
 ### VPC tab
-Generate VPCs via vpc, xpose or xpose4 R backends. Editable R script, PNG/PDF export.
+Generate Visual Predictive Checks via three R backends:
+- **vpc** (R package by Ronny Keizer)
+- **xpose** (tidyverse-based)
+- **xpose4** (classic)
 
-### Run History
-Full history of PsN runs with status, duration, and command preview.
+Features:
+- Prediction-corrected VPC (pcVPC) option
+- Stratification by any column with validation (checks column exists, warns if >20 levels)
+- Configurable prediction intervals, confidence intervals, LLOQ, number of bins
+- Log Y axis option
+- Editable R script with syntax highlighting — modify before running
+- Live console output during R execution
+- PNG output displayed in-app
+- R package availability detection on startup
 
-### Settings
-Dark/light theme, path configuration, bookmarks — all persisted between sessions.
+### Uncertainty tab
+Analyse parameter uncertainty via Bootstrap or SIR:
+
+**Bootstrap analysis**
+- Run new bootstrap via PsN or load existing results folder
+- Configurable samples, threads, stratification
+- Automated parsing of `raw_results.csv`
+- **Diagnostic checks**:
+  - Completion rate (% successful runs)
+  - Bias assessment (median vs original estimate)
+  - Parameter correlations
+  - CI validity (does CI include point estimate?)
+  - Boundary proximity warning (OMEGAs clustering near zero)
+- Parameter table with 95% CI from percentiles
+- Forest plot visualisation
+- Overall assessment: PASSED / ACCEPTABLE / WARNING / FAILED
+
+**SIR analysis**
+- Run new SIR via PsN or load existing results folder
+- Configurable samples, resamples, auto-detected degrees of freedom
+- Parsing of `raw_results.csv` with resample weighting
+- **Diagnostic checks**:
+  - Effective sample size (ESS)
+  - Resampling efficiency
+  - Degeneracy detection
+  - Resample distribution analysis
+- Parameter table with weighted percentile CIs
+- Overall assessment with interpretation
+
+### Run History (History tab)
+Full history of PsN runs with:
+- Status (running/completed/failed)
+- Duration
+- Command preview
+- Timestamp
+- Click to view full run record
+
+### Run Records (audit trail)
+Every model run creates an immutable run record containing:
+- Unique run ID (UUID)
+- Model file SHA-256 hash (integrity verification)
+- Data file SHA-256 hash
+- NONMEM version, PsN version, NMGUI version
+- Start/end timestamps, duration
+- Final OFV, minimisation status, covariance status
+- Number of individuals, observations, parameters
+- Full command used
+
+Access via right-click → "View run record" on any model. Records stored in `~/.nmgui/run_records.json`.
+
+### Settings tab
+- Dark/light theme toggle (follows system or manual override)
+- Path configuration for NONMEM, PsN, RStudio
+- Directory bookmarks management
+- All settings persisted between sessions
+
+### Additional features
+- **Bookmarks** — save frequently-used directories for quick access
+- **Model comparison** — side-by-side parameter comparison dialog with aligned rows
+- **Duplicate model** — create copy with incremented run number
+- **NM-TRAN messages** — quick access to compilation warnings/errors
+- **Stale detection** — orange highlight when `.mod` or data file is newer than `.lst`
+- **GitHub update check** — optional notification when new version available
+- **Debug logging** — detailed logs written to `~/.nmgui/nmgui_debug.log` for troubleshooting
+- **Cross-platform** — native look on macOS, Windows, Linux (including X11/MobaXterm)
 
 ---
 
@@ -77,12 +172,18 @@ Dark/light theme, path configuration, bookmarks — all persisted between sessio
 | numpy | 1.24 | Numerical operations |
 | matplotlib | 3.7 | CWRES histogram, QQ plot |
 
+### Optional (enhanced functionality)
+
+| Dependency | Purpose |
+|---|---|
+| scipy | Shapiro-Wilk test in QQ plot, confidence bands |
+
 ### Required for running models
 
 | Dependency | Minimum version | Notes |
 |---|---|---|
 | NONMEM | 7.4 | Must be installed and licensed |
-| PsN (Perl-speaks-NONMEM) | 5.6 | Must be on system PATH |
+| PsN (Perl-speaks-NONMEM) | 5.0 | Must be on system PATH |
 | Perl | 5.16 | Required by PsN |
 
 ### Required for VPC generation
@@ -179,7 +280,7 @@ cd nmgui2
 ### 10. Install Python dependencies
 
 ```bash
-pip3 install PyQt6 pyqtgraph numpy matplotlib
+pip3 install PyQt6 pyqtgraph numpy matplotlib scipy
 ```
 
 ### 11. Run NMGUI2
@@ -280,7 +381,7 @@ cd nmgui2
 ### 9. Install Python dependencies
 
 ```cmd
-pip install PyQt6 pyqtgraph numpy matplotlib
+pip install PyQt6 pyqtgraph numpy matplotlib scipy
 ```
 
 ### 10. Run NMGUI2
@@ -369,7 +470,7 @@ cd nmgui2
 ### 8. Install Python dependencies
 
 ```bash
-pip3 install PyQt6 pyqtgraph numpy matplotlib
+pip3 install PyQt6 pyqtgraph numpy matplotlib scipy
 ```
 
 Or with a virtual environment (recommended):
@@ -377,7 +478,7 @@ Or with a virtual environment (recommended):
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install PyQt6 pyqtgraph numpy matplotlib
+pip install PyQt6 pyqtgraph numpy matplotlib scipy
 ```
 
 ### 9. Run NMGUI2
@@ -416,10 +517,10 @@ No reinstallation of Python packages is needed unless a new dependency has been 
 ## First use
 
 1. Launch the app (`python3 nmgui2.py`)
-2. Click **Browse…** or **File → Open Directory** (⌘O / Ctrl+O) and navigate to a folder containing `.mod` files
+2. Click **Browse…** or use ⌘O / Ctrl+O and navigate to a folder containing `.mod` files
 3. Click **+ Bookmark** to save the directory for quick access
 4. Select a model row to view its parameters, output, and diagnostic plots
-5. Go to **Settings** (⌘6 / Ctrl+6) to configure PsN, NONMEM, and RStudio paths if they are not auto-detected from PATH
+5. Go to **Settings** (⌘7 / Ctrl+7) to configure paths if PsN/NONMEM/RStudio are not auto-detected
 
 ---
 
@@ -431,8 +532,9 @@ No reinstallation of Python packages is needed unless a new dependency has been 
 | Tree tab | ⌘2 | Ctrl+2 |
 | Evaluation tab | ⌘3 | Ctrl+3 |
 | VPC tab | ⌘4 | Ctrl+4 |
-| History tab | ⌘5 | Ctrl+5 |
-| Settings tab | ⌘6 | Ctrl+6 |
+| Uncertainty tab | ⌘5 | Ctrl+5 |
+| History tab | ⌘6 | Ctrl+6 |
+| Settings tab | ⌘7 | Ctrl+7 |
 | Open directory | ⌘O | Ctrl+O |
 | Rescan directory | ⌘R | Ctrl+R |
 | Navigate model table | ↑ / ↓ | ↑ / ↓ |
@@ -451,6 +553,8 @@ All settings are stored in `~/.nmgui/` (created automatically on first run):
 | `model_meta.json` | Stars, comments, status tags, notes, parent model |
 | `bookmarks.json` | Directory bookmarks |
 | `runs.json` | Run history (last 200 entries) |
+| `run_records.json` | Immutable audit trail of all model runs |
+| `nmgui_debug.log` | Debug log for troubleshooting |
 
 To reset all settings: delete the `~/.nmgui/` folder.
 
@@ -462,9 +566,10 @@ Contributions are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for detai
 
 Areas particularly in need of help:
 - Windows and Linux testing and bug reports
-- Additional NONMEM output parsing (multiple estimation steps, SAEM, IMP, BAYES)
+- Additional NONMEM output parsing (multiple estimation steps, BAYES, mixture models)
 - New diagnostic plot types
 - Documentation and tutorials
+- Translations
 
 ---
 
@@ -478,7 +583,7 @@ Hospital pharmacist – clinical pharmacologist
 
 ## Acknowledgements
 
-Developed with [Claude Sonnet 4.6](https://www.anthropic.com) by Anthropic.
+Developed with assistance from [Claude](https://www.anthropic.com) by Anthropic.
 
 ---
 
