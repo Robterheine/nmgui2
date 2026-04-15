@@ -91,7 +91,7 @@ def parse_lst(lst_path):
         r'MINIMUM VALUE OF OBJECTIVE FUNCTION\s*[=:]\s*([-\d.]+(?:E[+-]?\d+)?)',
         text, re.IGNORECASE
     )
-    # SAEM/IMP: #OBJV line
+    # SAEM/IMP: #OBJV line (canonical final OFV)
     objv_matches = re.findall(r'#OBJV:\*+\s*([-\d.]+(?:E[+-]?\d+)?)', text)
     # SAEM: LIKELIHOOD line
     ll_matches = re.findall(
@@ -99,17 +99,31 @@ def parse_lst(lst_path):
         text, re.IGNORECASE
     )
     # IMP/ITS: OBJECTIVE FUNCTION VALUE at final step
+    # Exclude "WITH CONSTANT" variant — we want "WITHOUT CONSTANT" or plain OFV
     imp_ofv = re.findall(
-        r'OBJECTIVE FUNCTION VALUE[^:]*:\s*([-\d.]+(?:E[+-]?\d+)?)',
+        r'OBJECTIVE FUNCTION VALUE(?:\s+WITHOUT CONSTANT)?:\s*([-\d.]+(?:E[+-]?\d+)?)',
         text, re.IGNORECASE
     )
 
-    all_ofv = ofv_matches + objv_matches + ll_matches + imp_ofv
-    if all_ofv:
+    # Priority order: #OBJV (canonical) > MINIMUM VALUE > others
+    # Use first match from highest-priority source
+    if objv_matches:
         try:
-            result['ofv'] = float(all_ofv[-1])
+            result['ofv'] = float(objv_matches[-1])
         except ValueError:
             pass
+    elif ofv_matches:
+        try:
+            result['ofv'] = float(ofv_matches[-1])
+        except ValueError:
+            pass
+    else:
+        all_ofv = ll_matches + imp_ofv
+        if all_ofv:
+            try:
+                result['ofv'] = float(all_ofv[-1])
+            except ValueError:
+                pass
 
     # Minimization / convergence status — method-aware
     # Classical: FOCE/FO
