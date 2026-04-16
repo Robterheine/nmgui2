@@ -1,4 +1,17 @@
+# NMGUI2 Python dependencies
+# Install with: pip install -r requirements.txt
+
+# GUI framework
 PyQt6>=6.4.0
+
+# Interactive plotting
 pyqtgraph>=0.13.0
+
+# Numerical operations
 numpy>=1.24.0
+
+# CWRES histogram, QQ plot
 matplotlib>=3.7.0
+
+# Optional: Shapiro-Wilk test, confidence bands in QQ plot
+scipy>=1.10.0

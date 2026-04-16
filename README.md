@@ -14,10 +14,12 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 - [Features](#features)
 - [Dependencies overview](#dependencies-overview)
+- [Quick start](#quick-start)
 - [Installation — macOS](#installation--macos)
 - [Installation — Windows](#installation--windows)
 - [Installation — Linux](#installation--linux)
 - [First use](#first-use)
+- [Updating NMGUI2](#updating-nmgui2)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Configuration files](#configuration-files)
 - [Contributing](#contributing)
@@ -162,23 +164,19 @@ Access via right-click → "View run record" on any model. Records stored in `~/
 
 ## Dependencies overview
 
-### Always required
+### Python packages
 
-| Dependency | Minimum version | Purpose |
-|---|---|---|
-| Python | 3.10 | Runtime |
-| PyQt6 | 6.4 | GUI framework |
-| pyqtgraph | 0.13 | Interactive plots |
-| numpy | 1.24 | Numerical operations |
-| matplotlib | 3.7 | CWRES histogram, QQ plot |
+All Python dependencies are listed in `requirements.txt` and installed automatically:
 
-### Optional (enhanced functionality)
-
-| Dependency | Purpose |
+| Package | Purpose |
 |---|---|
-| scipy | Shapiro-Wilk test in QQ plot, confidence bands |
+| PyQt6 | GUI framework |
+| pyqtgraph | Interactive plots |
+| numpy | Numerical operations |
+| matplotlib | CWRES histogram, QQ plot |
+| scipy | Shapiro-Wilk test, confidence bands (optional but recommended) |
 
-### Required for running models
+### External tools for running models
 
 | Dependency | Minimum version | Notes |
 |---|---|---|
@@ -186,7 +184,7 @@ Access via right-click → "View run record" on any model. Records stored in `~/
 | PsN (Perl-speaks-NONMEM) | 5.0 | Must be on system PATH |
 | Perl | 5.16 | Required by PsN |
 
-### Required for VPC generation
+### External tools for VPC generation
 
 | Dependency | Notes |
 |---|---|
@@ -199,6 +197,21 @@ Access via right-click → "View run record" on any model. Records stored in `~/
 | R package: ggplot2 | `install.packages("ggplot2")` — required by vpc/xpose |
 
 > NMGUI2 (browsing, evaluating, comparing results) works without NONMEM, PsN, R or RStudio. These are only needed if you want to run models or generate VPCs from within the app.
+
+---
+
+## Quick start
+
+If you already have Python 3.10+, Git, and optionally R/PsN installed:
+
+```bash
+git clone https://github.com/robterheine/nmgui2.git
+cd nmgui2
+pip install -r requirements.txt
+python3 nmgui2.py
+```
+
+For full installation instructions including NONMEM, PsN, and R, see the platform-specific sections below.
 
 ---
 
@@ -223,7 +236,7 @@ brew install python
 python3 --version
 ```
 
-### 4. Install R
+### 4. Install R (required for VPC only)
 
 ```bash
 brew install r
@@ -240,11 +253,7 @@ Rscript --version
 
 Download from https://posit.co/download/rstudio-desktop/ and add to `/Applications`.
 
-Make sure RStudio is accessible from the command line — NMGUI2 can launch it directly.
-
 ### 6. Install required R packages
-
-Open Terminal and run:
 
 ```bash
 Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
@@ -270,20 +279,15 @@ Verify:
 execute --version
 ```
 
-### 9. Clone NMGUI2
+### 9. Clone and install NMGUI2
 
 ```bash
 git clone https://github.com/robterheine/nmgui2.git
 cd nmgui2
+pip3 install -r requirements.txt
 ```
 
-### 10. Install Python dependencies
-
-```bash
-pip3 install PyQt6 pyqtgraph numpy matplotlib scipy
-```
-
-### 11. Run NMGUI2
+### 10. Run NMGUI2
 
 ```bash
 python3 nmgui2.py
@@ -324,7 +328,7 @@ python --version
 pip --version
 ```
 
-### 2. Install R
+### 2. Install R (required for VPC only)
 
 Download from https://cran.r-project.org/bin/windows/base/
 
@@ -369,22 +373,17 @@ execute --version
 
 Download from https://git-scm.com/download/win
 
-### 8. Clone NMGUI2
+### 8. Clone and install NMGUI2
 
 Open Command Prompt:
 
 ```cmd
 git clone https://github.com/robterheine/nmgui2.git
 cd nmgui2
+pip install -r requirements.txt
 ```
 
-### 9. Install Python dependencies
-
-```cmd
-pip install PyQt6 pyqtgraph numpy matplotlib scipy
-```
-
-### 10. Run NMGUI2
+### 9. Run NMGUI2
 
 ```cmd
 python nmgui2.py
@@ -412,7 +411,7 @@ Shown for Ubuntu/Debian. For Fedora replace `apt` with `dnf`; for Arch replace w
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip git curl perl
+sudo apt install -y python3 python3-pip python3-venv git curl perl
 python3 --version
 ```
 
@@ -423,7 +422,7 @@ sudo apt install -y libxcb-xinerama0 libxcb-cursor0 libxkbcommon-x11-0 \
     libgl1-mesa-glx libegl1
 ```
 
-### 3. Install R
+### 3. Install R (required for VPC only)
 
 ```bash
 sudo apt install -y r-base r-base-dev
@@ -460,30 +459,34 @@ Verify:
 execute --version
 ```
 
-### 7. Clone NMGUI2
+### 7. Clone and install NMGUI2
 
 ```bash
 git clone https://github.com/robterheine/nmgui2.git
 cd nmgui2
+pip3 install -r requirements.txt
 ```
 
-### 8. Install Python dependencies
+Or with a virtual environment (recommended on systems with externally-managed Python):
 
 ```bash
-pip3 install PyQt6 pyqtgraph numpy matplotlib scipy
-```
-
-Or with a virtual environment (recommended):
-
-```bash
+git clone https://github.com/robterheine/nmgui2.git
+cd nmgui2
 python3 -m venv venv
 source venv/bin/activate
-pip install PyQt6 pyqtgraph numpy matplotlib scipy
+pip install -r requirements.txt
 ```
 
-### 9. Run NMGUI2
+### 8. Run NMGUI2
 
 ```bash
+python3 nmgui2.py
+```
+
+Or if using a virtual environment:
+
+```bash
+source venv/bin/activate
 python3 nmgui2.py
 ```
 
@@ -508,9 +511,18 @@ On all platforms, from the nmgui2 directory:
 
 ```bash
 git pull
+pip install -r requirements.txt
 ```
 
-No reinstallation of Python packages is needed unless a new dependency has been added.
+The second command ensures any new dependencies are installed. If no new packages were added, it completes instantly.
+
+If using a virtual environment on Linux:
+
+```bash
+source venv/bin/activate
+git pull
+pip install -r requirements.txt
+```
 
 ---
 
