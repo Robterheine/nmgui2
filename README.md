@@ -52,6 +52,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 **Output** — structured HTML rendering of the `.lst` file in-app:
 - Summary card with key results
+- **Estimation steps table** for chained `$EST` runs (e.g. FO → FOCE-I → IMP), showing per-step OFV, ΔOFV, runtime, significant digits and termination status
 - NM-TRAN warnings section
 - Convergence table (iteration history)
 - Parameter estimates with SEs and names
@@ -578,7 +579,7 @@ Contributions are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for detai
 
 Areas particularly in need of help:
 - Windows and Linux testing and bug reports
-- Additional NONMEM output parsing (multiple estimation steps, BAYES, mixture models)
+- Additional NONMEM output parsing (BAYES, mixture models)
 - New diagnostic plot types
 - Documentation and tutorials
 - Translations
