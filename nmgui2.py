@@ -1066,6 +1066,7 @@ class ScanWorker(QThread):
                     'ofv':None,'minimization_successful':None,'minimization_message':'',
                     'covariance_step':None,'n_individuals':None,'n_observations':None,
                     'n_estimated_params':None,'aic':None,'bic':None,'runtime':None,
+                    'runtime_total':None,'subproblems':[],
                     'estimation_method':'','thetas':[],'omegas':[],'sigmas':[],
                     'theta_ses':[],'omega_ses':[],'sigma_ses':[],
                     'omega_se_matrix':[],'sigma_se_matrix':[],
@@ -1118,13 +1119,14 @@ class ScanWorker(QThread):
                         r = parse_lst(str(lst_path))
                         for k in ('ofv','minimization_successful','minimization_message',
                                   'covariance_step','n_individuals','n_observations',
-                                  'n_estimated_params','aic','bic','runtime',
+                                  'n_estimated_params','aic','bic','runtime','runtime_total',
                                   'estimation_method','thetas','omegas','sigmas',
                                   'theta_ses','omega_ses','sigma_ses',
                                   'omega_se_matrix','sigma_se_matrix',
                                   'condition_number','boundary','etabar','etabar_se',
                                   'etabar_pval','cov_failure_reason','eta_shrinkage',
-                                  'eps_shrinkage','correlation_matrix','cor_labels'):
+                                  'eps_shrinkage','correlation_matrix','cor_labels',
+                                  'subproblems'):
                             m[k] = r.get(k)
                         m['n_thetas'] = len(r.get('thetas',[])); m['n_omegas'] = len(r.get('omegas',[]))
                         lst_mtime = lst_path.stat().st_mtime
@@ -7007,6 +7009,7 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
       <div style="font-size:10px;font-weight:700;color:{fg2};text-transform:uppercase;
                   letter-spacing:.5px;margin-bottom:8px;">Jump to</div>
       <a href="#summary">📊 Summary</a>
+      {"<a href='#est-steps'>⏱ Steps</a>" if len(model.get('subproblems') or []) >= 2 else ""}
       {"<a href='#warnings'>⚠ Warnings</a>" if warnings_html else ""}
       <a href="#convergence">↻ Convergence</a>
       <a href="#parameters">θ Parameters</a>
@@ -7016,6 +7019,61 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
       <a href="#eigenvalues">λ Eigenvalues</a>
       {"" if embed else "<a href='#raw'>⌨ Raw</a>"}
     </div>'''
+
+    # ── 11. Estimation steps (only rendered if 2+ subproblems) ─────────────
+    subs = model.get('subproblems') or []
+    steps_block = ''
+    if len(subs) >= 2:
+        rows = ''
+        prev_ofv = None
+        for s in subs:
+            ofv_v = s.get('ofv')
+            ofv_cell = f'{ofv_v:.4f}' if ofv_v is not None else '—'
+            if ofv_v is not None and prev_ofv is not None:
+                d = ofv_v - prev_ofv
+                dcls = 'ok' if d < 0 else ('red' if d > 0 else '')
+                dOFV_cell = f'<span class="{dcls}">{d:+.3f}</span>'
+            else:
+                dOFV_cell = '—'
+            rt = s.get('runtime')
+            rt_cell = f'{rt:.2f} s' if rt is not None else '—'
+            sig = s.get('sig_digits')
+            sig_cell = f'{sig:.1f}' if sig is not None else '—'
+            ms = s.get('minimization_successful')
+            msg = s.get('minimization_message','')
+            if ms is True:
+                status_cell = f'<span class="good">{msg or "OK"}</span>'
+            elif ms is False:
+                status_cell = f'<span class="red">{msg or "FAILED"}</span>'
+            else:
+                status_cell = msg or '—'
+            method = s.get('method_label') or s.get('method') or ''
+            rows += (f'<tr>'
+                     f'<td class="num">{s.get("step","")}</td>'
+                     f'<td>{method}</td>'
+                     f'<td class="num">{ofv_cell}</td>'
+                     f'<td class="num">{dOFV_cell}</td>'
+                     f'<td class="num">{rt_cell}</td>'
+                     f'<td class="num">{sig_cell}</td>'
+                     f'<td>{status_cell}</td>'
+                     f'</tr>')
+            if ofv_v is not None:
+                prev_ofv = ofv_v
+        total_rt = model.get('runtime_total')
+        total_row = ''
+        if total_rt:
+            total_row = (f'<tr style="font-weight:700;border-top:2px solid {accent};">'
+                         f'<td></td><td>Total</td><td></td><td></td>'
+                         f'<td class="num">{total_rt:.2f} s</td>'
+                         f'<td></td><td></td></tr>')
+        steps_block = (
+            f'<h2 id="est-steps">Estimation Steps</h2>'
+            f'<div class="card">'
+            f'<table><thead><tr>'
+            f'<th>Step</th><th>Method</th><th>OFV</th><th>ΔOFV</th>'
+            f'<th>Runtime</th><th>Sig. digits</th><th>Status</th>'
+            f'</tr></thead><tbody>{rows}{total_row}</tbody></table>'
+            f'</div>')
 
     # ── Assemble ───────────────────────────────────────────────────────────
     from datetime import datetime as _dt
@@ -7032,6 +7090,8 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
   {model.get('problem','')}  ·  Rendered by NMGUI v{APP_VERSION}  ·  {now}
 </p>
 <div class="card"><div class="summary-grid">{summary_cards}</div></div>
+
+{steps_block}
 
 {"<h2 id='warnings'>⚠ NM-TRAN Warnings</h2>" + warnings_html if warnings_html else ""}
 

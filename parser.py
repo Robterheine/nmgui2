@@ -9,6 +9,240 @@ import os
 from pathlib import Path
 
 
+def _method_label(raw_method):
+    """Convert a raw '#METH:' description into a short label for UI display.
+
+    Examples:
+      'First Order with Interaction'                      -> 'FO-I'
+      'First Order Conditional Estimation with Interact.' -> 'FOCE-I'
+      'Laplacian Conditional Estimation'                  -> 'LAPLACE'
+      'Stochastic Approximation Expectation-Maximization' -> 'SAEM'
+      'Objective Function Evaluation by Importance Sampl.'-> 'IMP'
+      'Iterative Two Stage'                               -> 'ITS'
+      'Markov Chain Monte Carlo Bayesian Analysis'        -> 'BAYES'
+    """
+    if not raw_method:
+        return ''
+    m = raw_method.strip()
+    low = m.lower()
+    has_inter = 'interaction' in low or 'interact' in low
+    if 'laplacian' in low or 'laplace' in low:
+        return 'LAPLACE-I' if has_inter else 'LAPLACE'
+    if 'stochastic approximation' in low or 'saem' in low:
+        return 'SAEM'
+    if 'markov' in low or 'bayes' in low or 'nuts' in low:
+        return 'BAYES'
+    if 'importance sampling' in low:
+        return 'IMP-I' if has_inter else 'IMP'
+    if 'iterative two stage' in low or low.startswith('its'):
+        return 'ITS'
+    if 'first order conditional' in low:
+        return 'FOCE-I' if has_inter else 'FOCE'
+    if 'first order' in low:
+        return 'FO-I' if has_inter else 'FO'
+    # Unknown: uppercase the first word as a best-effort label
+    return m.split()[0].upper() if m.split() else m.upper()
+
+
+def _extract_subproblems(text):
+    """Split a chained-$EST .lst into per-estimation-step records.
+
+    Each NONMEM estimation step is bounded by a '#TBLN: N' marker line.
+    The last step's slice runs from its '#TBLN:' to EOF (inclusive of any
+    trailing STANDARD ERROR / COVARIANCE / EIGENVALUE sections which
+    belong to that final step globally).
+
+    Returns a list of dicts in estimation order (step 1 first). Each dict
+    has the keys documented below. An empty list is returned if no
+    '#TBLN:' markers are found (a single-$EST run — the caller should
+    synthesize a single subproblem from the top-level parse_lst fields).
+    """
+    # Locate all #TBLN: markers with their line offsets.
+    tbln_positions = [m.start() for m in re.finditer(r'^\s*#TBLN:\s*\d+', text, re.MULTILINE)]
+    if not tbln_positions:
+        return []
+
+    # Define slice boundaries. Last slice extends to EOF.
+    boundaries = tbln_positions + [len(text)]
+    subs = []
+    for i in range(len(tbln_positions)):
+        slice_text = text[boundaries[i]:boundaries[i + 1]]
+        sub = {
+            'step': i + 1,
+            'method': '',
+            'method_label': '',
+            'ofv': None,
+            'minimization_successful': None,
+            'minimization_message': '',
+            'runtime': None,
+            'sig_digits': None,
+            'covariance_step': None,
+            'etabar': [],
+            'etabar_se': [],
+            'etabar_pval': [],
+            'eta_shrinkage': [],
+            'eps_shrinkage': [],
+            'thetas': [],
+            'omegas': [],
+            'sigmas': [],
+            'omega_matrix': [],
+            'sigma_matrix': [],
+            'theta_ses': [],
+            'omega_ses': [],
+            'sigma_ses': [],
+            'omega_se_matrix': [],
+            'sigma_se_matrix': [],
+            'boundary': False,
+        }
+
+        # Method name from '#METH:' line.
+        m = re.search(r'^\s*#METH:\s*(.+?)\s*$', slice_text, re.MULTILINE)
+        if m:
+            sub['method'] = m.group(1).strip()
+            sub['method_label'] = _method_label(sub['method'])
+
+        # OFV from '#OBJV:' line (canonical, works across all methods).
+        m = re.search(r'#OBJV:\*+\s*([-\d.]+(?:E[+-]?\d+)?)', slice_text)
+        if m:
+            try:
+                sub['ofv'] = float(m.group(1))
+            except ValueError:
+                pass
+
+        # Termination block: between '#TERM:' and '#TERE:'.
+        term_match = re.search(r'#TERM:(.*?)#TERE:', slice_text, re.DOTALL)
+        term_text = term_match.group(1) if term_match else ''
+
+        # Classify termination status per method family.
+        if 'MINIMIZATION SUCCESSFUL' in term_text:
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'SUCCESSFUL'
+        elif 'MINIMIZATION TERMINATED' in term_text:
+            sub['minimization_successful'] = False
+            tm = re.search(r'(MINIMIZATION TERMINATED[^\n]*)', term_text)
+            sub['minimization_message'] = tm.group(1).strip() if tm else 'TERMINATED'
+        elif 'OPTIMIZATION NOT COMPLETED' in term_text:
+            sub['minimization_successful'] = False
+            sub['minimization_message'] = 'NOT COMPLETED'
+        elif re.search(r'STATISTICAL PORTION WAS COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'SAEM COMPLETED'
+        elif re.search(r'BURN.?IN.*COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'BURN-IN COMPLETED'
+        elif re.search(r'EXPECTATION ONLY PROCESS WAS COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'IMP EVALUATION COMPLETED'
+        elif re.search(r'IMPORTANCE SAMPLING.*COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'IMP COMPLETED'
+        elif re.search(r'ITERATIVE TWO STAGE.*COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'ITS COMPLETED'
+        elif re.search(r'(BAYES|NUTS).*COMPLETED', term_text, re.IGNORECASE):
+            sub['minimization_successful'] = True
+            sub['minimization_message'] = 'BAYES COMPLETED'
+
+        # Significant digits (inside #TERM: block on FO/FOCE steps).
+        m = re.search(r'NO\.\s*OF\s*SIG\.\s*DIGITS\s*IN\s*FINAL\s*EST\.:\s*([\d.]+)',
+                      slice_text, re.IGNORECASE)
+        if m:
+            try:
+                sub['sig_digits'] = float(m.group(1))
+            except ValueError:
+                pass
+
+        # Runtime (Elapsed estimation time, immediately after #TERE:).
+        m = re.search(r'Elapsed\s+estimation\s+time\s+in\s+seconds:\s*([\d.]+)',
+                      slice_text, re.IGNORECASE)
+        if m:
+            try:
+                sub['runtime'] = float(m.group(1))
+            except ValueError:
+                pass
+
+        # Boundary warning (per-step).
+        if re.search(r'PARAMETER ESTIMATE IS NEAR ITS BOUNDARY', slice_text, re.IGNORECASE):
+            sub['boundary'] = True
+
+        # ETABAR, SE, P VAL (only present when EBEs are computed).
+        eb = re.search(r'^\s*ETABAR:\s+(.+)$', slice_text, re.MULTILINE)
+        se_ln = re.search(r'^\s*SE:\s+(.+)$', slice_text, re.MULTILINE)
+        pv = re.search(r'^\s*P\s*VAL\.?:\s+(.+)$', slice_text, re.MULTILINE)
+        if eb:
+            try:
+                sub['etabar'] = [float(x) for x in eb.group(1).split()]
+            except ValueError:
+                pass
+        if se_ln:
+            try:
+                sub['etabar_se'] = [float(x) for x in se_ln.group(1).split()]
+            except ValueError:
+                pass
+        if pv:
+            try:
+                sub['etabar_pval'] = [float(x) for x in pv.group(1).split()]
+            except ValueError:
+                pass
+
+        # Shrinkage (ETA and EPS) — accept ETASHRINKSD/ETAshrinkSD forms.
+        eta_shr = re.findall(
+            r'(?:ETAShrink(?:a?SD)?|EtaShrinkSD)\s*[\(%]\s*%?\)?\s*:?\s*'
+            r'((?:[-+]?\d+\.?\d*(?:E[+-]?\d+)?(?:\s+|$))+)',
+            slice_text, re.IGNORECASE | re.MULTILINE
+        )
+        if eta_shr:
+            try:
+                sub['eta_shrinkage'] = [float(x) for x in eta_shr[-1].split()]
+            except ValueError:
+                pass
+        eps_shr = re.findall(
+            r'(?:EPSShrink(?:a?SD)?|EpsShrinkSD)\s*[\(%]\s*%?\)?\s*:?\s*'
+            r'((?:[-+]?\d+\.?\d*(?:E[+-]?\d+)?(?:\s+|$))+)',
+            slice_text, re.IGNORECASE | re.MULTILINE
+        )
+        if eps_shr:
+            try:
+                sub['eps_shrinkage'] = [float(x) for x in eps_shr[-1].split()]
+            except ValueError:
+                pass
+
+        # Per-step FINAL PARAMETER ESTIMATE block (thetas/omegas/sigmas).
+        # Each step emits one such block; use _extract_block on the slice.
+        tb = _extract_block(slice_text, r'THETA - VECTOR OF FIXED EFFECTS PARAMETERS')
+        if tb:
+            sub['thetas'] = _parse_values(tb)
+        ob = _extract_block(slice_text, r'OMEGA - COV MATRIX FOR RANDOM EFFECTS - ETAS')
+        if ob:
+            sub['omegas'] = _parse_matrix_diag(ob)
+            sub['omega_matrix'] = _parse_matrix_full(ob)
+        sb = _extract_block(slice_text, r'SIGMA - COV MATRIX FOR RANDOM EFFECTS - EPSILONS')
+        if sb:
+            sub['sigmas'] = _parse_matrix_diag(sb)
+            sub['sigma_matrix'] = _parse_matrix_full(sb)
+
+        # Standard errors (only last step typically; $COV evaluated once).
+        se_sections = slice_text.split('STANDARD ERROR OF ESTIMATE')
+        if len(se_sections) > 1:
+            se_text = se_sections[-1]
+            tse = _extract_block(se_text, r'THETA - VECTOR OF FIXED EFFECTS PARAMETERS')
+            if tse:
+                sub['theta_ses'] = _parse_values(tse, keep_dots=True)
+            ose = _extract_block(se_text, r'OMEGA - COV MATRIX FOR RANDOM EFFECTS - ETAS')
+            if ose:
+                sub['omega_ses'] = _parse_matrix_diag(ose)
+                sub['omega_se_matrix'] = _parse_matrix_full(ose)
+            sse = _extract_block(se_text, r'SIGMA - COV MATRIX FOR RANDOM EFFECTS - EPSILONS')
+            if sse:
+                sub['sigma_ses'] = _parse_matrix_diag(sse)
+                sub['sigma_se_matrix'] = _parse_matrix_full(sse)
+            sub['covariance_step'] = True
+
+        subs.append(sub)
+
+    return subs
+
+
 def parse_lst(lst_path):
     """Parse a NONMEM .lst file and return structured results."""
     result = {
@@ -45,6 +279,7 @@ def parse_lst(lst_path):
         'eps_shrinkage': [],
         'runtime': None,
         'estimation_method': '',
+        'subproblems': [],
         'raw_text': '',
     }
 
@@ -212,12 +447,7 @@ def parse_lst(lst_path):
         if not result['cov_failure_reason']:
             result['cov_failure_reason'] = 'Failed'
 
-    # ETABAR, SE, and P-values
-    etabar_match = re.search(
-        r'ETABAR:\s+(.*?)\n\s*SE:\s+(.*?)\n.*?P\s*VAL\.?:\s+(.*?)\n',
-        text, re.DOTALL
-    )
-    # Try simpler line-by-line approach
+    # ETABAR, SE, and P-values (line-by-line extraction)
     eb_line = re.search(r'^\s*ETABAR:\s+(.+)$', text, re.MULTILINE)
     se_line = re.search(r'^\s*SE:\s+(.+)$', text, re.MULTILINE)
     pv_line = re.search(r'^\s*P\s*VAL\.?:\s+(.+)$', text, re.MULTILINE)
@@ -465,6 +695,106 @@ def parse_lst(lst_path):
         if result['n_observations'] and result['n_observations'] > 0:
             result['bic'] = result['ofv'] + n_est * math.log(result['n_observations'])
 
+    # --- Subproblem extraction for chained $EST runs ---------------------
+    # Each NONMEM estimation step is bounded by '#TBLN:' markers. Extract
+    # per-step records so the UI can present all estimation steps, while
+    # the top-level fields reflect the FINAL step (what users expect).
+    subs = _extract_subproblems(text)
+    if subs:
+        result['subproblems'] = subs
+        final = subs[-1]
+
+        # Override top-level 'final-step' values. Only overwrite when the
+        # subproblem actually has a value, so partial extraction doesn't
+        # wipe out something that the legacy logic found.
+        if final.get('ofv') is not None:
+            result['ofv'] = final['ofv']
+        if final.get('minimization_successful') is not None:
+            result['minimization_successful'] = final['minimization_successful']
+        if final.get('minimization_message'):
+            result['minimization_message'] = final['minimization_message']
+        if final.get('runtime') is not None:
+            result['runtime'] = final['runtime']
+        # sig_digits: use the last step that actually reported one
+        # (IMP evaluation-only steps typically don't report sig_digits;
+        # fall back to the most recent step that optimized).
+        last_sig = None
+        for s in subs:
+            if s.get('sig_digits') is not None:
+                last_sig = s['sig_digits']
+        if last_sig is not None:
+            result['sig_digits'] = last_sig
+        if final.get('etabar'):
+            result['etabar'] = final['etabar']
+        if final.get('etabar_se'):
+            result['etabar_se'] = final['etabar_se']
+        if final.get('etabar_pval'):
+            result['etabar_pval'] = final['etabar_pval']
+        if final.get('eta_shrinkage'):
+            result['eta_shrinkage'] = final['eta_shrinkage']
+        if final.get('eps_shrinkage'):
+            result['eps_shrinkage'] = final['eps_shrinkage']
+        # Per-step thetas/omegas/sigmas: use the final step so the
+        # Parameters panel shows the correct values for chained runs.
+        if final.get('thetas'):
+            result['thetas'] = final['thetas']
+        if final.get('omegas'):
+            result['omegas'] = final['omegas']
+            result['omega_matrix'] = final['omega_matrix']
+        if final.get('sigmas'):
+            result['sigmas'] = final['sigmas']
+            result['sigma_matrix'] = final['sigma_matrix']
+
+        # Build an accurate chain label: 'FO-I -> FOCE-I -> IMP'.
+        # ASCII-only arrow for X11/MobaXterm compatibility.
+        labels = [s['method_label'] for s in subs if s['method_label']]
+        if labels:
+            if len(labels) == 1:
+                result['estimation_method'] = labels[0]
+            else:
+                result['estimation_method'] = ' -> '.join(labels)
+
+        # Total estimation time summed across all steps.
+        total_rt = sum(s['runtime'] for s in subs if s.get('runtime') is not None)
+        if total_rt > 0:
+            result['runtime_total'] = total_rt
+
+        # Any step flagged a boundary warning -> top-level boundary True.
+        if any(s.get('boundary') for s in subs):
+            result['boundary'] = True
+    else:
+        # Single-$EST run with no '#TBLN:' markers (older NONMEM output
+        # or simulation-only runs). Synthesize one subproblem from the
+        # top-level fields so UI code can uniformly iterate subproblems.
+        if result.get('estimation_method') or result.get('ofv') is not None:
+            result['subproblems'] = [{
+                'step': 1,
+                'method': result.get('estimation_method', ''),
+                'method_label': result.get('estimation_method', ''),
+                'ofv': result.get('ofv'),
+                'minimization_successful': result.get('minimization_successful'),
+                'minimization_message': result.get('minimization_message', ''),
+                'runtime': result.get('runtime'),
+                'sig_digits': result.get('sig_digits'),
+                'covariance_step': result.get('covariance_step'),
+                'etabar': result.get('etabar', []),
+                'etabar_se': result.get('etabar_se', []),
+                'etabar_pval': result.get('etabar_pval', []),
+                'eta_shrinkage': result.get('eta_shrinkage', []),
+                'eps_shrinkage': result.get('eps_shrinkage', []),
+                'thetas': result.get('thetas', []),
+                'omegas': result.get('omegas', []),
+                'sigmas': result.get('sigmas', []),
+                'omega_matrix': result.get('omega_matrix', []),
+                'sigma_matrix': result.get('sigma_matrix', []),
+                'theta_ses': result.get('theta_ses', []),
+                'omega_ses': result.get('omega_ses', []),
+                'sigma_ses': result.get('sigma_ses', []),
+                'omega_se_matrix': result.get('omega_se_matrix', []),
+                'sigma_se_matrix': result.get('sigma_se_matrix', []),
+                'boundary': result.get('boundary', False),
+            }]
+
     return result
 
 
@@ -622,66 +952,192 @@ def find_runs(base_dir):
 
 
 def read_table_file(filepath, max_rows=5000):
-    """Read a NONMEM table file or CSV and return column names + data."""
+    """Read a NONMEM table file or CSV and return (column_names, rows).
+
+    Format detection follows the xpose approach: inspect the first data row
+    for a scientific-notation pattern and pick the delimiter accordingly.
+    Supports three formats:
+      - NONMEM whitespace-delimited table (default)
+      - CSV with '.' decimal (English locale)
+      - CSV with ',' decimal and ';' delimiter (European/csv2 locale)
+
+    Values matching the column header names are treated as NA (handles
+    NONMEM's repeated-header rows in firstonly tables).
+
+    Returns (None, None) on any read or format error.
+    """
     if not os.path.exists(filepath):
         return None, None
 
-    with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
-        lines = f.readlines()
-
-    # Skip NONMEM table headers (TABLE NO. lines)
-    data_lines = []
-    header = None
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith('TABLE NO') or not stripped:
-            continue
-        if header is None:
-            header = stripped.split()
-            continue
-        data_lines.append(stripped)
-        if len(data_lines) >= max_rows:
-            break
-
-    if header is None:
+    try:
+        with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
+            raw_lines = f.readlines()
+    except OSError:
         return None, None
 
-    # Detect delimiter
-    if ',' in lines[0] and not lines[0].strip().startswith('TABLE'):
-        # CSV file — re-parse
-        with open(filepath, 'r', encoding='utf-8-sig', errors='replace') as f:
-            import csv
-            reader = csv.reader(f)
-            header = next(reader, None)
-            data_lines = []
-            for i, row in enumerate(reader):
-                if i >= max_rows:
-                    break
-                data_lines.append(row)
-            rows = []
-            for row in data_lines:
-                r = []
-                for val in row:
-                    try:
-                        r.append(float(val))
-                    except ValueError:
-                        r.append(val)
-                rows.append(r)
-            return header, rows
+    # Locate header and first data line, skipping 'TABLE NO' banners and blanks.
+    header_line = None
+    header_idx = None
+    data_start_idx = None
+    for i, line in enumerate(raw_lines):
+        s = line.strip()
+        if not s:
+            continue
+        if s.startswith('TABLE NO'):
+            continue
+        if header_line is None:
+            header_line = s
+            header_idx = i
+            continue
+        # First non-header, non-banner line = first data row.
+        data_start_idx = i
+        break
+
+    if header_line is None:
+        return None, None
+
+    # Determine delimiter by inspecting the first data row (xpose approach,
+    # relaxed to accept plain decimals — xpose's regex assumes NONMEM
+    # scientific notation but real-world files sometimes strip it).
+    #   csv2 (European):  ';' delimiter with ',' decimals
+    #   csv  (English):   ',' delimiter with '.' decimals
+    #   table (default):  whitespace delimiter
+    probe = raw_lines[data_start_idx].rstrip('\n') if data_start_idx is not None else ''
+
+    # Scientific-notation-first checks (xpose style, strictest):
+    if re.search(r'\d,\d+[eEdD][+-]?\d+\s*;', probe):
+        fmt = 'csv2'
+    elif re.search(r'\d\.\d+[eEdD][+-]?\d+\s*,', probe):
+        fmt = 'csv'
+    # Fallback for plain-decimal CSV files:
+    elif ';' in probe and re.search(r'\d,\d', probe):
+        fmt = 'csv2'
+    elif ',' in probe and not re.search(r'\s{2,}', probe):
+        fmt = 'csv'
+    else:
+        fmt = 'table'
+
+    # Split header according to chosen format.
+    if fmt == 'csv2':
+        header = [h.strip() for h in header_line.split(';')]
+    elif fmt == 'csv':
+        header = [h.strip() for h in header_line.split(',')]
+    else:
+        header = header_line.split()
+
+    header = [h for h in header if h]  # drop empties from trailing delimiters
+    if not header:
+        return None, None
+
+    # Values that should become None (NONMEM's repeated headers in firstonly tables).
+    na_tokens = set(header) | {'NA', 'N/A', '.', ''}
+
+    def _to_num(v, allow_comma_decimal=False):
+        if v is None:
+            return None
+        t = v.strip()
+        if t in na_tokens:
+            return None
+        if allow_comma_decimal:
+            t = t.replace(',', '.')
+        # Fortran D exponent -> E
+        t = t.replace('D', 'E').replace('d', 'e')
+        try:
+            return float(t)
+        except ValueError:
+            return v  # keep original string if not numeric
 
     rows = []
-    for line in data_lines:
-        parts = line.split()
-        row = []
-        for p in parts:
+    for i in range(data_start_idx, len(raw_lines)):
+        if len(rows) >= max_rows:
+            break
+        line = raw_lines[i].rstrip('\n')
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip any embedded TABLE NO banner (multi-problem firstonly tables).
+        if stripped.startswith('TABLE NO'):
+            continue
+
+        if fmt == 'csv2':
+            parts = [p.strip() for p in stripped.split(';')]
+            row = [_to_num(p, allow_comma_decimal=True) for p in parts]
+        elif fmt == 'csv':
+            # Use csv reader for this single line (handles quoted fields).
+            import csv as _csv
             try:
-                row.append(float(p))
-            except ValueError:
-                row.append(p)
-        if len(row) == len(header):
+                parts = next(_csv.reader([stripped]))
+            except Exception:
+                parts = stripped.split(',')
+            row = [_to_num(p, allow_comma_decimal=False) for p in parts]
+        else:
+            parts = stripped.split()
+            row = [_to_num(p, allow_comma_decimal=False) for p in parts]
+
+        # Only accept rows that align with header width and have at least
+        # one non-None value (drops repeated headers in firstonly tables).
+        if len(row) == len(header) and any(v is not None for v in row):
             rows.append(row)
 
     return header, rows
+
+
+def classify_table_columns(header):
+    """Classify NONMEM table columns by role. Returns {col_name: type_str}.
+
+    Ports xpose's index_table logic. Types:
+      'id'     — subject identifier
+      'dv'     — observed dependent variable
+      'idv'    — independent variable (time)
+      'occ'    — occasion
+      'dvid'   — DV indicator (multi-response)
+      'amt'    — dose amount
+      'mdv'    — missing DV flag
+      'evid'   — event identifier
+      'ipred'  — individual predictions
+      'pred'   — population predictions
+      'res'    — residuals (RES/WRES/CWRES/IWRES/EWRES/NPDE)
+      'eta'    — empirical Bayes estimates (ETA1, ET1, PHI1)
+      'cmt'    — compartment amount (A1, A2, ...)
+      'cov'    — everything else (covariate/parameter/unknown)
+
+    Callers can use this to auto-select plot axes, categorical filters, etc.
+    """
+    result = {}
+    for col in header:
+        if not col:
+            continue
+        cu = col.upper().strip()
+        if cu == 'ID':
+            t = 'id'
+        elif cu == 'DV':
+            t = 'dv'
+        elif cu in ('TIME', 'TAD', 'TAFD'):
+            t = 'idv'
+        elif cu == 'OCC':
+            t = 'occ'
+        elif cu == 'DVID':
+            t = 'dvid'
+        elif cu == 'AMT':
+            t = 'amt'
+        elif cu == 'MDV':
+            t = 'mdv'
+        elif cu == 'EVID':
+            t = 'evid'
+        elif cu in ('IPRED', 'IPRE', 'IPREDI'):
+            t = 'ipred'
+        elif cu in ('PRED', 'NPRED'):
+            t = 'pred'
+        elif cu in ('RES', 'WRES', 'CWRES', 'IWRES', 'EWRES', 'NPDE', 'CIWRES'):
+            t = 'res'
+        elif re.match(r'^(ETA|ET|PHI)\d+$', cu):
+            t = 'eta'
+        elif re.match(r'^A\d+$', cu):
+            t = 'cmt'
+        else:
+            t = 'cov'
+        result[col] = t
+    return result
 
 
 def inject_estimates(control_text, lst_path, jitter=0):
