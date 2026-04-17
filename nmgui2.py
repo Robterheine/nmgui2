@@ -98,7 +98,7 @@ META_FILE      = CONFIG_DIR / 'model_meta.json'
 SETTINGS_FILE  = CONFIG_DIR / 'settings.json'
 BOOKMARKS_FILE = CONFIG_DIR / 'bookmarks.json'
 RUNS_FILE      = CONFIG_DIR / 'runs.json'
-APP_VERSION    = '2.3.0'
+APP_VERSION    = '2.4.0'
 _cfg_lock      = threading.Lock()
 
 # ── Parameter Uncertainty Diagnostic Thresholds ──────────────────────────────
