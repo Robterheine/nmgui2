@@ -177,18 +177,23 @@ def T(key):
     """Get colour from active theme."""
     return THEMES[_active_theme][key]
 
-# Legacy aliases — keep these so existing code doesn't break
-def _set_theme_aliases():
-    global C_BG, C_BG2, C_BG3, C_BORDER, C_FG, C_FG2
-    global C_GREEN, C_RED, C_ORANGE, C_BLUE, C_YELLOW, C_STAR, C_STALE
-    t = THEMES[_active_theme]
-    C_BG     = t['bg'];    C_BG2   = t['bg2'];   C_BG3    = t['bg3']
-    C_BORDER = t['border']; C_FG   = t['fg'];    C_FG2    = t['fg2']
-    C_GREEN  = t['green']; C_RED   = t['red'];   C_ORANGE = t['orange']
-    C_BLUE   = t['accent']; C_YELLOW= t['yellow']; C_STAR  = t['star']
-    C_STALE  = t['orange']
+class _ThemeColors:
+    """Mutable singleton — attributes update live on theme change."""
+    def _apply(self, theme_name):
+        t = THEMES[theme_name]
+        self.bg = t['bg'];    self.bg2 = t['bg2'];   self.bg3 = t['bg3']
+        self.border = t['border']; self.fg = t['fg']; self.fg2 = t['fg2']
+        self.green = t['green']; self.red = t['red']; self.orange = t['orange']
+        self.blue = t['accent']; self.yellow = t['yellow']; self.star = t['star']
+        self.stale = t['orange']
 
-_set_theme_aliases()
+C = _ThemeColors()
+C._apply('dark')
+
+def set_active_theme(name):
+    global _active_theme
+    _active_theme = name
+    C._apply(name)
 
 
 def build_stylesheet(theme_name='dark'):
@@ -1840,7 +1845,7 @@ class ParameterTable(QWidget):
         self.table.setRowCount(len(rows))
         R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         L = Qt.AlignmentFlag.AlignLeft  | Qt.AlignmentFlag.AlignVCenter
-        grey = QBrush(QColor(C_FG2))
+        grey = QBrush(QColor(C.fg2))
         changed_color = QColor('#4c8aff')  # Blue for changed parameters
         
         for row, (lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val) in enumerate(rows):
@@ -1861,11 +1866,11 @@ class ParameterTable(QWidget):
             if shr is not None:
                 shr_txt = f'{shr:.1f}'
                 if shr < 20:
-                    shr_color = QColor(C_GREEN)
+                    shr_color = QColor(C.green)
                 elif shr < 30:
-                    shr_color = QColor(C_ORANGE)
+                    shr_color = QColor(C.orange)
                 else:
-                    shr_color = QColor(C_RED)
+                    shr_color = QColor(C.red)
             else:
                 shr_txt = ''
                 shr_color = None
@@ -1874,9 +1879,9 @@ class ParameterTable(QWidget):
             if ebp is not None:
                 ebp_txt = f'{ebp:.3f}' if ebp >= 0.001 else '<.001'
                 if ebp < 0.01:
-                    ebp_color = QColor(C_RED)
+                    ebp_color = QColor(C.red)
                 elif ebp < 0.05:
-                    ebp_color = QColor(C_ORANGE)
+                    ebp_color = QColor(C.orange)
                 else:
                     ebp_color = None
             else:
@@ -1999,30 +2004,30 @@ class ModelTableModel(QAbstractTableModel):
                 if rt is None: return ''
                 return f'{rt:.0f}s' if rt < 3600 else f'{rt/3600:.1f}h'
         if role == Qt.ItemDataRole.ForegroundRole:
-            if col == COL_STAR: return QBrush(QColor(C_STAR))
+            if col == COL_STAR: return QBrush(QColor(C.star))
             if col == COL_STATUS:
                 msg = m.get('minimization_message') or ''
-                if 'SUCCESSFUL' in msg or 'COMPLETED' in msg: return QBrush(QColor(C_GREEN))
-                if m.get('minimization_successful') is False: return QBrush(QColor(C_RED))
-                if m.get('boundary'): return QBrush(QColor(C_ORANGE))
+                if 'SUCCESSFUL' in msg or 'COMPLETED' in msg: return QBrush(QColor(C.green))
+                if m.get('minimization_successful') is False: return QBrush(QColor(C.red))
+                if m.get('boundary'): return QBrush(QColor(C.orange))
             if col == COL_COV:
                 cv = m.get('covariance_step')
-                if cv is True:  return QBrush(QColor(C_GREEN))
-                if cv is False: return QBrush(QColor(C_RED))
+                if cv is True:  return QBrush(QColor(C.green))
+                if cv is False: return QBrush(QColor(C.red))
             if col == COL_CN:
                 cn = m.get('condition_number')
-                if cn is None: return QBrush(QColor(C_FG2))
-                if cn > 1000:  return QBrush(QColor(C_ORANGE))
+                if cn is None: return QBrush(QColor(C.fg2))
+                if cn > 1000:  return QBrush(QColor(C.orange))
                 return None
             if col == COL_DOFV:
                 ofv = m.get('ofv')
                 base, is_ref = self._dofv_base()
                 if ofv is not None and base is not None:
                     if is_ref and m['path'] == self._ref_path:
-                        return QBrush(QColor(C_BLUE))
+                        return QBrush(QColor(C.blue))
                     if not is_ref and abs(ofv - base) < 0.001:
-                        return QBrush(QColor(C_GREEN))
-            if col == COL_NAME and m.get('stale'): return QBrush(QColor(C_STALE))
+                        return QBrush(QColor(C.green))
+            if col == COL_NAME and m.get('stale'): return QBrush(QColor(C.stale))
         if role == Qt.ItemDataRole.ToolTipRole:
             if col == COL_NAME:
                 tip = f"Path: {m['path']}"
@@ -2207,7 +2212,7 @@ class ModelsTab(QWidget):
         dpl.addStretch()
         rv.addWidget(detail_pill_bar)
 
-        sep2 = QWidget(); sep2.setFixedHeight(1); sep2.setStyleSheet(f'background:{C_BORDER};')
+        sep2 = QWidget(); sep2.setFixedHeight(1); sep2.setStyleSheet(f'background:{C.border};')
         rv.addWidget(sep2)
 
         self._detail_stack = QStackedWidget()
@@ -2259,12 +2264,12 @@ class ModelsTab(QWidget):
         
         # Dataset info section
         ds_lbl = QLabel('DATASET')
-        ds_lbl.setStyleSheet(f'color:{C_FG2};font-size:10px;font-weight:600;letter-spacing:0.5px;')
+        ds_lbl.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;letter-spacing:0.5px;')
         info_v.addWidget(ds_lbl)
         self._ds_info = QLabel('No model selected')
         self._ds_info.setWordWrap(True)
         self._ds_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._ds_info.setStyleSheet(f'color:{C_FG};font-size:11px;background:{C_BG3};padding:6px;border-radius:4px;')
+        self._ds_info.setStyleSheet(f'color:{C.fg};font-size:11px;background:{C.bg3};padding:6px;border-radius:4px;')
         info_v.addWidget(self._ds_info)
         
         info_v.addSpacing(8)
@@ -2855,7 +2860,7 @@ class ModelsTab(QWidget):
 
 def _placeholder(msg):
     lbl = QLabel(msg); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lbl.setStyleSheet(f'color:{C_FG2};font-size:14px;'); return lbl
+    lbl.setStyleSheet(f'color:{C.fg2};font-size:14px;'); return lbl
 
 
 class GOFWidget(QWidget):
@@ -2909,7 +2914,7 @@ class GOFWidget(QWidget):
         tbl.addWidget(exp_btn)
         v.addWidget(tb)
 
-        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C_BORDER};')
+        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C.border};')
         v.addWidget(sep)
 
         # ── Plot grid ─────────────────────────────────────────────────────────
@@ -2987,7 +2992,7 @@ class GOFWidget(QWidget):
                 p.addItem(pg.ScatterPlotItem(x=x, y=y, pen=None, brush=blue, size=5))
                 if reflines[key]:
                     mn=min(x.min(),y.min()); mx=max(x.max(),y.max())
-                    p.plot([mn,mx],[mn,mx], pen=pg.mkPen(C_RED, width=1.5))
+                    p.plot([mn,mx],[mn,mx], pen=pg.mkPen(C.red, width=1.5))
                 else:
                     p.plot([x.min(),x.max()],[0,0],
                            pen=pg.mkPen('#aaaaaa',width=1.5,style=Qt.PenStyle.DashLine))
@@ -3109,7 +3114,7 @@ class IndFitWidget(QWidget):
             id_rows[rid].append(row)
         dv_b=pg.mkBrush(60,120,220,160)
         ip_p=pg.mkPen('#1a1a2e' if _active_theme=='light' else '#ffffff',width=2)
-        pr_p=pg.mkPen(C_RED,width=1,style=Qt.PenStyle.DashLine)
+        pr_p=pg.mkPen(C.red,width=1,style=Qt.PenStyle.DashLine)
         for i,rid in enumerate(ids_page):
             ri,ci_=divmod(i,g); p=self.gw.addPlot(row=ri,col=ci_,title=f'ID {rid}')
             p.showGrid(x=True,y=True,alpha=0.15)
@@ -3211,7 +3216,7 @@ class AncestryTreeWidget(QWidget):
         from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene
         self._scene = QGraphicsScene()
         # Use app background colour — not pyqtgraph bg which can be white in light mode
-        self._scene.setBackgroundBrush(QBrush(QColor(C_BG)))
+        self._scene.setBackgroundBrush(QBrush(QColor(C.bg)))
         self._view  = QGraphicsView(self._scene)
         self._view.setRenderHint(self._view.renderHints().__class__.Antialiasing, True)
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
@@ -3296,7 +3301,7 @@ class AncestryTreeWidget(QWidget):
             return x, y, NW, NH
 
         # Draw edges first (behind nodes)
-        pen_edge = QPen(QColor(C_BORDER)); pen_edge.setWidth(2)
+        pen_edge = QPen(QColor(C.border)); pen_edge.setWidth(2)
         for stem in pos:
             m = by_stem.get(stem)
             if not m: continue
@@ -3325,16 +3330,16 @@ class AncestryTreeWidget(QWidget):
 
             # Background colour
             if is_current:
-                fill = QColor(C_BLUE)
+                fill = QColor(C.blue)
             elif is_ok:
                 fill = QColor('#1a3a2a') if _active_theme == 'dark' else QColor('#e6f4ed')
             elif is_fail:
                 fill = QColor('#3a1a1a') if _active_theme == 'dark' else QColor('#fce8e8')
             else:
                 # Neutral: use BG3 which contrasts against the scene background in both themes
-                fill = QColor(C_BG3)
+                fill = QColor(C.bg3)
 
-            border_col = QColor(C_BLUE if is_current else C_BORDER)
+            border_col = QColor(C.blue if is_current else C.border)
             pen_node   = QPen(border_col); pen_node.setWidth(2 if is_current else 1)
 
             rect = QGraphicsRectItem(x, y, w, h)
@@ -3355,14 +3360,14 @@ class AncestryTreeWidget(QWidget):
                 sx = 4
 
             # Status dot
-            dot_col = QColor(C_GREEN if is_ok else C_RED if is_fail else C_FG2)
+            dot_col = QColor(C.green if is_ok else C.red if is_fail else C.fg2)
             dot = QGraphicsEllipseItem(x + w - 12, y + h/2 - 4, 8, 8)
             dot.setBrush(QBrush(dot_col)); dot.setPen(QPen(Qt.PenStyle.NoPen))
             self._scene.addItem(dot)
 
             # Stem label
             lbl = self._scene.addText(stem)
-            lbl.setDefaultTextColor(QColor('#ffffff' if is_current else C_FG))
+            lbl.setDefaultTextColor(QColor('#ffffff' if is_current else C.fg))
             lbl.setPos(x + sx, y + 2)
             f = lbl.font(); f.setPointSize(10); f.setBold(is_current); lbl.setFont(f)
             lbl.setTextWidth(w - sx - 16)
@@ -3371,7 +3376,7 @@ class AncestryTreeWidget(QWidget):
             ofv = m.get('ofv')
             if ofv is not None:
                 olbl = self._scene.addText(f'{ofv:.2f}')
-                olbl.setDefaultTextColor(QColor('#aaaacc' if is_current else C_FG2))
+                olbl.setDefaultTextColor(QColor('#aaaacc' if is_current else C.fg2))
                 f2 = olbl.font(); f2.setPointSize(8); olbl.setFont(f2)
                 olbl.setPos(x + sx, y + h - 18)
 
@@ -3439,7 +3444,7 @@ class ETACovWidget(QWidget):
         cl.addWidget(plot_btn)
         v.addWidget(ctrl)
 
-        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C_BORDER};')
+        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C.border};')
         v.addWidget(sep)
 
         self.gw = pg.GraphicsLayoutWidget(); v.addWidget(self.gw, 1)
@@ -3520,7 +3525,7 @@ class ConvergenceWidget(QWidget):
         if 'OBJ' in cols:
             p1=self.gw.addPlot(row=0,col=0,title='OFV')
             p1.setLabel('left','OFV'); p1.setLabel('bottom','Iteration'); p1.showGrid(x=True,y=True,alpha=0.2)
-            p1.plot(iters,np.array([r['OBJ'] for r in data]),pen=pg.mkPen(C_GREEN,width=2))
+            p1.plot(iters,np.array([r['OBJ'] for r in data]),pen=pg.mkPen(C.green,width=2))
         pcols=[c for c in cols if c not in ('ITERATION','OBJ') and
                any(c.startswith(p) for p in ('THETA','OMEGA','SIGMA'))]
         if pcols:
@@ -3781,7 +3786,7 @@ class DataExplorerWidget(QWidget):
         root.addWidget(left)
 
         sep = QWidget(); sep.setFixedWidth(1)
-        sep.setStyleSheet(f'background:{C_BORDER};')
+        sep.setStyleSheet(f'background:{C.border};')
         root.addWidget(sep)
 
         # ── Right: pill strip + stacked ──────────────────────────────────────
@@ -3798,11 +3803,11 @@ class DataExplorerWidget(QWidget):
             tl.addWidget(btn); self._de_btns.append(btn)
         tl.addSpacing(12)
         self.info_lbl = QLabel('Load a file from the browser')
-        self.info_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
+        self.info_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
         tl.addWidget(self.info_lbl, 1)
         rv.addWidget(toolbar)
 
-        de_sep = QWidget(); de_sep.setFixedHeight(1); de_sep.setStyleSheet(f'background:{C_BORDER};')
+        de_sep = QWidget(); de_sep.setFixedHeight(1); de_sep.setStyleSheet(f'background:{C.border};')
         rv.addWidget(de_sep)
 
         self.sub_tabs = QStackedWidget()
@@ -4094,7 +4099,7 @@ class DataExplorerWidget(QWidget):
                 ax=np.array([float(r[xi]) for r in rows_f]); ay=np.array([float(r[yi]) for r in rows_f])
                 mn=min(ax[np.isfinite(ax)].min(),ay[np.isfinite(ay)].min())
                 mx=max(ax[np.isfinite(ax)].max(),ay[np.isfinite(ay)].max())
-                self.pw.plot([mn,mx],[mn,mx],pen=pg.mkPen(C_RED,width=1.5))
+                self.pw.plot([mn,mx],[mn,mx],pen=pg.mkPen(C.red,width=1.5))
             except Exception: pass  # Reference line is non-critical
 
         filt_desc = '  '.join(
@@ -4127,9 +4132,9 @@ class EvaluationTab(QWidget):
 
         ctx_row = QHBoxLayout()
         self._model_lbl = QLabel('No model selected')
-        self._model_lbl.setStyleSheet(f'color:{C_FG2};font-size:12px;font-weight:600;')
+        self._model_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;font-weight:600;')
         self._table_lbl = QLabel('')
-        self._table_lbl.setStyleSheet(f'color:{C_FG2};font-size:12px;')
+        self._table_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;')
         ctx_row.addWidget(self._model_lbl); ctx_row.addSpacing(12)
         ctx_row.addWidget(self._table_lbl); ctx_row.addStretch()
         tbl.addLayout(ctx_row)
@@ -4165,7 +4170,7 @@ class EvaluationTab(QWidget):
 
         # ── Thin separator ────────────────────────────────────────────────────
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C_BORDER};')
+        sep.setStyleSheet(f'background:{C.border};')
         v.addWidget(sep)
 
         # ── Stacked content ───────────────────────────────────────────────────
@@ -4502,11 +4507,11 @@ class VPCTab(QWidget):
         # ── Buttons ───────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         self.run_btn  = QPushButton('Generate VPC'); self.run_btn.clicked.connect(self._run)
-        self.run_btn.setStyleSheet(f'background:{C_GREEN};color:#000;font-weight:bold;padding:5px 18px;')
+        self.run_btn.setStyleSheet(f'background:{C.green};color:#000;font-weight:bold;padding:5px 18px;')
         self.stop_btn = QPushButton('Stop'); self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.setEnabled(False)
         self.r_status_lbl = QLabel('Checking R…')
-        self.r_status_lbl.setStyleSheet(f'color:{C_FG2};')
+        self.r_status_lbl.setStyleSheet(f'color:{C.fg2};')
         btn_row.addWidget(self.run_btn); btn_row.addWidget(self.stop_btn)
         btn_row.addStretch(); btn_row.addWidget(self.r_status_lbl)
         v.addLayout(btn_row)
@@ -4521,7 +4526,7 @@ class VPCTab(QWidget):
         img_toolbar = QWidget(); img_toolbar.setFixedHeight(36)
         itl = QHBoxLayout(img_toolbar); itl.setContentsMargins(8,4,8,4); itl.setSpacing(8)
         self.tool_lbl = QLabel('')
-        self.tool_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
+        self.tool_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
         self._open_btn   = QPushButton('Open in viewer')
         self._savepng_btn = QPushButton('Save high-res PNG…')
         self._savepdf_btn = QPushButton('Save PDF…')
@@ -4538,7 +4543,7 @@ class VPCTab(QWidget):
 
         self.img_lbl = QLabel('No VPC generated yet')
         self.img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.img_lbl.setStyleSheet(f'color:{C_FG2};font-size:14px;')
+        self.img_lbl.setStyleSheet(f'color:{C.fg2};font-size:14px;')
         self.img_lbl.setMinimumSize(400,300)
         self.img_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._last_png = None   # path to most recently generated PNG
@@ -4561,7 +4566,7 @@ class VPCTab(QWidget):
         vpl.addStretch()
         rp_v.addWidget(vpc_pill_bar)
 
-        vpc_sep = QWidget(); vpc_sep.setFixedHeight(1); vpc_sep.setStyleSheet(f'background:{C_BORDER};')
+        vpc_sep = QWidget(); vpc_sep.setFixedHeight(1); vpc_sep.setStyleSheet(f'background:{C.border};')
         rp_v.addWidget(vpc_sep)
 
         self._right_tabs = QStackedWidget()
@@ -7167,7 +7172,7 @@ class LstOutputWidget(QWidget):
         tb = QWidget(); tb.setFixedHeight(36)
         tbl = QHBoxLayout(tb); tbl.setContentsMargins(8,4,8,4); tbl.setSpacing(8)
         self._status_lbl = QLabel('No model selected')
-        self._status_lbl.setStyleSheet(f'color:{C_FG2};font-size:12px;')
+        self._status_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;')
         tbl.addWidget(self._status_lbl, 1)
         self._browser_btn = QPushButton('Open in browser')
         self._browser_btn.setFixedHeight(26)
@@ -7177,7 +7182,7 @@ class LstOutputWidget(QWidget):
         v.addWidget(tb)
 
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C_BORDER};')
+        sep.setStyleSheet(f'background:{C.border};')
         v.addWidget(sep)
 
         # QTextBrowser renders basic HTML tables and CSS
@@ -7229,7 +7234,7 @@ class LstViewerDialog(QDialog):
         self._search = QLineEdit(); self._search.setPlaceholderText('Search… (Enter = next, Shift+Enter = prev)')
         self._search.returnPressed.connect(self._find_next)
         self._match_lbl = QLabel('')
-        self._match_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
+        self._match_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
         prev_btn = QPushButton('^'); prev_btn.setFixedWidth(32); prev_btn.clicked.connect(self._find_prev)
         next_btn = QPushButton('v'); next_btn.setFixedWidth(32); next_btn.clicked.connect(self._find_next)
         search_row.addWidget(self._search, 1); search_row.addWidget(prev_btn)
@@ -7299,7 +7304,7 @@ class ModelComparisonDialog(QDialog):
         for m, align in [(model_a, Qt.AlignmentFlag.AlignLeft),
                          (model_b, Qt.AlignmentFlag.AlignRight)]:
             lbl = QLabel(f'<b>{m["stem"]}</b><br>'
-                         f'<span style="color:{C_FG2};font-size:11px;">'
+                         f'<span style="color:{C.fg2};font-size:11px;">'
                          f'OFV: {fmt_ofv(m.get("ofv"))}  ·  '
                          f'{m.get("estimation_method","")}  ·  '
                          f'{"✓ COV" if m.get("covariance_step") else ""}</span>')
@@ -7312,8 +7317,8 @@ class ModelComparisonDialog(QDialog):
         mid_lbl = QLabel(f'<b>ΔOFV: {dofv:+.3f}</b>' if dofv is not None else 'ΔOFV: —')
         mid_lbl.setTextFormat(Qt.TextFormat.RichText)
         mid_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        col = C_GREEN if dofv is not None and dofv < -3.84 else \
-              C_ORANGE if dofv is not None and dofv < 0 else C_RED if dofv is not None else C_FG2
+        col = C.green if dofv is not None and dofv < -3.84 else \
+              C.orange if dofv is not None and dofv < 0 else C.red if dofv is not None else C.fg2
         mid_lbl.setStyleSheet(f'color:{col};font-size:14px;')
         hdr.insertWidget(1, mid_lbl)
         v.addLayout(hdr)
@@ -7342,15 +7347,15 @@ class ModelComparisonDialog(QDialog):
         self.table.setRowCount(len(rows))
         R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         L = Qt.AlignmentFlag.AlignLeft  | Qt.AlignmentFlag.AlignVCenter
-        grey = QBrush(QColor(C_FG2))
+        grey = QBrush(QColor(C.fg2))
 
         for ri, row_data in enumerate(rows):
             lbl, nm, est_a, rse_a, est_b, rse_b, delta, delta_pct, is_block, is_fixed = row_data
             if is_block:
                 for ci in range(len(cols)):
                     item = QTableWidgetItem(lbl if ci == 0 else '')
-                    item.setBackground(QBrush(QColor(C_BG3)))
-                    item.setForeground(QBrush(QColor(C_BLUE)))
+                    item.setBackground(QBrush(QColor(C.bg3)))
+                    item.setForeground(QBrush(QColor(C.blue)))
                     f = item.font(); f.setBold(True); f.setPointSize(10); item.setFont(f)
                     self.table.setItem(ri, ci, item)
                 continue
@@ -7364,12 +7369,12 @@ class ModelComparisonDialog(QDialog):
                 if ci == 6 and txt and txt not in ('—', ''):
                     try:
                         d = float(txt)
-                        item.setForeground(QBrush(QColor(C_GREEN if d < 0 else C_RED)))
+                        item.setForeground(QBrush(QColor(C.green if d < 0 else C.red)))
                     except ValueError: pass
                 if ci == 7 and txt and txt not in ('—', ''):
                     try:
                         dp = float(txt.rstrip('%'))
-                        item.setForeground(QBrush(QColor(C_GREEN if abs(dp) < 20 else C_ORANGE if abs(dp) < 50 else C_RED)))
+                        item.setForeground(QBrush(QColor(C.green if abs(dp) < 20 else C.orange if abs(dp) < 50 else C.red)))
                     except ValueError: pass
                 self.table.setItem(ri, ci, item)
 
@@ -7382,7 +7387,7 @@ class ModelComparisonDialog(QDialog):
             def fmt_shr(s): return '  '.join(f'ETA{i+1}: {v:.1f}%' for i,v in enumerate(s)) if s else '—'
             shr_lbl = QLabel(f'Shrinkage  {model_a["stem"]}: {fmt_shr(shr_a)}    '
                              f'{model_b["stem"]}: {fmt_shr(shr_b)}')
-            shr_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;')
+            shr_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
             v.addWidget(shr_lbl)
 
         # Buttons
@@ -7540,9 +7545,9 @@ class RunHistoryTab(QWidget):
 
         # Command preview
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C_BORDER};'); v.addWidget(sep)
+        sep.setStyleSheet(f'background:{C.border};'); v.addWidget(sep)
         cmd_lbl = QLabel('Command')
-        cmd_lbl.setStyleSheet(f'color:{C_FG2};font-size:11px;font-weight:700;text-transform:uppercase;')
+        cmd_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;font-weight:700;text-transform:uppercase;')
         v.addWidget(cmd_lbl)
         self._cmd_view = QPlainTextEdit()
         self._cmd_view.setReadOnly(True)
@@ -7576,15 +7581,15 @@ class RunHistoryTab(QWidget):
             finished = run.get('finished')
             # Normalise legacy statuses from before the status-fix
             if status == 'finished' or (status == 'running' and finished):
-                status_display = 'ok'; status_col = QColor(C_GREEN)
+                status_display = 'ok'; status_col = QColor(C.green)
             elif status == 'ok':
-                status_display = 'ok'; status_col = QColor(C_GREEN)
+                status_display = 'ok'; status_col = QColor(C.green)
             elif 'fail' in str(status):
-                status_display = status; status_col = QColor(C_RED)
+                status_display = status; status_col = QColor(C.red)
             elif status == 'running' and not finished:
-                status_display = 'unknown'; status_col = QColor(C_FG2)
+                status_display = 'unknown'; status_col = QColor(C.fg2)
             else:
-                status_display = status; status_col = QColor(C_FG2)
+                status_display = status; status_col = QColor(C.fg2)
             started = run.get('started','')
             # Format started timestamp
             try:
@@ -7933,7 +7938,7 @@ class AboutDialog(QDialog):
 
         # Coloured header band
         header = QWidget()
-        header.setStyleSheet(f'background:{C_BLUE};')
+        header.setStyleSheet(f'background:{C.blue};')
         header.setFixedHeight(80)
         hl = QHBoxLayout(header); hl.setContentsMargins(24,0,24,0); hl.setSpacing(16)
         logo_lbl = QLabel(); logo_lbl.setPixmap(_make_logo_pixmap(48)); logo_lbl.setFixedSize(48,48)
@@ -7956,12 +7961,12 @@ class AboutDialog(QDialog):
             'manage NONMEM models, visualise diagnostics, run PsN tools, and compare '
             'model output without leaving one window.')
         purpose.setWordWrap(True)
-        purpose.setStyleSheet(f'font-size:12px;color:{C_FG};line-height:1.5;')
+        purpose.setStyleSheet(f'font-size:12px;color:{C.fg};line-height:1.5;')
         bv.addWidget(purpose)
 
         from PyQt6.QtWidgets import QFrame
         sep1 = QFrame(); sep1.setFrameShape(QFrame.Shape.HLine)
-        sep1.setStyleSheet(f'color:{C_BORDER};'); bv.addWidget(sep1)
+        sep1.setStyleSheet(f'color:{C.border};'); bv.addWidget(sep1)
 
         # Author
         author = QLabel(
@@ -7972,11 +7977,11 @@ class AboutDialog(QDialog):
             f'Radboud Applied Pharmacometrics</a>  ·  Radboudumc, Nijmegen')
         author.setOpenExternalLinks(True)
         author.setWordWrap(True)
-        author.setStyleSheet(f'font-size:12px;color:{C_FG};')
+        author.setStyleSheet(f'font-size:12px;color:{C.fg};')
         bv.addWidget(author)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet(f'color:{C_BORDER};'); bv.addWidget(sep2)
+        sep2.setStyleSheet(f'color:{C.border};'); bv.addWidget(sep2)
 
         # Source & contribute
         source = QLabel(
@@ -7988,11 +7993,11 @@ class AboutDialog(QDialog):
             f'are all appreciated.')
         source.setOpenExternalLinks(True)
         source.setWordWrap(True)
-        source.setStyleSheet(f'font-size:12px;color:{C_FG};')
+        source.setStyleSheet(f'font-size:12px;color:{C.fg};')
         bv.addWidget(source)
 
         sep3 = QFrame(); sep3.setFrameShape(QFrame.Shape.HLine)
-        sep3.setStyleSheet(f'color:{C_BORDER};'); bv.addWidget(sep3)
+        sep3.setStyleSheet(f'color:{C.border};'); bv.addWidget(sep3)
 
         # AI + environment
         pg_ver = pg.__version__ if HAS_PG else 'not installed'
@@ -8004,7 +8009,7 @@ class AboutDialog(QDialog):
             f'PyQt6 {_pyqt6_version()}  ·  '
             f'pyqtgraph {pg_ver}  ·  numpy {np_ver}')
         env.setWordWrap(True)
-        env.setStyleSheet(f'font-size:11px;color:{C_FG2};')
+        env.setStyleSheet(f'font-size:11px;color:{C.fg2};')
         bv.addWidget(env)
 
         v.addWidget(body)
@@ -8169,9 +8174,9 @@ class MainWindow(QMainWindow):
         name_lbl = QLabel('NMGUI')
         name_lbl.setStyleSheet('font-size:16px;font-weight:700;letter-spacing:-.5px;background:transparent;')
         ver_lbl = QLabel(f'v{APP_VERSION}')
-        ver_lbl.setStyleSheet(f'font-size:11px;color:{C_FG2};margin-top:3px;background:transparent;')
+        ver_lbl.setStyleSheet(f'font-size:11px;color:{C.fg2};margin-top:3px;background:transparent;')
         self._ctx_lbl = QLabel('')
-        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C_FG2};background:transparent;')
+        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C.fg2};background:transparent;')
         # RStudio button — global, always visible
         self._rs_btn = QPushButton('Open RStudio')
         self._rs_btn.setToolTip('Open RStudio with the current model directory as project')
@@ -8187,7 +8192,7 @@ class MainWindow(QMainWindow):
         hl.addWidget(self._rs_btn)
         root.addWidget(header)
 
-        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C_BORDER};')
+        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C.border};')
         root.addWidget(sep)
 
         # ── Body: sidebar + stacked pages ─────────────────────────────────────
@@ -8220,14 +8225,14 @@ class MainWindow(QMainWindow):
             # QPainter icon — drawn at 28px, coloured to theme fg
             icon_lbl = QLabel(); icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             icon_lbl.setFixedHeight(28)
-            icon_lbl.setPixmap(_make_nav_icon(icon_name, 28, C_FG))
+            icon_lbl.setPixmap(_make_nav_icon(icon_name, 28, C.fg))
             icon_lbl.setStyleSheet('background:transparent;')
 
             # Text label
             text_lbl = QLabel(label); text_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             text_lbl.setStyleSheet('background:transparent;')
             pal = text_lbl.palette()
-            pal.setColor(pal.ColorRole.WindowText, QColor(C_FG))
+            pal.setColor(pal.ColorRole.WindowText, QColor(C.fg))
             text_lbl.setPalette(pal)
             f = text_lbl.font(); f.setPointSize(8); text_lbl.setFont(f)
 
@@ -8242,7 +8247,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self._sidebar)
 
         # Sidebar separator
-        ssep = QWidget(); ssep.setFixedWidth(1); ssep.setStyleSheet(f'background:{C_BORDER};')
+        ssep = QWidget(); ssep.setFixedWidth(1); ssep.setStyleSheet(f'background:{C.border};')
         body.addWidget(ssep)
 
         # Stacked pages
@@ -8333,9 +8338,7 @@ class MainWindow(QMainWindow):
         else: self.statusBar().showMessage(f'RStudio opened — {Path(directory).name}')
 
     def _apply_theme(self, theme_name):
-        global _active_theme
-        _active_theme = theme_name
-        _set_theme_aliases()
+        set_active_theme(theme_name)
         t = THEMES[theme_name]
         if HAS_PG:
             pg.setConfigOptions(background=t['pg_bg'], foreground=t['pg_fg'])
@@ -8351,18 +8354,17 @@ class MainWindow(QMainWindow):
         # Tree nodes use theme colours — rebuild if models are loaded
         if self.tree_tab._models:
             self.tree_tab._rebuild()
-        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C_FG2};background:transparent;')
+        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C.fg2};background:transparent;')
         # Redraw sidebar icons and update text label colours for new theme
         for icon_lbl, icon_name, text_lbl in self._nav_icon_lbls:
-            icon_lbl.setPixmap(_make_nav_icon(icon_name, 28, C_FG))
+            icon_lbl.setPixmap(_make_nav_icon(icon_name, 28, C.fg))
             pal = text_lbl.palette()
-            pal.setColor(pal.ColorRole.WindowText, QColor(C_FG))
+            pal.setColor(pal.ColorRole.WindowText, QColor(C.fg))
             text_lbl.setPalette(pal)
         self.statusBar().showMessage(f'Theme: {theme_name.capitalize()}')
 
     def _toggle_theme(self):
         """Toggle between dark and light themes."""
-        global _active_theme
         new_theme = 'light' if _active_theme == 'dark' else 'dark'
         self._apply_theme(new_theme)
         # Update settings combo to match
@@ -8409,9 +8411,7 @@ def main():
     else:        app.setStyle('Fusion')
     # Apply saved theme (default dark)
     saved_theme = load_settings().get('theme', 'dark')
-    global _active_theme
-    _active_theme = saved_theme
-    _set_theme_aliases()
+    set_active_theme(saved_theme)
     if HAS_PG:
         t = THEMES[saved_theme]
         pg.setConfigOptions(background=t['pg_bg'], foreground=t['pg_fg'])
