@@ -653,18 +653,19 @@ def parse_lst(lst_path):
 
     # Count estimated parameters and compute AIC/BIC
     n_est = 0
-    # Count non-fixed THETAs (SE is not None)
+    # Count non-fixed THETAs: SE must be present (not None) and non-zero.
+    # NONMEM reports SE=0 for FIX'd parameters when COV step runs.
     if result['theta_ses']:
-        n_est += sum(1 for s in result['theta_ses'] if s is not None)
+        n_est += sum(1 for s in result['theta_ses'] if s is not None and s != 0)
     elif result['thetas']:
         # No COV: try to detect FIX'd THETAs from echoed control stream
         theta_fix_count = len(re.findall(r'\$THETA[^;$]*?FIX', text, re.IGNORECASE))
         n_est += max(0, len(result['thetas']) - theta_fix_count)
 
-    # Count non-fixed OMEGA elements
+    # Count non-fixed OMEGA elements (SE=0 means FIXED)
     if result['omega_se_matrix']:
         for row in result['omega_se_matrix']:
-            n_est += sum(1 for s in row if s is not None)
+            n_est += sum(1 for s in row if s is not None and s != 0)
     elif result['omega_matrix']:
         # Check for $OMEGA ... FIX in echoed control stream
         omega_fix_count = len(re.findall(r'\$OMEGA[^$]*?FIX', text, re.IGNORECASE))
@@ -675,10 +676,10 @@ def parse_lst(lst_path):
             for row in result['omega_matrix']:
                 n_est += sum(1 for v in row if v is not None and v != 0)
 
-    # Count non-fixed SIGMA elements
+    # Count non-fixed SIGMA elements (SE=0 means FIXED)
     if result['sigma_se_matrix']:
         for row in result['sigma_se_matrix']:
-            n_est += sum(1 for s in row if s is not None)
+            n_est += sum(1 for s in row if s is not None and s != 0)
     elif result['sigma_matrix']:
         sigma_fix_count = len(re.findall(r'\$SIGMA[^$]*?FIX', text, re.IGNORECASE))
         if sigma_fix_count > 0:

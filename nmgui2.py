@@ -745,7 +745,12 @@ def load_settings():
     return {'working_directory': str(HOME), 'psn_path': '', 'nonmem_path': ''}
 
 def save_settings(s):
-    SETTINGS_FILE.write_text(json.dumps(s, indent=2), encoding='utf-8')
+    tmp = SETTINGS_FILE.with_suffix('.tmp')
+    try:
+        tmp.write_text(json.dumps(s, indent=2), encoding='utf-8')
+        tmp.replace(SETTINGS_FILE)
+    except Exception:
+        tmp.unlink(missing_ok=True); raise
 
 def load_bookmarks():
     if BOOKMARKS_FILE.exists():
@@ -754,7 +759,12 @@ def load_bookmarks():
     return []
 
 def save_bookmarks(b):
-    BOOKMARKS_FILE.write_text(json.dumps(b, indent=2), encoding='utf-8')
+    tmp = BOOKMARKS_FILE.with_suffix('.tmp')
+    try:
+        tmp.write_text(json.dumps(b, indent=2), encoding='utf-8')
+        tmp.replace(BOOKMARKS_FILE)
+    except Exception:
+        tmp.unlink(missing_ok=True); raise
 
 def load_runs():
     if RUNS_FILE.exists():
@@ -763,7 +773,12 @@ def load_runs():
     return []
 
 def save_runs(runs):
-    RUNS_FILE.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
+    tmp = RUNS_FILE.with_suffix('.tmp')
+    try:
+        tmp.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
+        tmp.replace(RUNS_FILE)
+    except Exception:
+        tmp.unlink(missing_ok=True); raise
 
 # ── Run Records (per-project audit trail) ────────────────────────────────────
 RUN_RECORDS_FILE = 'nmgui_run_records.json'
@@ -3102,11 +3117,11 @@ class IndFitWidget(QWidget):
             def cv(idx):
                 if idx is None: return None
                 try: return np.array([float(r[idx]) for r,o in zip(rws,ok) if o])
-                except: return None
+                except (ValueError, TypeError, IndexError): return None
             def cv_all(idx):
                 if idx is None: return None
                 try: return np.array([float(r[idx]) for r in rws])
-                except: return None
+                except (ValueError, TypeError, IndexError): return None
             to=cv(ct); dvo=cv(cd); ta=cv_all(ct); pra=cv_all(cp); ipa=cv_all(ci2)
             if to is not None and dvo is not None: p.addItem(pg.ScatterPlotItem(x=to,y=dvo,pen=None,brush=dv_b,size=6))
             if ta is not None and ipa is not None:
@@ -3457,7 +3472,7 @@ class ETACovWidget(QWidget):
         H = self._header
         def to_float(v):
             try: return float(v)
-            except: return float('nan')
+            except (ValueError, TypeError): return float('nan')
         arr = np.array([[to_float(v) for v in row] for row in self._rows])
         ei = H.index(eta); eta_vals = arr[:,ei]
         self.gw.clear()
@@ -7627,7 +7642,7 @@ class SettingsTab(QWidget):
         ag = QHBoxLayout(appear_grp); ag.setContentsMargins(12,16,12,12)
         ag.addWidget(QLabel('Theme:'))
         self.theme_combo = QComboBox(); self.theme_combo.addItems(['Dark','Light'])
-        saved_theme = s.get('theme', 'dark').capitalize()
+        saved_theme = (s.get('theme') or 'dark').capitalize()
         self.theme_combo.setCurrentText(saved_theme); self.theme_combo.setFixedWidth(120)
         self.theme_combo.currentTextChanged.connect(
             lambda t: self.theme_changed.emit(t.lower()))
