@@ -788,7 +788,8 @@ def _detect_nonmem_version(cwd):
             return f'7.{ver[1]}'
     # Try to get from psn
     try:
-        r = subprocess.run(['psn', '-nm_versions'], capture_output=True, text=True, timeout=5, env=get_login_env())
+        _wkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
+        r = subprocess.run(['psn', '-nm_versions'], capture_output=True, text=True, timeout=5, env=get_login_env(), **_wkw)
         if r.stdout:
             match = re.search(r'default is (\d+\.\d+)', r.stdout)
             if match: return match.group(1)
@@ -798,7 +799,8 @@ def _detect_nonmem_version(cwd):
 def _detect_psn_version():
     """Detect PsN version."""
     try:
-        r = subprocess.run(['psn', '-version'], capture_output=True, text=True, timeout=5, env=get_login_env())
+        _wkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
+        r = subprocess.run(['psn', '-version'], capture_output=True, text=True, timeout=5, env=get_login_env(), **_wkw)
         if r.stdout:
             match = re.search(r'PsN\s+(\d+\.\d+\.\d+)', r.stdout)
             if match: return match.group(1)
@@ -1157,7 +1159,7 @@ class RunWorker(QThread):
             kw = dict(shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                       cwd=self.cwd, text=True, bufsize=1, env=self._env)
             if not IS_WIN: kw['preexec_fn'] = os.setsid
-            else: kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
+            else: kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             self._proc = subprocess.Popen(self.cmd, **kw)
             for line in iter(self._proc.stdout.readline, ''):
                 self.line_out.emit(line.rstrip())
@@ -1874,7 +1876,7 @@ class ParameterTable(QWidget):
                     item.setToolTip('FIXED')
                 # Highlight changed estimate (col 2 = Estimate)
                 elif col == 2 and changed_from_parent:
-                    item.setText(f'△ {est}')
+                    item.setText(f'* {est}')
                     item.setForeground(QBrush(changed_color))
                     item.setToolTip(parent_tooltip)
                 # Apply shrinkage color
@@ -1969,8 +1971,8 @@ class ModelTableModel(QAbstractTableModel):
             if col == COL_CN:
                 cn = m.get('condition_number')
                 if cn is None: return ''
-                if cn >= 10000: return f'⚠ {cn:.2e}'
-                if cn >= 1000:  return f'⚠ {cn:.0f}'
+                if cn >= 10000: return f'! {cn:.2e}'
+                if cn >= 1000:  return f'! {cn:.0f}'
                 return f'{cn:.1f}'
             if col == COL_METHOD: return m.get('estimation_method','')
             if col == COL_NIND:  return str(m['n_individuals']) if m.get('n_individuals') else ''
@@ -3032,7 +3034,7 @@ class GOFWidget(QWidget):
 
 
 class IndFitWidget(QWidget):
-    GRIDS = {'2×2':2,'3×3':3,'4×4':4}
+    GRIDS = {'2x2':2,'3x3':3,'4x4':4}
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -3563,19 +3565,19 @@ class FilterRow(QWidget):
         try:
             cv = float(cell); vv = float(val)
             if op == '=':  return cv == vv
-            if op == '≠':  return cv != vv
+            if op == '!=': return cv != vv
             if op == '<':  return cv <  vv
-            if op == '≤':  return cv <= vv
+            if op == '<=': return cv <= vv
             if op == '>':  return cv >  vv
-            if op == '≥':  return cv >= vv
+            if op == '>=': return cv >= vv
         except ValueError:
             # String fallback
             if op == '=':  return cell == val
-            if op == '≠':  return cell != val
+            if op == '!=': return cell != val
             if op == '<':  return cell <  val
-            if op == '≤':  return cell <= val
+            if op == '<=': return cell <= val
             if op == '>':  return cell >  val
-            if op == '≥':  return cell >= val
+            if op == '>=': return cell >= val
         return True
 
 
@@ -4160,7 +4162,7 @@ class EvaluationTab(QWidget):
         inner_bar = QWidget(); inner_bar.setFixedHeight(34)
         il = QHBoxLayout(inner_bar); il.setContentsMargins(8,4,8,4); il.setSpacing(3)
         self._gof_btns = []
-        for i, lbl in enumerate(['GOF 2×2', 'CWRES Hist', 'QQ Plot', 'ETA vs Cov']):
+        for i, lbl in enumerate(['GOF 2x2', 'CWRES Hist', 'QQ Plot', 'ETA vs Cov']):
             btn = QPushButton(lbl); btn.setObjectName('innerPillBtn')
             btn.setCheckable(True); btn.setFixedHeight(24)
             btn.clicked.connect(lambda _, n=i: self._switch_gof(n))
@@ -4337,11 +4339,12 @@ def _check_r_packages():
     rscript = _find_rscript()
     if not rscript: return False, {}
     try:
+        _wkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {}
         rv = subprocess.run(
             [rscript,'-e',
              'pkgs<-rownames(installed.packages());'
              'cat(paste(c("vpc","xpose","xpose4")[c("vpc","xpose","xpose4")%in%pkgs],collapse=","))'],
-            capture_output=True, text=True, timeout=15, env=get_login_env())
+            capture_output=True, text=True, timeout=15, env=get_login_env(), **_wkw)
         installed = [p.strip() for p in rv.stdout.strip().split(',') if p.strip()]
         avail = {p: p in installed for p in ('vpc','xpose','xpose4')}
         return True, avail
@@ -4362,11 +4365,12 @@ class VPCWorker(QThread):
 
     def run(self):
         try:
+            _pkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {'start_new_session': True}
             proc = subprocess.Popen(
                 [self._rs, self._script],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, env=self._env,
-                cwd=str(Path(self._script).parent))
+                cwd=str(Path(self._script).parent), **_pkw)
             stdout_lines = []
             for line in iter(proc.stdout.readline,''):
                 self.line_out.emit(line.rstrip())
@@ -5720,6 +5724,7 @@ class PsNWorker(QThread):
     def run(self):
         try:
             self.line_out.emit(f'> {" ".join(self._cmd)}\n')
+            _pkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {'start_new_session': True}
             self._process = subprocess.Popen(
                 self._cmd,
                 stdout=subprocess.PIPE,
@@ -5727,7 +5732,8 @@ class PsNWorker(QThread):
                 text=True,
                 bufsize=1,
                 env=self._env,
-                cwd=str(Path(self._output_dir).parent) if self._output_dir else None
+                cwd=str(Path(self._output_dir).parent) if self._output_dir else None,
+                **_pkw
             )
 
             for line in iter(self._process.stdout.readline, ''):
@@ -7491,7 +7497,7 @@ class RunHistoryTab(QWidget):
         tb.addStretch()
         self._filter = QLineEdit(); self._filter.setPlaceholderText('Filter by model name or tool…')
         self._filter.setFixedWidth(280); self._filter.textChanged.connect(self._apply_filter)
-        refresh_btn = QPushButton('↻ Refresh'); refresh_btn.setFixedHeight(26)
+        refresh_btn = QPushButton('Refresh'); refresh_btn.setFixedHeight(26)
         refresh_btn.clicked.connect(self.load)
         clear_btn = QPushButton('Clear history'); clear_btn.setFixedHeight(26)
         clear_btn.clicked.connect(self._clear)
