@@ -2,10 +2,10 @@ import sys, threading, logging
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
-    QPushButton, QLabel, QApplication, QMessageBox, QAction,
+    QPushButton, QLabel, QApplication, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QTimer, QByteArray
-from PyQt6.QtGui import QKeySequence, QColor
+from PyQt6.QtGui import QKeySequence, QColor, QAction
 from .constants import IS_WIN, IS_MAC, APP_VERSION
 from .theme import C, T, THEMES, _active_theme, set_active_theme, build_stylesheet
 from .config import load_settings, save_settings

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QLabel, QPushButton,
     QComboBox, QLineEdit, QTextEdit, QMenu, QMessageBox, QFileDialog,
-    QAbstractTableModel, QApplication, QStyledItemDelegate,
+    QApplication, QStyledItemDelegate,
     QStackedWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox,
     QPlainTextEdit,
 )
