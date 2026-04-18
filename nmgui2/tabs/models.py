@@ -20,6 +20,7 @@ from ..app.run_records import create_run_record, finalize_run_record, load_run_r
 from ..app.workers import ScanWorker, RunWorker
 from ..app.model_io import _parse_param_names_from_mod, _align_param_names
 from ..app.html_report import generate_html_report
+from ..app.qc_report import generate_qc_html, open_report_in_browser
 from ..widgets.parameter_table import ParameterTable
 from ..widgets.highlighter import NMHighlighter
 from ..widgets.lst_viewer import LstOutputWidget
@@ -748,6 +749,10 @@ class ModelsTab(QWidget):
         menu.addAction('View .lst', self._view_lst)
         menu.addAction('View run record…', self._view_run_record)
         menu.addAction('NMTRAN messages…', self._show_nmtran)
+        menu.addSeparator()
+        if m.get('has_run'):
+            menu.addAction('QC Report…', self._open_qc_report)
+            menu.addAction('Run Report…', self._open_run_report)
         menu.exec(QCursor.pos())
 
     def _copy_mod_path(self):
@@ -782,6 +787,26 @@ class ModelsTab(QWidget):
         model_b = _align_param_names(model_b)
         dlg = ModelComparisonDialog(model_a, model_b, self)
         dlg.exec()
+
+    def _open_qc_report(self):
+        m = self._current_model
+        if not m: return
+        try:
+            html = generate_qc_html(m)
+            open_report_in_browser(html, stem=m.get('stem', 'model'), prefix='nmgui_qc')
+            self.status_msg.emit(f'QC report opened: {m["stem"]}')
+        except Exception as e:
+            QMessageBox.warning(self, 'QC Report', f'Could not generate report:\n{e}')
+
+    def _open_run_report(self):
+        m = self._current_model
+        if not m: return
+        try:
+            html = generate_html_report(m)
+            open_report_in_browser(html, stem=m.get('stem', 'model'), prefix='nmgui_run')
+            self.status_msg.emit(f'Run report opened: {m["stem"]}')
+        except Exception as e:
+            QMessageBox.warning(self, 'Run Report', f'Could not generate report:\n{e}')
 
     def _refresh_table_display(self):
         """Refresh Name and dOFV columns in the table without a full rescan."""
