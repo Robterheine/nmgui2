@@ -1,0 +1,159 @@
+import os, subprocess, logging, time
+from pathlib import Path
+from PyQt6.QtCore import QThread, pyqtSignal
+from .constants import IS_WIN
+from .config import get_meta_entry
+from .tools import get_login_env
+
+_log = logging.getLogger(__name__)
+
+try:
+    from parser import (
+        parse_lst, extract_param_names, extract_table_files,
+    )
+    HAS_PARSER = True
+except Exception:
+    HAS_PARSER = False
+
+
+class ScanWorker(QThread):
+    result = pyqtSignal(list)
+    error  = pyqtSignal(str)
+
+    def __init__(self, directory, meta):
+        super().__init__()
+        self.directory = directory
+        self.meta = meta
+        self._cancelled = False
+
+    def cancel(self):
+        """Request cancellation of the scan."""
+        self._cancelled = True
+
+    def run(self):
+        import re
+        if not HAS_PARSER:
+            self.error.emit('parser.py not found'); return
+        try:
+            models = []
+            p = Path(self.directory)
+            for f in sorted(p.iterdir()):
+                # Check for cancellation
+                if self._cancelled:
+                    _log.debug('ScanWorker cancelled')
+                    return
+                if not f.is_file() or f.suffix.lower() not in ('.mod', '.ctl'):
+                    continue
+                m = {k: v for k, v in {
+                    'name': f.name, 'path': str(f), 'stem': f.stem,
+                    'has_run': False, 'lst_path': '', 'stale': False,
+                    'ofv': None, 'minimization_successful': None, 'minimization_message': '',
+                    'covariance_step': None, 'n_individuals': None, 'n_observations': None,
+                    'n_estimated_params': None, 'aic': None, 'bic': None, 'runtime': None,
+                    'runtime_total': None, 'subproblems': [],
+                    'estimation_method': '', 'thetas': [], 'omegas': [], 'sigmas': [],
+                    'theta_ses': [], 'omega_ses': [], 'sigma_ses': [],
+                    'omega_se_matrix': [], 'sigma_se_matrix': [],
+                    'theta_names': [], 'omega_names': [], 'sigma_names': [],
+                    'theta_units': [], 'omega_units': [], 'sigma_units': [],
+                    'theta_fixed': [], 'omega_fixed': [], 'sigma_fixed': [],
+                    'eta_shrinkage': [], 'eps_shrinkage': [],
+                    'condition_number': None, 'boundary': False,
+                    'etabar': [], 'etabar_se': [], 'etabar_pval': [],
+                    'cov_failure_reason': '', 'correlation_matrix': [], 'cor_labels': [],
+                    'table_files': [], 'table_runno': '', 'problem': '', 'data_file': '',
+                    'comment': '', 'star': False, 'based_on': None, 'status_tag': '',
+                    'notes': '', 'n_thetas': 0, 'n_omegas': 0,
+                }.items()}
+                mod_mtime = f.stat().st_mtime
+                data_mtime = None
+                try:
+                    content = f.read_text('utf-8', errors='replace')
+                    prob = re.search(r'\$PROB(?:LEM)?\s+(.*?)(?:\n|\$)', content, re.IGNORECASE)
+                    if prob: m['problem'] = prob.group(1).strip()[:120]
+                    dat = re.search(r'\$DATA\s+(\S+)', content, re.IGNORECASE)
+                    if dat:
+                        m['data_file'] = dat.group(1)
+                        dp = p / m['data_file']
+                        if dp.is_file(): data_mtime = dp.stat().st_mtime
+                    pn = extract_param_names(content)
+                    for k in ('theta_names', 'omega_names', 'sigma_names',
+                              'theta_units', 'omega_units', 'sigma_units',
+                              'theta_fixed', 'omega_fixed', 'sigma_fixed'):
+                        m[k] = pn.get(k, [])
+                    # Parse parent model from PsN convention: ";; 1. Based on: runXX"
+                    based_m = re.search(r'^;;\s*1\.\s*Based on:\s*(\S+)', content, re.MULTILINE | re.IGNORECASE)
+                    if based_m:
+                        m['based_on'] = based_m.group(1).strip()
+                    tf = extract_table_files(content)
+                    m['table_files'] = tf['table_files']
+                    m['table_runno'] = tf['runno']
+                except Exception:
+                    pass
+                # Find .lst
+                lst_same = p / (f.stem + '.lst'); lst_sub = None
+                rd = p / f.stem
+                if rd.is_dir():
+                    cands = list(rd.glob('*.lst'))
+                    if cands: lst_sub = cands[0]
+                lst_path = lst_same if lst_same.is_file() else lst_sub
+                if lst_path:
+                    m['has_run'] = True; m['lst_path'] = str(lst_path)
+                    try:
+                        r = parse_lst(str(lst_path))
+                        for k in ('ofv', 'minimization_successful', 'minimization_message',
+                                  'covariance_step', 'n_individuals', 'n_observations',
+                                  'n_estimated_params', 'aic', 'bic', 'runtime', 'runtime_total',
+                                  'estimation_method', 'thetas', 'omegas', 'sigmas',
+                                  'theta_ses', 'omega_ses', 'sigma_ses',
+                                  'omega_se_matrix', 'sigma_se_matrix',
+                                  'condition_number', 'boundary', 'etabar', 'etabar_se',
+                                  'etabar_pval', 'cov_failure_reason', 'eta_shrinkage',
+                                  'eps_shrinkage', 'correlation_matrix', 'cor_labels',
+                                  'subproblems'):
+                            m[k] = r.get(k)
+                        m['n_thetas'] = len(r.get('thetas', [])); m['n_omegas'] = len(r.get('omegas', []))
+                        lst_mtime = lst_path.stat().st_mtime
+                        if mod_mtime > lst_mtime+2: m['stale'] = True
+                        elif data_mtime and data_mtime > lst_mtime+2: m['stale'] = True
+                    except Exception as e: _log.debug(f'Parse error for {f.name}: {e}')
+                meta_e = get_meta_entry(self.meta, f)
+                m.update({'comment': meta_e['comment'], 'star': meta_e['star'],
+                          'based_on': meta_e['based_on'], 'status_tag': meta_e['status'],
+                          'notes': meta_e['notes']})
+                models.append(m)
+            self.result.emit(models)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class RunWorker(QThread):
+    line_out = pyqtSignal(str)
+    finished = pyqtSignal(int)
+
+    def __init__(self, cmd, cwd):
+        super().__init__()
+        self.cmd = cmd; self.cwd = cwd
+        self._proc = None; self._env = get_login_env()
+
+    def run(self):
+        try:
+            kw = dict(shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                      cwd=self.cwd, text=True, bufsize=1, env=self._env)
+            if not IS_WIN: kw['preexec_fn'] = os.setsid
+            else: kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            self._proc = subprocess.Popen(self.cmd, **kw)
+            for line in iter(self._proc.stdout.readline, ''):
+                self.line_out.emit(line.rstrip())
+            self._proc.wait()
+            self.finished.emit(self._proc.returncode)
+        except Exception as e:
+            self.line_out.emit(f'[ERROR] {e}'); self.finished.emit(-1)
+
+    def stop(self):
+        import signal
+        if self._proc:
+            try:
+                if IS_WIN: self._proc.terminate()
+                else: os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
+            except Exception as e: _log.debug(f'Error stopping process: {e}')
