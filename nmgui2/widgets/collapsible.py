@@ -26,10 +26,11 @@ class CollapsibleCard(QWidget):
 
         self._body = QWidget()
         self._body.setStyleSheet(
-            f'background:{C.bg2};border:1px solid {C.border};'
-            f'border-top:none;border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
+            f'background:{C.bg2};border-left:1px solid {C.border};'
+            f'border-right:1px solid {C.border};border-bottom:1px solid {C.border};'
+            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
         self._body_layout = QVBoxLayout(self._body)
-        self._body_layout.setContentsMargins(10, 8, 10, 8)
+        self._body_layout.setContentsMargins(10, 10, 10, 10)
         self._body_layout.setSpacing(6)
         self._body.setVisible(expanded)
         outer.addWidget(self._body)
@@ -70,5 +71,6 @@ class CollapsibleCard(QWidget):
     def refresh_theme(self):
         self._btn.setStyleSheet(self._header_css())
         self._body.setStyleSheet(
-            f'background:{C.bg2};border:1px solid {C.border};'
-            f'border-top:none;border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
+            f'background:{C.bg2};border-left:1px solid {C.border};'
+            f'border-right:1px solid {C.border};border-bottom:1px solid {C.border};'
+            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
