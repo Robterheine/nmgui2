@@ -40,6 +40,7 @@ class RunPopup(QDialog):
         self._finished = False
 
         self.setWindowTitle(f'{stem} — {tool}')
+        self.setObjectName('RunPopupDlg')
         self.resize(720, 500)
         self.setMinimumSize(500, 300)
 
@@ -116,14 +117,8 @@ class RunPopup(QDialog):
         self.stop_btn = QPushButton('Stop')
         self.stop_btn.setObjectName('danger')
         self.stop_btn.setFixedWidth(70)
-        self.stop_btn.setToolTip('Gentle stop — sends SIGTERM; PsN writes output before exiting')
-        self.stop_btn.clicked.connect(self._gentle_stop)
-
-        self.kill_btn = QPushButton('▾')
-        self.kill_btn.setObjectName('danger')
-        self.kill_btn.setFixedWidth(22)
-        self.kill_btn.setToolTip('Stop options')
-        self.kill_btn.clicked.connect(self._show_stop_menu)
+        self.stop_btn.setToolTip('Click to stop the run')
+        self.stop_btn.clicked.connect(self._show_stop_menu)
 
         self.open_dir_btn = QPushButton('Open run dir')
         self.open_dir_btn.clicked.connect(self._open_run_dir)
@@ -132,7 +127,6 @@ class RunPopup(QDialog):
         self.close_btn.clicked.connect(self.close)
 
         bl.addWidget(self.stop_btn)
-        bl.addWidget(self.kill_btn)
         bl.addSpacing(8)
         bl.addWidget(self.open_dir_btn)
         bl.addStretch()
@@ -156,11 +150,13 @@ class RunPopup(QDialog):
 
     def _apply_theme(self):
         self.console.setPalette(self._make_console_palette())
-        # Use bg2 for both header and status — avoids tinted bg3 in light theme.
-        # Hairline widgets carry the separator colour via the app-level stylesheet.
+        # The app-level stylesheet sets background on every QWidget/QLabel globally.
+        # We must (a) give the header/status their own bg2, and (b) force all labels
+        # inside this dialog to be transparent so they don't paint over those bands.
         self.setStyleSheet(
             f'QWidget#runPopupHeader {{ background:{T("bg2")}; }}'
             f'QWidget#runPopupStatus  {{ background:{T("bg2")}; }}'
+            f'QDialog#RunPopupDlg QLabel {{ background:transparent; }}'
             f'QPlainTextEdit {{ border:1px solid {T("border")}; }}'
         )
 
@@ -221,9 +217,7 @@ class RunPopup(QDialog):
         self._elapsed_timer.stop()
         self._pulse_timer.stop()
 
-        # Hide stop controls — they're meaningless once the process has exited
         self.stop_btn.setVisible(False)
-        self.kill_btn.setVisible(False)
 
         if rc == 0:
             text = self.console.toPlainText()
@@ -273,9 +267,10 @@ class RunPopup(QDialog):
 
     def _show_stop_menu(self):
         menu = QMenu(self)
-        menu.addAction('Gentle stop  (SIGTERM — PsN writes output)', self._gentle_stop)
-        menu.addAction('Force kill   (SIGKILL — immediate, no output)', self._force_kill)
-        menu.exec(self.kill_btn.mapToGlobal(self.kill_btn.rect().bottomLeft()))
+        menu.addAction('Gentle stop  (SIGTERM — PsN finishes writing output)', self._gentle_stop)
+        menu.addSeparator()
+        menu.addAction('Force kill   (SIGKILL — immediate, no output written)', self._force_kill)
+        menu.exec(self.stop_btn.mapToGlobal(self.stop_btn.rect().bottomLeft()))
 
     def _gentle_stop(self):
         if self._worker:
