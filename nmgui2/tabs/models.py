@@ -366,11 +366,37 @@ class ModelsTab(QWidget):
         run_btn_row.addWidget(self.run_btn)
         run_btn_row.addWidget(nmtran_btn); run_btn_row.addStretch()
         run_v.addLayout(run_btn_row)
-        _hint = QLabel('Each run opens in its own popup window — multiple runs can run simultaneously.')
+
+        # ── Active / recent runs table ────────────────────────────────────────
+        _runs_lbl = QLabel('Active & recent runs')
+        _runs_lbl.setObjectName('section')
+        run_v.addSpacing(10)
+        run_v.addWidget(_runs_lbl)
+
+        self._run_list = QTableWidget(0, 4)
+        self._run_list.setHorizontalHeaderLabels(['Status', 'Model', 'Tool', 'Time'])
+        self._run_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self._run_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._run_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._run_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._run_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._run_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._run_list.verticalHeader().setVisible(False)
+        self._run_list.setShowGrid(False)
+        self._run_list.setAlternatingRowColors(False)
+        self._run_list.clicked.connect(self._raise_run_popup)
+        run_v.addWidget(self._run_list, 1)
+
+        _hint = QLabel('Click a row to bring its output window to the front.')
         _hint.setObjectName('muted')
-        _hint.setWordWrap(True)
         run_v.addWidget(_hint)
-        run_v.addStretch(1)
+
+        self._run_list.setVisible(False)   # hidden until first run starts
+
+        self._run_list_timer = QTimer(self)
+        self._run_list_timer.timeout.connect(self._refresh_run_list)
+        self._run_list_timer.start(1000)
+
         self._detail_stack.addWidget(run_w)
 
         # 3 — Info  (collapsible cards inside a scroll area)
@@ -971,9 +997,52 @@ class ModelsTab(QWidget):
         popup.run_completed.connect(self._on_popup_done)
         self._run_popups.append(popup)
         popup.destroyed.connect(lambda p=popup: self._run_popups.remove(p) if p in self._run_popups else None)
+        popup.destroyed.connect(self._refresh_run_list)
         popup.show()
+        self._refresh_run_list()
 
     def _on_popup_done(self, stem: str, cwd: str, rc: int):
         s = 'finished' if rc == 0 else f'failed (code {rc})'
         self.status_msg.emit(f'{stem}: run {s}')
+        self._refresh_run_list()
         QTimer.singleShot(1500, self._scan)
+
+    def _refresh_run_list(self):
+        popups = self._run_popups
+        self._run_list.setRowCount(len(popups))
+        for row, popup in enumerate(popups):
+            finished = getattr(popup, '_finished', False)
+            elapsed  = getattr(popup, '_elapsed', 0)
+
+            if finished:
+                raw = getattr(popup._status_lbl, 'text', lambda: '')()
+                ok  = raw.startswith('✓')
+                status_txt = raw if raw else ('✓  Completed' if ok else '✗  Failed')
+                col = C.green if ok else C.red
+            else:
+                status_txt = '● Running'
+                col = T('accent')
+
+            m2, s = divmod(elapsed, 60)
+            h,  m2 = divmod(m2, 60)
+            time_str = f'{h}:{m2:02d}:{s:02d}' if h else f'{m2}:{s:02d}'
+
+            def _item(text, fg=None, align=None):
+                it = QTableWidgetItem(text)
+                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                if fg:   it.setForeground(QBrush(QColor(fg)))
+                if align: it.setTextAlignment(align)
+                return it
+
+            self._run_list.setItem(row, 0, _item(status_txt, fg=col))
+            self._run_list.setItem(row, 1, _item(popup.stem))
+            self._run_list.setItem(row, 2, _item(popup.tool.upper(), fg=T('fg2')))
+            self._run_list.setItem(row, 3, _item(time_str, fg=T('fg2'),
+                                                  align=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+        self._run_list.setVisible(bool(popups))
+
+    def _raise_run_popup(self, index):
+        row = index.row()
+        if 0 <= row < len(self._run_popups):
+            p = self._run_popups[row]
+            p.show(); p.raise_(); p.activateWindow()
