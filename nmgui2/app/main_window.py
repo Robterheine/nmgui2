@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QByteArray
 from PyQt6.QtGui import QKeySequence, QColor, QAction
 from .constants import IS_WIN, IS_MAC, APP_VERSION
-from .theme import C, T, THEMES, _active_theme, set_active_theme, build_stylesheet
+from .theme import C, T, THEMES, _active_theme, set_active_theme, build_stylesheet, apply_palette
 from .config import load_settings, save_settings
 from .tools import launch_rstudio
 from ..widgets._icons import _make_logo_pixmap, _make_nav_icon
@@ -163,7 +163,7 @@ class MainWindow(QMainWindow):
         ver_lbl.setStyleSheet(
             f'font-size:11px;color:{C.fg2};margin-top:3px;background:transparent;')
         self._ctx_lbl = QLabel('')
-        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C.fg2};background:transparent;')
+        self._ctx_lbl.setObjectName('ctxLabel')
         self._rs_btn = QPushButton('Open RStudio')
         self._rs_btn.setToolTip('Open RStudio with the current model directory as project')
         self._rs_btn.setFixedHeight(28)
@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
 
         sep = QWidget()
         sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C.border};')
+        sep.setObjectName('hairlineSep')
         root.addWidget(sep)
 
         # Body: sidebar + stacked pages
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
 
         ssep = QWidget()
         ssep.setFixedWidth(1)
-        ssep.setStyleSheet(f'background:{C.border};')
+        ssep.setObjectName('hairlineSep')
         body.addWidget(ssep)
 
         self._stack = QStackedWidget()
@@ -342,6 +342,7 @@ class MainWindow(QMainWindow):
         t = THEMES[theme_name]
         if HAS_PG:
             pg.setConfigOptions(background=t['pg_bg'], foreground=t['pg_fg'])
+        apply_palette(QApplication.instance(), theme_name)
         QApplication.instance().setStyleSheet(build_stylesheet(theme_name))
         bg = t['pg_bg']
         fg = t['pg_fg']
@@ -356,7 +357,13 @@ class MainWindow(QMainWindow):
                 w.set_theme(bg, fg)
         if self.tree_tab._models:
             self.tree_tab._rebuild()
-        self._ctx_lbl.setStyleSheet(f'font-size:12px;color:{C.fg2};background:transparent;')
+        from ..widgets.collapsible import CollapsibleCard
+        from ..widgets.highlighter import NMHighlighter
+        for card in self.findChildren(CollapsibleCard):
+            card.refresh_theme()
+        for hl in self.findChildren(NMHighlighter):
+            hl.rebuild_rules()
+            hl.rehighlight()
         for icon_lbl, icon_name, text_lbl in self._nav_icon_lbls:
             icon_lbl.setPixmap(_make_nav_icon(icon_name, 28, C.fg))
             pal = text_lbl.palette()
@@ -390,7 +397,13 @@ class MainWindow(QMainWindow):
                 url = 'https://api.github.com/repos/robterheine/NMGUI2/releases/latest'
                 with urllib.request.urlopen(url, timeout=5) as r:
                     tag = _j.loads(r.read()).get('tag_name', '').lstrip('v')
-                if tag and tag > APP_VERSION:
+                def _tup(v):
+                    parts = []
+                    for p in v.split('.'):
+                        try: parts.append(int(p))
+                        except ValueError: parts.append(0)
+                    return tuple(parts)
+                if tag and _tup(tag) > _tup(APP_VERSION):
                     QTimer.singleShot(0, lambda: self.statusBar().showMessage(
                         f'Update available: v{tag}  —  github.com/robterheine/NMGUI2/releases'))
             except Exception:

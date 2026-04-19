@@ -120,7 +120,7 @@ class DataExplorerWidget(QWidget):
         root.addWidget(left)
 
         sep = QWidget(); sep.setFixedWidth(1)
-        sep.setStyleSheet(f'background:{C.border};')
+        sep.setObjectName('hairlineSep')
         root.addWidget(sep)
 
         # ── Right: pill strip + stacked ──────────────────────────────────────
@@ -137,11 +137,11 @@ class DataExplorerWidget(QWidget):
             tl.addWidget(btn); self._de_btns.append(btn)
         tl.addSpacing(12)
         self.info_lbl = QLabel('Load a file from the browser')
-        self.info_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
+        self.info_lbl.setObjectName('mutedSmall')
         tl.addWidget(self.info_lbl, 1)
         rv.addWidget(toolbar)
 
-        de_sep = QWidget(); de_sep.setFixedHeight(1); de_sep.setStyleSheet(f'background:{C.border};')
+        de_sep = QWidget(); de_sep.setFixedHeight(1); de_sep.setObjectName('hairlineSep')
         rv.addWidget(de_sep)
 
         self.sub_tabs = QStackedWidget()

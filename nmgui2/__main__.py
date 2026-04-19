@@ -1,8 +1,8 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
-from .app.constants import IS_WIN, IS_MAC, APP_VERSION
-from .app.theme import THEMES, set_active_theme, build_stylesheet
+from .app.constants import APP_VERSION
+from .app.theme import THEMES, set_active_theme, build_stylesheet, apply_palette
 from .app.config import load_settings
 
 try:
@@ -24,18 +24,14 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName('NMGUI')
     app.setApplicationVersion(APP_VERSION)
-    if IS_MAC:
-        app.setStyle('macos')
-    elif IS_WIN:
-        app.setStyle('windowsvista')
-    else:
-        app.setStyle('Fusion')
+    app.setStyle('Fusion')
 
     saved_theme = (load_settings().get('theme') or 'dark')
     set_active_theme(saved_theme)
     if HAS_PG:
         t = THEMES[saved_theme]
         pg.setConfigOptions(background=t['pg_bg'], foreground=t['pg_fg'])
+    apply_palette(app, saved_theme)
     app.setStyleSheet(build_stylesheet(saved_theme))
 
     if not HAS_PARSER:

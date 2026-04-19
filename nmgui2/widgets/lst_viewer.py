@@ -603,7 +603,7 @@ class LstOutputWidget(QWidget):
         tb = QWidget(); tb.setFixedHeight(36)
         tbl = QHBoxLayout(tb); tbl.setContentsMargins(8,4,8,4); tbl.setSpacing(8)
         self._status_lbl = QLabel('No model selected')
-        self._status_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;')
+        self._status_lbl.setObjectName('muted')
         tbl.addWidget(self._status_lbl, 1)
         self._browser_btn = QPushButton('Open in browser')
         self._browser_btn.setFixedHeight(26)
@@ -613,7 +613,7 @@ class LstOutputWidget(QWidget):
         v.addWidget(tb)
 
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C.border};')
+        sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
         # QTextBrowser renders basic HTML tables and CSS

@@ -794,12 +794,12 @@ class ParameterUncertaintyTab(QWidget):
         # Model info
         self.model_lbl = QLabel('No model selected')
         self.model_lbl.setWordWrap(True)
-        self.model_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 12px;')
+        self.model_lbl.setObjectName('muted')
         left_v.addWidget(self.model_lbl)
 
         # Method selection
         method_lbl = QLabel('METHOD')
-        method_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        method_lbl.setObjectName('section')
         left_v.addWidget(method_lbl)
 
         self._method_group = QButtonGroup(self)
@@ -817,7 +817,7 @@ class ParameterUncertaintyTab(QWidget):
 
         # Mode selection
         mode_lbl = QLabel('MODE')
-        mode_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        mode_lbl.setObjectName('section')
         left_v.addWidget(mode_lbl)
 
         self._mode_group = QButtonGroup(self)
@@ -833,7 +833,7 @@ class ParameterUncertaintyTab(QWidget):
         # Detected results (for load mode)
         left_v.addSpacing(8)
         self.detected_lbl = QLabel('FOUND RESULTS')
-        self.detected_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 10px; font-weight: 600; letter-spacing: 0.5px;')
+        self.detected_lbl.setObjectName('section')
         self.detected_lbl.hide()
         left_v.addWidget(self.detected_lbl)
 
@@ -853,7 +853,7 @@ class ParameterUncertaintyTab(QWidget):
         left_v.addSpacing(12)
         self.psn_lbl = QLabel('Checking PsN…')
         self.psn_lbl.setWordWrap(True)
-        self.psn_lbl.setStyleSheet(f'color: {T("fg2")}; font-size: 11px;')
+        self.psn_lbl.setObjectName('mutedSmall')
         left_v.addWidget(self.psn_lbl)
 
         left_v.addStretch()
@@ -862,7 +862,7 @@ class ParameterUncertaintyTab(QWidget):
         # Separator
         sep = QWidget()
         sep.setFixedWidth(1)
-        sep.setStyleSheet(f'background: {T("border")};')
+        sep.setObjectName('hairlineSep')
         main_h.addWidget(sep)
 
         # ── Right panel: config + results ──────────────────────────────────────
@@ -931,7 +931,6 @@ class ParameterUncertaintyTab(QWidget):
         _pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
         _pal.setColor(QPalette.ColorRole.Window, QColor(T('bg2')))
         self.console.setPalette(_pal)
-        self.console.setStyleSheet(f'border:1px solid {T("border")};border-radius:4px;')
         self._results_stack.addWidget(self.console)
 
         # Assessment panel
@@ -1111,7 +1110,7 @@ class ParameterUncertaintyTab(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel('Select a results folder from the dropdown on the left,\nor browse for a folder.')
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(f'color: {T("fg2")};')
+        lbl.setObjectName('muted')
         v.addWidget(lbl)
         v.addStretch()
         return w
@@ -1128,7 +1127,9 @@ class ParameterUncertaintyTab(QWidget):
 
         if not self._psn_available.get('bootstrap') and not self._psn_available.get('sir'):
             self.run_btn.setEnabled(False)
-            self.psn_lbl.setStyleSheet(f'color: {T("red")}; font-size: 10px;')
+            self.psn_lbl.setObjectName('error')
+            self.psn_lbl.style().unpolish(self.psn_lbl)
+            self.psn_lbl.style().polish(self.psn_lbl)
 
     def _on_method_change(self, *args):
         if self.run_new_rb.isChecked():

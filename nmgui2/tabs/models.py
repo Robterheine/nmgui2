@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QPlainTextEdit, QScrollArea,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QModelIndex, QAbstractTableModel, QTimer
-from PyQt6.QtGui import QBrush, QColor, QKeySequence, QFont, QAction
+from PyQt6.QtGui import QBrush, QColor, QKeySequence, QFont, QAction, QPalette
 from ..app.theme import C, T, THEMES, _active_theme
 from ..app.constants import IS_WIN, IS_MAC, HOME
 from ..app.config import load_meta, save_meta, get_meta_entry, load_settings, save_settings, load_bookmarks, save_bookmarks, load_runs, save_runs, get_all_tags
@@ -326,7 +326,7 @@ class ModelsTab(QWidget):
         dpl.addStretch()
         rv.addWidget(detail_pill_bar)
 
-        sep2 = QWidget(); sep2.setFixedHeight(1); sep2.setStyleSheet(f'background:{C.border};')
+        sep2 = QWidget(); sep2.setFixedHeight(1); sep2.setObjectName('hairlineSep')
         rv.addWidget(sep2)
 
         self._detail_stack = QStackedWidget()
@@ -344,6 +344,7 @@ class ModelsTab(QWidget):
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
         self.editor = QPlainTextEdit()
         self.editor.setFont(QFont('Menlo' if IS_MAC else 'Consolas',12))
+        _ep = QPalette(); _ep.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _ep.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.editor.setPalette(_ep)
         self._hl = NMHighlighter(self.editor.document())
         ed_v.addLayout(ed_top); ed_v.addWidget(self.editor)
         self._detail_stack.addWidget(ed_w)
@@ -370,6 +371,7 @@ class ModelsTab(QWidget):
         self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas',11))
         self.console.setMaximumBlockCount(5000)
+        _cp = QPalette(); _cp.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _cp.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.console.setPalette(_cp)
         run_v.addWidget(self.console,1)
         self._detail_stack.addWidget(run_w)
 
@@ -429,6 +431,7 @@ class ModelsTab(QWidget):
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText('Rationale, decisions…')
         self.notes_edit.setFixedHeight(120)
+        _np = QPalette(); _np.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _np.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.notes_edit.setPalette(_np)
         orig_focusOut = self.notes_edit.focusOutEvent
         self.notes_edit.focusOutEvent = lambda e: (self._save_meta_fields(), orig_focusOut(e))
         self._card_notes.add_widget(self.notes_edit)

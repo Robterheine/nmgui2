@@ -19,14 +19,10 @@ import logging
 _log = logging.getLogger(__name__)
 
 try:
-    from ...parser import read_table_file, parse_phi_file, parse_ext_file
+    from ..parser import read_table_file, parse_phi_file, parse_ext_file
     HAS_PARSER = True
 except Exception:
-    try:
-        from parser import read_table_file, parse_phi_file, parse_ext_file
-        HAS_PARSER = True
-    except Exception:
-        HAS_PARSER = False
+    HAS_PARSER = False
 
 HOME = Path.home()
 
@@ -55,9 +51,9 @@ class EvaluationTab(QWidget):
 
         ctx_row = QHBoxLayout()
         self._model_lbl = QLabel('No model selected')
-        self._model_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;font-weight:600;')
+        self._model_lbl.setObjectName('mutedBold')
         self._table_lbl = QLabel('')
-        self._table_lbl.setStyleSheet(f'color:{C.fg2};font-size:12px;')
+        self._table_lbl.setObjectName('muted')
         ctx_row.addWidget(self._model_lbl); ctx_row.addSpacing(12)
         ctx_row.addWidget(self._table_lbl); ctx_row.addStretch()
         tbl.addLayout(ctx_row)
@@ -93,7 +89,7 @@ class EvaluationTab(QWidget):
 
         # ── Thin separator ────────────────────────────────────────────────────
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C.border};')
+        sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
         # ── Stacked content ───────────────────────────────────────────────────

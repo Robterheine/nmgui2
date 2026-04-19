@@ -152,7 +152,12 @@ class ModelComparisonDialog(QDialog):
         daic  = (aic_b - aic_a) if (aic_a is not None and aic_b is not None) else None
         dbic  = (bic_b - bic_a) if (bic_a is not None and bic_b is not None) else None
         dnpar = (np_b - np_a)   if (np_a  is not None and np_b  is not None) else None
-        lrt_p = _lrt_pval(dofv, -dnpar) if (dofv is not None and dnpar is not None) else None
+        if dofv is None or dnpar is None or dnpar == 0:
+            lrt_p = None
+        elif dnpar > 0:
+            lrt_p = _lrt_pval(dofv, dnpar)
+        else:
+            lrt_p = _lrt_pval(-dofv, -dnpar)
 
         def _stat(label, value_str, color=None):
             w = QLabel(f'<span style="font-size:10px;color:{C.fg2};">{label}</span><br>'

@@ -77,7 +77,7 @@ class RunRecordDialog(QDialog):
             results.addWidget(val, row, 1)
             row += 1
 
-        add_result('OFV', f'{record.get("ofv"):.4f}' if record.get('ofv') else None)
+        add_result('OFV', f'{record.get("ofv"):.4f}' if record.get('ofv') is not None else None)
         add_result('Minimization', 'Successful' if record.get('minimization_successful') else
                    ('Failed' if record.get('minimization_successful') is False else None))
         add_result('Covariance step', 'Yes' if record.get('covariance_step') else

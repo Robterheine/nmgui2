@@ -164,10 +164,14 @@ class ModelWorkbenchDialog(QDialog):
             dbic = (bic - ref_bic) if (bic is not None and ref_bic is not None) else None
             dnpar = (npar - ref_npar) if (npar is not None and ref_npar is not None) else None
 
-            # LRT p-value: only when alternative model has fewer parameters
+            # LRT p-value — flip sign when the reference has more parameters
+            # so df and dofv always have the signs _lrt_pval expects.
             lrt_p = None
-            if not is_ref and dofv is not None and dnpar is not None:
-                lrt_p = _lrt_pval(dofv, -dnpar)  # negative dnpar = alternative simpler
+            if not is_ref and dofv is not None and dnpar is not None and dnpar != 0:
+                if dnpar > 0:
+                    lrt_p = _lrt_pval(dofv, dnpar)
+                else:
+                    lrt_p = _lrt_pval(-dofv, -dnpar)
 
             def _item(txt, align=None, bold=False):
                 it = QTableWidgetItem(txt)
@@ -287,11 +291,16 @@ class ModelWorkbenchDialog(QDialog):
                 is_ref = m['path'] == self._ref_path
                 ofv = m.get('ofv'); aic = m.get('aic'); bic = m.get('bic')
                 npar = m.get('n_estimated_params')
-                dofv = (ofv - ref_ofv) if (ofv and ref_ofv) else ''
-                daic = (aic - ref_aic) if (aic and ref_aic) else ''
-                dbic = (bic - ref_bic) if (bic and ref_bic) else ''
-                dnpar = (npar - ref_npar) if (npar and ref_npar) else None
-                lrt_p = _lrt_pval(dofv, -dnpar) if (not is_ref and dofv != '' and dnpar is not None) else ''
+                dofv = (ofv - ref_ofv) if (ofv is not None and ref_ofv is not None) else ''
+                daic = (aic - ref_aic) if (aic is not None and ref_aic is not None) else ''
+                dbic = (bic - ref_bic) if (bic is not None and ref_bic is not None) else ''
+                dnpar = (npar - ref_npar) if (npar is not None and ref_npar is not None) else None
+                if is_ref or dofv == '' or dnpar in (None, 0):
+                    lrt_p = ''
+                elif dnpar > 0:
+                    lrt_p = _lrt_pval(dofv, dnpar)
+                else:
+                    lrt_p = _lrt_pval(-dofv, -dnpar)
                 w.writerow([
                     m['stem'],
                     m.get('minimization_message','')[:40],

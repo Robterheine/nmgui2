@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QLabel,
     QPushButton, QPlainTextEdit,
 )
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont, QColor, QPalette
 from PyQt6.QtCore import Qt
 
 from ..app.theme import C, _active_theme
@@ -26,7 +26,7 @@ class LstViewerDialog(QDialog):
         self._search = QLineEdit(); self._search.setPlaceholderText('Search… (Enter = next, Shift+Enter = prev)')
         self._search.returnPressed.connect(self._find_next)
         self._match_lbl = QLabel('')
-        self._match_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
+        self._match_lbl.setObjectName('mutedSmall')
         prev_btn = QPushButton('^'); prev_btn.setFixedWidth(32); prev_btn.clicked.connect(self._find_prev)
         next_btn = QPushButton('v'); next_btn.setFixedWidth(32); next_btn.clicked.connect(self._find_next)
         search_row.addWidget(self._search, 1); search_row.addWidget(prev_btn)
@@ -38,6 +38,10 @@ class LstViewerDialog(QDialog):
         self._editor.setReadOnly(True)
         self._editor.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 11))
         self._editor.setPlainText(text)
+        pal = self._editor.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(C.bg2))
+        pal.setColor(QPalette.ColorRole.Text, QColor(C.fg))
+        self._editor.setPalette(pal)
         v.addWidget(self._editor, 1)
 
         close_btn = QPushButton('Close')

@@ -224,4 +224,4 @@ def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap
 
 def _placeholder(msg):
     lbl = QLabel(msg); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    lbl.setStyleSheet(f'color:{C.fg2};font-size:14px;'); return lbl
+    lbl.setObjectName('mutedLarge'); return lbl

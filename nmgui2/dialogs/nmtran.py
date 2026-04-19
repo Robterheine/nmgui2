@@ -4,14 +4,14 @@ from pathlib import Path
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QPlainTextEdit, QPushButton,
 )
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPalette, QColor
 
 from ..app.theme import C
 
 IS_MAC = sys.platform == 'darwin'
 
 try:
-    from parser import parse_nmtran_errors
+    from ..parser import parse_nmtran_errors
     HAS_PARSER = True
 except ImportError:
     HAS_PARSER = False
@@ -25,6 +25,10 @@ class NMTRANPanel(QDialog):
         v = QVBoxLayout(self)
         self.text = QPlainTextEdit(); self.text.setReadOnly(True)
         self.text.setFont(QFont('Menlo' if IS_MAC else 'Consolas',12))
+        pal = self.text.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(C.bg2))
+        pal.setColor(QPalette.ColorRole.Text, QColor(C.fg))
+        self.text.setPalette(pal)
         v.addWidget(self.text)
         close = QPushButton('Close'); close.clicked.connect(self.accept)
         v.addWidget(close)

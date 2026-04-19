@@ -42,7 +42,7 @@ class ETACovWidget(QWidget):
         cl.addWidget(plot_btn)
         v.addWidget(ctrl)
 
-        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C.border};')
+        sep = QWidget(); sep.setFixedHeight(1); sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
         self.gw = pg.GraphicsLayoutWidget(); v.addWidget(self.gw, 1)

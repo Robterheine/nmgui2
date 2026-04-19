@@ -19,6 +19,13 @@ THEMES = {
         'sel':       '#1e3a5a',
         'pg_bg':     '#1a1a20',
         'pg_fg':     '#9a9db8',
+        'syn_record':  '#569cd6',
+        'syn_flow':    '#dcdcaa',
+        'syn_builtin': '#9cdcfe',
+        'syn_block':   '#ce9178',
+        'syn_comment': '#6a9955',
+        'syn_number':  '#b5cea8',
+        'syn_string':  '#ce9178',
     },
     'light': {
         'bg':        '#f2f2f7',
@@ -40,6 +47,13 @@ THEMES = {
         'sel':       '#dbeafe',
         'pg_bg':     '#ffffff',
         'pg_fg':     '#1a1a2e',
+        'syn_record':  '#0000c0',
+        'syn_flow':    '#7a5900',
+        'syn_builtin': '#0d6e6e',
+        'syn_block':   '#a03000',
+        'syn_comment': '#098600',
+        'syn_number':  '#0a6e3c',
+        'syn_string':  '#a31515',
     }
 }
 
@@ -71,8 +85,70 @@ def set_active_theme(name):
     C._apply(name)
 
 
+def _arrow_png_uri(color_hex, direction):
+    """Render a triangle arrow as a base64 PNG data URI.
+
+    SVG data URIs are unreliable in Qt stylesheets (spaces, apostrophes, and the
+    optional qt-svg plugin all cause silent failures — Qt falls back to native
+    arrows drawn with the system palette, which vanish in dark mode).
+    base64 PNG is parser-safe and plugin-free.
+    """
+    import base64
+    from PyQt6.QtCore import Qt, QBuffer, QByteArray, QPointF
+    from PyQt6.QtGui import QPixmap, QPainter, QPolygonF, QColor
+    w, h = 16, 10   # 2x for HiDPI; displayed at 8x5
+    pm = QPixmap(w, h)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(color_hex))
+    if direction == 'up':
+        tri = QPolygonF([QPointF(w / 2, 1), QPointF(w - 2, h - 1), QPointF(2, h - 1)])
+    else:
+        tri = QPolygonF([QPointF(2, 1), QPointF(w - 2, 1), QPointF(w / 2, h - 1)])
+    p.drawPolygon(tri)
+    p.end()
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QBuffer.OpenModeFlag.WriteOnly)
+    pm.save(buf, 'PNG')
+    b64 = bytes(ba.toBase64()).decode('ascii')
+    return f'data:image/png;base64,{b64}'
+
+
+def apply_palette(app, theme_name='dark'):
+    """Set QApplication palette from the theme.
+
+    Required in addition to setStyleSheet because Qt widgets with internal
+    sub-widgets (QSpinBox's internal QLineEdit, QDoubleSpinBox, editable
+    QComboBox lineEdit) consult QPalette.ColorRole.Base for their content
+    background — stylesheet `background:` does not reach those sub-widgets.
+    """
+    from PyQt6.QtGui import QPalette, QColor
+    t = THEMES[theme_name]
+    pal = app.palette()
+    pal.setColor(QPalette.ColorRole.Base,            QColor(t['bg2']))
+    pal.setColor(QPalette.ColorRole.AlternateBase,   QColor(t['bg3']))
+    pal.setColor(QPalette.ColorRole.Text,            QColor(t['fg']))
+    pal.setColor(QPalette.ColorRole.Window,          QColor(t['bg']))
+    pal.setColor(QPalette.ColorRole.WindowText,      QColor(t['fg']))
+    pal.setColor(QPalette.ColorRole.Button,          QColor(t['bg3']))
+    pal.setColor(QPalette.ColorRole.ButtonText,      QColor(t['fg']))
+    pal.setColor(QPalette.ColorRole.Highlight,       QColor(t['accent']))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor(t['fg3']))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,
+                 QColor(t['fg3']))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText,
+                 QColor(t['fg3']))
+    app.setPalette(pal)
+
+
 def build_stylesheet(theme_name='dark'):
     t = THEMES[theme_name]
+    _up = _arrow_png_uri(t['fg2'], 'up')
+    _dn = _arrow_png_uri(t['fg2'], 'down')
     return f"""
 /* ── Base ─────────────────────────────────────── */
 QMainWindow, QWidget, QDialog {{
@@ -156,6 +232,14 @@ QPushButton#danger {{
     border: 1px solid {t['red']};
 }}
 QPushButton#danger:hover {{ background: {t['red']}; color: #fff; }}
+QPushButton#success {{
+    background: {t['green']};
+    color: #000000;
+    border: 1px solid {t['border']};
+    font-weight: 600;
+    padding: 5px 18px;
+}}
+QPushButton#success:hover {{ background: {t['green']}; border-color: {t['fg3']}; }}
 
 /* ── Inputs ───────────────────────────────────── */
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox {{
@@ -192,6 +276,12 @@ QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
     background: {t['bg4']};
 }}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url({_up}); width: 8px; height: 5px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url({_dn}); width: 8px; height: 5px;
+}}
 QComboBox {{
     background: {t['bg2']};
     color: {t['fg']};
@@ -201,7 +291,7 @@ QComboBox {{
 }}
 QComboBox:focus {{ border-color: {t['accent']}; }}
 QComboBox::drop-down {{ border: none; width: 20px; }}
-QComboBox::down-arrow {{ width: 10px; height: 10px; }}
+QComboBox::down-arrow {{ image: url({_dn}); width: 8px; height: 5px; }}
 QComboBox QAbstractItemView {{
     background: {t['bg2']};
     color: {t['fg']};
@@ -267,7 +357,13 @@ QGroupBox::title {{
 }}
 QLabel {{ color: {t['fg']}; }}
 QLabel#muted {{ color: {t['fg2']}; font-size: 12px; }}
+QLabel#mutedSmall {{ color: {t['fg2']}; font-size: 11px; }}
+QLabel#mutedBold {{ color: {t['fg2']}; font-size: 12px; font-weight: 600; }}
+QLabel#mutedLarge {{ color: {t['fg2']}; font-size: 14px; }}
+QLabel#error {{ color: {t['red']}; font-size: 10px; }}
+QLabel#ctxLabel {{ color: {t['fg2']}; font-size: 12px; background: transparent; }}
 QLabel#section {{ color: {t['fg2']}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
+QWidget#hairlineSep {{ background: {t['border']}; }}
 QScrollArea {{ background: {t['bg']}; border: none; }}
 QScrollArea > QWidget > QWidget {{ background: {t['bg']}; }}
 QCheckBox {{ color: {t['fg']}; spacing: 6px; }}
@@ -439,5 +535,14 @@ QMenuBar::item {{
 }}
 QMenuBar::item:selected {{
     background: {t['bg3']};
+}}
+/* ── Collapsible card body ─── */
+QWidget#cardBody {{
+    background: {t['bg2']};
+    border-left: 1px solid {t['border']};
+    border-right: 1px solid {t['border']};
+    border-bottom: 1px solid {t['border']};
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
 }}
 """

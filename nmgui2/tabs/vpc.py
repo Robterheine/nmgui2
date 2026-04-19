@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                               QDoubleSpinBox, QSpinBox, QComboBox, QFileDialog, QMessageBox,
                               QLineEdit, QStackedWidget, QSizePolicy)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtGui import QFont, QPixmap, QPalette, QColor
 
 from ..app.theme import C, T
 from ..app.constants import IS_WIN, IS_MAC
@@ -172,11 +172,11 @@ class VPCTab(QWidget):
         # ── Buttons ───────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         self.run_btn  = QPushButton('Generate VPC'); self.run_btn.clicked.connect(self._run)
-        self.run_btn.setStyleSheet(f'background:{C.green};color:#000;font-weight:bold;padding:5px 18px;')
+        self.run_btn.setObjectName('success')
         self.stop_btn = QPushButton('Stop'); self.stop_btn.clicked.connect(self._stop)
         self.stop_btn.setEnabled(False)
         self.r_status_lbl = QLabel('Checking R…')
-        self.r_status_lbl.setStyleSheet(f'color:{C.fg2};')
+        self.r_status_lbl.setObjectName('muted')
         btn_row.addWidget(self.run_btn); btn_row.addWidget(self.stop_btn)
         btn_row.addStretch(); btn_row.addWidget(self.r_status_lbl)
         v.addLayout(btn_row)
@@ -191,7 +191,7 @@ class VPCTab(QWidget):
         img_toolbar = QWidget(); img_toolbar.setFixedHeight(36)
         itl = QHBoxLayout(img_toolbar); itl.setContentsMargins(8, 4, 8, 4); itl.setSpacing(8)
         self.tool_lbl = QLabel('')
-        self.tool_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
+        self.tool_lbl.setObjectName('mutedSmall')
         self._open_btn    = QPushButton('Open in viewer')
         self._savepng_btn = QPushButton('Save high-res PNG…')
         self._savepdf_btn = QPushButton('Save PDF…')
@@ -208,7 +208,7 @@ class VPCTab(QWidget):
 
         self.img_lbl = QLabel('No VPC generated yet')
         self.img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.img_lbl.setStyleSheet(f'color:{C.fg2};font-size:14px;')
+        self.img_lbl.setObjectName('mutedLarge')
         self.img_lbl.setMinimumSize(400, 300)
         self.img_lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._last_png = None          # path to most recently generated PNG
@@ -231,7 +231,7 @@ class VPCTab(QWidget):
         vpl.addStretch()
         rp_v.addWidget(vpc_pill_bar)
 
-        vpc_sep = QWidget(); vpc_sep.setFixedHeight(1); vpc_sep.setStyleSheet(f'background:{C.border};')
+        vpc_sep = QWidget(); vpc_sep.setFixedHeight(1); vpc_sep.setObjectName('hairlineSep')
         rp_v.addWidget(vpc_sep)
 
         self._right_tabs = QStackedWidget()
@@ -239,6 +239,7 @@ class VPCTab(QWidget):
         self.console = QPlainTextEdit(); self.console.setReadOnly(True)
         self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 11))
         self.console.setMaximumBlockCount(2000)
+        self._apply_editor_palette(self.console)
         self._right_tabs.addWidget(self.console)
 
         # R Script panel — editable, with controls
@@ -257,6 +258,7 @@ class VPCTab(QWidget):
         self.r_script_edit = QPlainTextEdit()
         self.r_script_edit.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 11))
         self.r_script_edit.setPlaceholderText('Generate a VPC to see and edit the R script here…')
+        self._apply_editor_palette(self.r_script_edit)
         rv.addWidget(rscript_ctrl); rv.addWidget(self.r_script_edit, 1)
         self._right_tabs.addWidget(rscript_w)
 
@@ -266,6 +268,13 @@ class VPCTab(QWidget):
         v.addWidget(spl, 1)
         self._vpc_panel_switch(0)
         self._on_tool_change(self.tool_cb.currentText())
+
+    def _apply_editor_palette(self, widget):
+        pal = QPalette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        pal.setColor(QPalette.ColorRole.Window, QColor(T('bg2')))
+        widget.setPalette(pal)
 
     def _on_tool_change(self, tool):
         show_run_dir = (tool == 'xpose')
@@ -667,12 +676,11 @@ tryCatch({{
             # Remove dpi= arg (not needed for PDF)
             script = re.sub(r',\s*dpi\s*=\s*\d+', '', script)
         elif tool == 'xpose4':
-            # Base R: replace png() with pdf()
-            if self._last_png:
-                r_orig = _sanitize_r(self._last_png)
-                script = script.replace(
-                    f'png("{r_orig}", width = 1200, height = 900, res = 150)',
-                    f'pdf("{r_dst}", width = 10, height = 7.5)')
+            # Base R: replace png() with pdf() — tolerate whitespace variations
+            script = re.sub(
+                r'png\([^)]*?width\s*=\s*\d+[^)]*?\)',
+                f'pdf("{r_dst}", width = 10, height = 7.5)',
+                script, count=1)
         tmp = Path(dst).parent / '_nmgui_vpc_pdf_tmp.R'
         try:
             tmp.write_text(script, 'utf-8')

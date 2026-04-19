@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLa
                               QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
                               QLineEdit, QPlainTextEdit, QMessageBox)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont, QPalette
 
 from ..app.theme import C, T
 from ..app.constants import RUNS_FILE
@@ -74,15 +74,19 @@ class RunHistoryTab(QWidget):
 
         # Command preview
         sep = QWidget(); sep.setFixedHeight(1)
-        sep.setStyleSheet(f'background:{C.border};'); v.addWidget(sep)
+        sep.setObjectName('hairlineSep'); v.addWidget(sep)
         cmd_lbl = QLabel('Command')
-        cmd_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;font-weight:700;text-transform:uppercase;')
+        cmd_lbl.setObjectName('section')
         v.addWidget(cmd_lbl)
         self._cmd_view = QPlainTextEdit()
         self._cmd_view.setReadOnly(True)
         self._cmd_view.setFixedHeight(52)
         self._cmd_view.setFont(QFont('Menlo' if sys.platform == 'darwin' else 'Consolas', 11))
         self._cmd_view.setPlaceholderText('Select a row to see the full command')
+        pal = self._cmd_view.palette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(C.bg2))
+        pal.setColor(QPalette.ColorRole.Text, QColor(C.fg))
+        self._cmd_view.setPalette(pal)
         v.addWidget(self._cmd_view)
 
         self.table.currentCellChanged.connect(lambda row, _, __, ___: self._on_row(row))

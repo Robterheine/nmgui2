@@ -61,7 +61,7 @@ class GOFWidget(QWidget):
         tbl.addWidget(exp_btn)
         v.addWidget(tb)
 
-        sep = QWidget(); sep.setFixedHeight(1); sep.setStyleSheet(f'background:{C.border};')
+        sep = QWidget(); sep.setFixedHeight(1); sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
         # ── Plot grid ─────────────────────────────────────────────────────────
