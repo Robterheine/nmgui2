@@ -29,6 +29,16 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.0
+
+- **QC report** — right-click any completed model → *QC Report…* to open a self-contained HTML report with a PASS / WARN / FAIL checklist covering termination, covariance, condition number, %RSE, parameter correlations, shrinkage, ETABAR and omega boundary checks
+- **Dataset integrity checks** — at scan time, each model's data file is automatically checked for missing file, column-count mismatches, non-monotonic TIME, duplicate doses, extreme DV values and high BLQ proportion; issues appear in the Info tab's Dataset card
+- **Model workbench** — *Workbench…* button opens a sortable table of all completed models with ΔOFV, ΔAIC, ΔBIC, LRT p-value and reference-model selector for quick multi-model comparison
+- **Enhanced compare dialog** — the two-model comparison dialog now shows a statistics strip with ΔOFV, ΔAIC, ΔBIC, Δ parameters, LRT p-value and a significance verdict
+- **Collapsible layout** — the Info panel uses collapsible cards (Dataset / Annotation / Notes); the Parameters tab THETA / OMEGA / SIGMA blocks collapse and expand by clicking the section header
+- **Dark mode fixes** — Tree canvas and Uncertainty console reliably use the dark theme on all platforms; light-theme tree node colours corrected after theme toggle
+
+---
 
 ## Features
 
@@ -37,7 +47,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 - Columns: OFV, ΔOFV (relative to best or user-selected reference), minimisation status, covariance step, condition number, estimation method, individuals, observations, parameters, AIC, runtime
 - Colour-coded rows: green = successful, red = failed/terminated, orange = boundary/stale
 - Filter buttons: All, Completed, Failed — plus free-text search
-- **Right-click context menu** on any model: toggle star, duplicate, set reference model, compare with another model, view `.lst`, show NM-TRAN messages, view run record
+- **Right-click context menu** on any model: toggle star, duplicate, set reference model, compare with another model, open workbench, open QC report, open run report, view `.lst`, show NM-TRAN messages, view run record
 - Keyboard navigation: ↑↓ move rows, Space toggles star, Enter jumps to Output
 
 ### Model detail panel

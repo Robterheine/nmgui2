@@ -25,10 +25,8 @@ class CollapsibleCard(QWidget):
         outer.addWidget(self._btn)
 
         self._body = QWidget()
-        self._body.setStyleSheet(
-            f'background:{C.bg2};border-left:1px solid {C.border};'
-            f'border-right:1px solid {C.border};border-bottom:1px solid {C.border};'
-            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
+        self._body.setObjectName('cardBody')
+        self._body.setStyleSheet(self._body_css())
         self._body_layout = QVBoxLayout(self._body)
         self._body_layout.setContentsMargins(10, 10, 10, 10)
         self._body_layout.setSpacing(6)
@@ -36,6 +34,17 @@ class CollapsibleCard(QWidget):
         outer.addWidget(self._body)
 
         self._title = title
+
+    def _body_css(self):
+        # ID selector ensures this rule only matches the body itself, not child
+        # input widgets — a bare 'background:' would block the global app stylesheet
+        # from reaching QLineEdit/QTextEdit descendants.
+        return (
+            f'QWidget#cardBody{{background:{C.bg2};'
+            f'border-left:1px solid {C.border};'
+            f'border-right:1px solid {C.border};'
+            f'border-bottom:1px solid {C.border};'
+            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;}}')
 
     def _header_css(self):
         return (
@@ -70,7 +79,4 @@ class CollapsibleCard(QWidget):
 
     def refresh_theme(self):
         self._btn.setStyleSheet(self._header_css())
-        self._body.setStyleSheet(
-            f'background:{C.bg2};border-left:1px solid {C.border};'
-            f'border-right:1px solid {C.border};border-bottom:1px solid {C.border};'
-            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;')
+        self._body.setStyleSheet(self._body_css())
