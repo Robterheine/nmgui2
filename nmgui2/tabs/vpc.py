@@ -4,7 +4,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                               QTextEdit, QPlainTextEdit, QSplitter, QGroupBox, QCheckBox,
                               QDoubleSpinBox, QSpinBox, QComboBox, QFileDialog, QMessageBox,
-                              QLineEdit, QGridLayout, QStackedWidget, QSizePolicy)
+                              QLineEdit, QStackedWidget, QSizePolicy)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap
 
@@ -83,70 +83,89 @@ class VPCTab(QWidget):
 
         # ── Settings panel ────────────────────────────────────────────────────
         settings_grp = QGroupBox('VPC settings')
-        sg = QGridLayout(settings_grp); sg.setSpacing(6)
+        sg = QVBoxLayout(settings_grp); sg.setSpacing(6); sg.setContentsMargins(10, 14, 10, 10)
 
-        # Tool
-        self.tool_cb = QComboBox()
-        self.tool_cb.addItems(['vpc', 'xpose', 'xpose4'])
+        def _lbl(text):
+            l = QLabel(text); l.setFixedWidth(74); return l
+
+        def _spin(lo, hi, val, step, dec, w=86):
+            s = QDoubleSpinBox()
+            s.setRange(lo, hi); s.setValue(val)
+            s.setSingleStep(step); s.setDecimals(dec); s.setFixedWidth(w)
+            return s
+
+        # Widget definitions
+        self.tool_cb = QComboBox(); self.tool_cb.addItems(['vpc', 'xpose', 'xpose4'])
         self.tool_cb.currentTextChanged.connect(self._on_tool_change)
+        self.tool_cb.setFixedWidth(100)
 
-        # VPC folder (PsN output)
+        self.runno_edit = QLineEdit(); self.runno_edit.setPlaceholderText('e.g. 001')
+        self.runno_edit.setFixedWidth(80)
+
+        self.pred_corr_cb = QCheckBox('Prediction-corrected (pcVPC)')
+        self.log_y_cb     = QCheckBox('Log Y axis')
+
         self.vpc_folder_edit = QLineEdit()
         self.vpc_folder_edit.setPlaceholderText('PsN vpc output folder (contains m1/, vpc_results.csv…)')
         vpc_browse = QPushButton('Browse…'); vpc_browse.clicked.connect(self._browse_vpc)
 
-        # Run directory (for xpose sdtab files)
         self.run_dir_edit = QLineEdit()
         self.run_dir_edit.setPlaceholderText('Run directory with sdtab files (xpose only)')
         run_browse = QPushButton('Browse…'); run_browse.clicked.connect(self._browse_run)
 
-        # Run number
-        self.runno_edit = QLineEdit(); self.runno_edit.setPlaceholderText('e.g. 001')
-        self.runno_edit.setFixedWidth(80)
-
-        # Options
-        self.pred_corr_cb = QCheckBox('Prediction-corrected (pcVPC)')
-        self.log_y_cb     = QCheckBox('Log Y axis')
-        self.stratify_edit = QLineEdit(); self.stratify_edit.setPlaceholderText('Stratify by column (optional)')
+        self.stratify_edit = QLineEdit()
+        self.stratify_edit.setPlaceholderText('Stratify by column (optional)')
         self.stratify_edit.setFixedWidth(180)
 
-        # PI / CI
-        self.pi_lo = QDoubleSpinBox(); self.pi_lo.setRange(0, 0.5); self.pi_lo.setValue(0.05); self.pi_lo.setSingleStep(0.025); self.pi_lo.setDecimals(3); self.pi_lo.setFixedWidth(70)
-        self.pi_hi = QDoubleSpinBox(); self.pi_hi.setRange(0.5, 1); self.pi_hi.setValue(0.95); self.pi_hi.setSingleStep(0.025); self.pi_hi.setDecimals(3); self.pi_hi.setFixedWidth(70)
-        self.ci_lo = QDoubleSpinBox(); self.ci_lo.setRange(0, 0.5); self.ci_lo.setValue(0.05); self.ci_lo.setSingleStep(0.025); self.ci_lo.setDecimals(3); self.ci_lo.setFixedWidth(70)
-        self.ci_hi = QDoubleSpinBox(); self.ci_hi.setRange(0.5, 1); self.ci_hi.setValue(0.95); self.ci_hi.setSingleStep(0.025); self.ci_hi.setDecimals(3); self.ci_hi.setFixedWidth(70)
-        self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)'); self.lloq_edit.setFixedWidth(100)
-        self.nbins_sb  = QDoubleSpinBox(); self.nbins_sb.setRange(3, 50); self.nbins_sb.setValue(10); self.nbins_sb.setDecimals(0); self.nbins_sb.setFixedWidth(60)
+        self.pi_lo = _spin(0,   0.5, 0.05, 0.025, 3)
+        self.pi_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
+        self.ci_lo = _spin(0,   0.5, 0.05, 0.025, 3)
+        self.ci_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
+        self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)')
+        self.lloq_edit.setFixedWidth(100)
+        self.nbins_sb  = _spin(3, 50, 10, 1, 0, w=70)
 
-        row = 0
-        sg.addWidget(QLabel('Backend:'),      row, 0); sg.addWidget(self.tool_cb,          row, 1)
-        sg.addWidget(QLabel('Run no:'),        row, 2); sg.addWidget(self.runno_edit,        row, 3)
-        sg.addWidget(self.pred_corr_cb,        row, 4); sg.addWidget(self.log_y_cb,          row, 5)
-        row += 1
-        sg.addWidget(QLabel('VPC folder:'),    row, 0)
-        vpc_row = QHBoxLayout(); vpc_row.addWidget(self.vpc_folder_edit, 1); vpc_row.addWidget(vpc_browse)
-        vpc_w = QWidget(); vpc_w.setLayout(vpc_row)
-        sg.addWidget(vpc_w,                    row, 1, 1, 5)
-        row += 1
-        self.run_dir_lbl = QLabel('Run dir:')
-        sg.addWidget(self.run_dir_lbl,         row, 0)
-        run_row = QHBoxLayout(); run_row.addWidget(self.run_dir_edit, 1); run_row.addWidget(run_browse)
-        run_w = QWidget(); run_w.setLayout(run_row)
-        self.run_dir_w = run_w
-        sg.addWidget(run_w,                    row, 1, 1, 5)
-        row += 1
-        sg.addWidget(QLabel('Stratify:'),      row, 0); sg.addWidget(self.stratify_edit,    row, 1)
-        sg.addWidget(QLabel('PI:'),            row, 2)
-        pi_row = QHBoxLayout(); pi_row.setContentsMargins(0,0,0,0); pi_row.setSpacing(4)
-        pi_row.addWidget(self.pi_lo); pi_row.addWidget(QLabel('–')); pi_row.addWidget(self.pi_hi)
-        pi_w = QWidget(); pi_w.setLayout(pi_row); sg.addWidget(pi_w, row, 3)
-        sg.addWidget(QLabel('CI:'),            row, 4)
-        ci_row = QHBoxLayout(); ci_row.setContentsMargins(0,0,0,0); ci_row.setSpacing(4)
-        ci_row.addWidget(self.ci_lo); ci_row.addWidget(QLabel('–')); ci_row.addWidget(self.ci_hi)
-        ci_w = QWidget(); ci_w.setLayout(ci_row); sg.addWidget(ci_w, row, 5)
-        row += 1
-        sg.addWidget(QLabel('LLOQ:'),          row, 0); sg.addWidget(self.lloq_edit,        row, 1)
-        sg.addWidget(QLabel('Bins:'),          row, 2); sg.addWidget(self.nbins_sb,          row, 3)
+        def _hrow(*widgets, spacing=10):
+            h = QHBoxLayout(); h.setContentsMargins(0,0,0,0); h.setSpacing(spacing)
+            for w in widgets:
+                if w is None:
+                    h.addStretch()
+                elif isinstance(w, int):
+                    h.addSpacing(w)
+                else:
+                    h.addWidget(w)
+            return h
+
+        # Row 1 — Backend / Run no / options
+        sg.addLayout(_hrow(
+            _lbl('Backend:'), self.tool_cb, 20,
+            QLabel('Run no:'), self.runno_edit, None,
+            self.pred_corr_cb, 20, self.log_y_cb))
+
+        # Row 2 — VPC folder
+        r2 = QHBoxLayout(); r2.setContentsMargins(0,0,0,0); r2.setSpacing(6)
+        r2.addWidget(_lbl('VPC folder:')); r2.addWidget(self.vpc_folder_edit, 1); r2.addWidget(vpc_browse)
+        sg.addLayout(r2)
+
+        # Row 3 — Run dir (xpose only, hidden by default)
+        self.run_dir_lbl = QLabel('Run dir:'); self.run_dir_lbl.setFixedWidth(74)
+        r3 = QHBoxLayout(); r3.setContentsMargins(0,0,0,0); r3.setSpacing(6)
+        r3.addWidget(self.run_dir_lbl); r3.addWidget(self.run_dir_edit, 1); r3.addWidget(run_browse)
+        self.run_dir_w = QWidget(); self.run_dir_w.setLayout(r3)
+        sg.addWidget(self.run_dir_w)
+
+        # Row 4 — Stratify / PI / CI
+        dash1 = QLabel('–'); dash1.setFixedWidth(10)
+        dash2 = QLabel('–'); dash2.setFixedWidth(10)
+        sg.addLayout(_hrow(
+            _lbl('Stratify:'), self.stratify_edit, 20,
+            QLabel('PI:'), self.pi_lo, dash1, self.pi_hi, 20,
+            QLabel('CI:'), self.ci_lo, dash2, self.ci_hi, None))
+
+        # Row 5 — LLOQ / Bins
+        sg.addLayout(_hrow(
+            _lbl('LLOQ:'), self.lloq_edit, 20,
+            QLabel('Bins:'), self.nbins_sb, None))
 
         v.addWidget(settings_grp)
 
