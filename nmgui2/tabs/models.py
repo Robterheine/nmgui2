@@ -373,12 +373,14 @@ class ModelsTab(QWidget):
         run_v.addSpacing(10)
         run_v.addWidget(_runs_lbl)
 
-        self._run_list = QTableWidget(0, 4)
-        self._run_list.setHorizontalHeaderLabels(['Status', 'Model', 'Tool', 'Time'])
-        self._run_list.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self._run_list.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._run_list.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self._run_list.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self._run_list = QTableWidget(0, 5)
+        self._run_list.setHorizontalHeaderLabels(['Model', 'Tool', 'Status', 'OFV', 'Time'])
+        hh = self._run_list.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)           # Model
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Tool
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed);  hh.resizeSection(3, 62)  # OFV
+        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed);  hh.resizeSection(4, 42)  # Time
         self._run_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._run_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._run_list.verticalHeader().setVisible(False)
@@ -1010,35 +1012,43 @@ class ModelsTab(QWidget):
     def _refresh_run_list(self):
         popups = self._run_popups
         self._run_list.setRowCount(len(popups))
+
+        R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        C_= Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+
+        def _item(text, fg=None, align=None):
+            it = QTableWidgetItem(text)
+            it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if fg:    it.setForeground(QBrush(QColor(fg)))
+            if align: it.setTextAlignment(align)
+            return it
+
         for row, popup in enumerate(popups):
             finished = getattr(popup, '_finished', False)
             elapsed  = getattr(popup, '_elapsed', 0)
+            last_ofv = getattr(popup, '_last_ofv', None)
 
             if finished:
                 raw = getattr(popup._status_lbl, 'text', lambda: '')()
                 ok  = raw.startswith('✓')
-                status_txt = raw if raw else ('✓  Completed' if ok else '✗  Failed')
-                col = C.green if ok else C.red
+                status_txt = '✓  Done' if ok else '✗  Failed'
+                status_col = C.green   if ok else C.red
             else:
-                status_txt = '● Running'
-                col = T('accent')
+                status_txt = '●  Running'
+                status_col = T('accent')
 
             m2, s = divmod(elapsed, 60)
             h,  m2 = divmod(m2, 60)
             time_str = f'{h}:{m2:02d}:{s:02d}' if h else f'{m2}:{s:02d}'
 
-            def _item(text, fg=None, align=None):
-                it = QTableWidgetItem(text)
-                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                if fg:   it.setForeground(QBrush(QColor(fg)))
-                if align: it.setTextAlignment(align)
-                return it
+            ofv_str = last_ofv if (finished and last_ofv) else ''
 
-            self._run_list.setItem(row, 0, _item(status_txt, fg=col))
-            self._run_list.setItem(row, 1, _item(popup.stem))
-            self._run_list.setItem(row, 2, _item(popup.tool.upper(), fg=T('fg2')))
-            self._run_list.setItem(row, 3, _item(time_str, fg=T('fg2'),
-                                                  align=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter))
+            self._run_list.setItem(row, 0, _item(popup.stem))
+            self._run_list.setItem(row, 1, _item(popup.tool, fg=T('fg2'), align=C_))
+            self._run_list.setItem(row, 2, _item(status_txt, fg=status_col))
+            self._run_list.setItem(row, 3, _item(ofv_str,   fg=T('fg2'), align=R))
+            self._run_list.setItem(row, 4, _item(time_str,  fg=T('fg2'), align=R))
+
         self._run_list.setVisible(bool(popups))
 
     def _raise_run_popup(self, index):
