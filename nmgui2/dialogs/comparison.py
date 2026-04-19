@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QFileDialog,
-    QPushButton,
+    QPushButton, QFrame,
 )
 from PyQt6.QtGui import QBrush, QColor
 from PyQt6.QtCore import Qt
@@ -10,6 +10,16 @@ from pathlib import Path
 from ..app.theme import C, T
 from ..app.format import fmt_num, fmt_rse, fmt_ofv
 from ..app.constants import HOME
+
+try:
+    from scipy.stats import chi2 as _chi2
+    def _lrt_pval(dofv, df):
+        if df <= 0 or dofv >= 0:
+            return None
+        return float(1.0 - _chi2.cdf(-dofv, df=df))
+except ImportError:
+    def _lrt_pval(dofv, df):
+        return None
 
 
 class ModelComparisonDialog(QDialog):
@@ -112,6 +122,9 @@ class ModelComparisonDialog(QDialog):
             shr_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
             v.addWidget(shr_lbl)
 
+        # LRT / statistics strip
+        v.addWidget(self._build_stats_strip(model_a, model_b))
+
         # Buttons
         btn_row = QHBoxLayout()
         export_btn = QPushButton('Export CSV')
@@ -120,6 +133,60 @@ class ModelComparisonDialog(QDialog):
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(export_btn); btn_row.addStretch(); btn_row.addWidget(close_btn)
         v.addLayout(btn_row)
+
+    def _build_stats_strip(self, ma, mb):
+        """Horizontal strip showing ΔOFV, ΔAIC, ΔBIC, LRT p-value."""
+        strip = QFrame()
+        strip.setFrameShape(QFrame.Shape.StyledPanel)
+        strip.setStyleSheet(f'background:{C.bg3};border-radius:6px;padding:2px;')
+        row = QHBoxLayout(strip)
+        row.setContentsMargins(12, 6, 12, 6)
+        row.setSpacing(24)
+
+        ofv_a = ma.get('ofv'); ofv_b = mb.get('ofv')
+        aic_a = ma.get('aic'); aic_b = mb.get('aic')
+        bic_a = ma.get('bic'); bic_b = mb.get('bic')
+        np_a  = ma.get('n_estimated_params'); np_b = mb.get('n_estimated_params')
+
+        dofv  = (ofv_b - ofv_a) if (ofv_a is not None and ofv_b is not None) else None
+        daic  = (aic_b - aic_a) if (aic_a is not None and aic_b is not None) else None
+        dbic  = (bic_b - bic_a) if (bic_a is not None and bic_b is not None) else None
+        dnpar = (np_b - np_a)   if (np_a  is not None and np_b  is not None) else None
+        lrt_p = _lrt_pval(dofv, -dnpar) if (dofv is not None and dnpar is not None) else None
+
+        def _stat(label, value_str, color=None):
+            w = QLabel(f'<span style="font-size:10px;color:{C.fg2};">{label}</span><br>'
+                       f'<b style="font-size:14px;{f"color:{color};" if color else ""}">{value_str}</b>')
+            w.setTextFormat(Qt.TextFormat.RichText)
+            return w
+
+        ofv_col  = C.green if dofv is not None and dofv < -3.84 else \
+                   C.orange if dofv is not None and dofv < 0 else \
+                   C.red if dofv is not None else None
+        aic_col  = C.green if daic is not None and daic < -2 else \
+                   C.orange if daic is not None and daic < 0 else \
+                   C.red if daic is not None else None
+
+        if lrt_p is not None:
+            lrt_col = C.green if lrt_p < 0.001 else C.orange if lrt_p < 0.05 else C.red
+            lrt_str = f'{lrt_p:.4f}' if lrt_p >= 0.0001 else '<0.0001'
+        else:
+            lrt_col = None
+            lrt_str = '—'
+
+        row.addWidget(_stat('ΔOFV',  f'{dofv:+.3f}' if dofv is not None else '—', ofv_col))
+        row.addWidget(_stat('ΔAIC',  f'{daic:+.2f}' if daic is not None else '—', aic_col))
+        row.addWidget(_stat('ΔBIC',  f'{dbic:+.2f}' if dbic is not None else '—', aic_col))
+        row.addWidget(_stat('Δ parameters', str(dnpar) if dnpar is not None else '—'))
+        row.addWidget(_stat('LRT p-value', lrt_str, lrt_col))
+        if lrt_p is not None:
+            sig = ('Significant (p<0.001)' if lrt_p < 0.001 else
+                   'Significant (p<0.05)'  if lrt_p < 0.05  else
+                   'Not significant')
+            sig_col = C.green if lrt_p < 0.05 else C.red
+            row.addWidget(_stat('Verdict', sig, sig_col))
+        row.addStretch()
+        return strip
 
     def _build_rows(self, ma, mb):
         """Build comparison rows. Returns list of tuples."""

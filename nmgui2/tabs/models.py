@@ -26,6 +26,7 @@ from ..widgets.highlighter import NMHighlighter
 from ..widgets.lst_viewer import LstOutputWidget
 from ..dialogs.duplicate import DuplicateDialog
 from ..dialogs.comparison import ModelComparisonDialog
+from ..dialogs.workbench import ModelWorkbenchDialog
 from ..dialogs.nmtran import NMTRANPanel
 from ..dialogs.run_record import RunRecordDialog
 from ..dialogs.lst_viewer_dialog import LstViewerDialog
@@ -254,7 +255,12 @@ class ModelsTab(QWidget):
             self._filter_btns.append((btn, filter_val))
         self._filter_btns[0][0].setChecked(True)  # 'All' selected by default
         self._current_filter = 'all'
+        workbench_btn = QPushButton('Workbench…')
+        workbench_btn.setFixedHeight(24)
+        workbench_btn.setToolTip('Multi-model comparison workbench (all completed models)')
+        workbench_btn.clicked.connect(self._open_workbench)
         filter_row.addStretch()
+        filter_row.addWidget(workbench_btn)
         lv.addLayout(filter_row)
 
         self.table = _ModelsTable()
@@ -768,6 +774,9 @@ class ModelsTab(QWidget):
         if m.get('has_run'):
             menu.addAction('QC Report…', self._open_qc_report)
             menu.addAction('Run Report…', self._open_run_report)
+        if len([x for x in self._all_models if x.get('has_run')]) > 1:
+            menu.addSeparator()
+            menu.addAction('Workbench…', self._open_workbench)
         menu.exec(QCursor.pos())
 
     def _copy_mod_path(self):
@@ -801,6 +810,16 @@ class ModelsTab(QWidget):
         model_a = _align_param_names(model_a)
         model_b = _align_param_names(model_b)
         dlg = ModelComparisonDialog(model_a, model_b, self)
+        dlg.exec()
+
+    def _open_workbench(self):
+        completed = [m for m in self._all_models if m.get('has_run')]
+        if len(completed) < 2:
+            QMessageBox.information(self, 'Workbench',
+                'At least two completed models are needed for the workbench.')
+            return
+        ref = self._current_model if self._current_model else None
+        dlg = ModelWorkbenchDialog(completed, ref_path=ref.get('path') if ref else None, parent=self)
         dlg.exec()
 
     def _open_qc_report(self):
