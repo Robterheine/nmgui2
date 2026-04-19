@@ -539,6 +539,10 @@ git pull
 pip install -r requirements.txt
 ```
 
+### Previous versions
+
+Snapshot zips of older NMGUI releases are kept in the [`previous releases/`](previous%20releases/) folder at the repository root — useful if you need to reproduce results generated with an earlier version. Each zip contains the full source tree at that tag; unzip into a separate directory and run as usual. Tagged releases from v2.5.0 onward are also available on the [Releases page](https://github.com/Robterheine/nmgui2/releases).
+
 ---
 
 ## First use
