@@ -385,9 +385,13 @@ class ModelsTab(QWidget):
         self._run_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._run_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._run_list.verticalHeader().setVisible(False)
-        self._run_list.setCornerButtonEnabled(False)   # removes the misaligned corner widget
+        self._run_list.setCornerButtonEnabled(False)
         self._run_list.setShowGrid(False)
         self._run_list.setAlternatingRowColors(False)
+        self._run_list.setStyleSheet(
+            'QTableWidget { border-radius: 0; }'
+            'QHeaderView::section { border-radius: 0; }'
+        )
         self._run_list.clicked.connect(self._raise_run_popup)
         run_v.addWidget(self._run_list, 1)
 
