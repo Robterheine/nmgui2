@@ -22,17 +22,10 @@ _RE_PSN  = re.compile(r'(?:run|model)\s+(\d+)\s*/\s*(\d+)', re.IGNORECASE)
 
 
 class RunPopup(QDialog):
-    """Floating output window for a single NONMEM/PsN run.
-
-    Opens immediately when a run is started; stays open until the user
-    dismisses it.  Emits run_completed when the process exits so the
-    Models tab can trigger an auto-scan.
-    """
+    """Floating output window for a single NONMEM/PsN run."""
     run_completed = pyqtSignal(str, str, int)   # stem, cwd, return_code
 
     def __init__(self, stem, tool, cmd, cwd, model_path, parent=None):
-        # Qt.WindowType.Window gives this dialog its own taskbar entry and
-        # prevents it from being hidden behind the main window.
         super().__init__(parent, Qt.WindowType.Window)
         self.stem = stem
         self.tool = tool
@@ -42,6 +35,7 @@ class RunPopup(QDialog):
         self._worker: RunWorker | None = None
         self._start_ts = datetime.now()
         self._elapsed  = 0
+        self._last_ofv: str | None = None   # remembered for completion status line
         self._run_record = None
         self._finished = False
 
@@ -62,37 +56,37 @@ class RunPopup(QDialog):
 
         # ── Header bar ────────────────────────────────────────────────────────
         hdr = QWidget(); hdr.setObjectName('runPopupHeader')
-        hdr.setFixedHeight(48)
+        hdr.setFixedHeight(44)
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(12, 0, 12, 0)
-        hl.setSpacing(16)
+        hl.setSpacing(10)
 
-        self._title_lbl = QLabel(f'<b>{self.stem}</b>')
-        self._title_lbl.setObjectName('mutedBold')
-
-        tool_lbl = QLabel(self.tool.upper())
+        title_lbl = QLabel(f'<b>{self.stem}</b>')
+        tool_lbl  = QLabel(self.tool.upper())
         tool_lbl.setObjectName('muted')
+        started_lbl = QLabel(f'Started {self._start_ts.strftime("%H:%M:%S")}')
+        started_lbl.setObjectName('muted')
 
-        self._started_lbl = QLabel(f'Started {self._start_ts.strftime("%H:%M:%S")}')
-        self._started_lbl.setObjectName('muted')
-
-        hl.addWidget(self._title_lbl)
+        hl.addWidget(title_lbl)
         hl.addWidget(tool_lbl)
         hl.addStretch()
-        hl.addWidget(self._started_lbl)
+        hl.addWidget(started_lbl)
         v.addWidget(hdr)
+
+        # hairline below header (separate widget — no border-bottom on header)
+        v.addWidget(self._hairline())
 
         # ── Status bar ────────────────────────────────────────────────────────
         sb = QWidget(); sb.setObjectName('runPopupStatus')
-        sb.setFixedHeight(30)
+        sb.setFixedHeight(28)
         sl = QHBoxLayout(sb)
         sl.setContentsMargins(12, 0, 12, 0)
-        sl.setSpacing(16)
+        sl.setSpacing(12)
 
-        self._status_lbl  = QLabel('● Running')
+        self._status_lbl   = QLabel('● Running')
         self._progress_lbl = QLabel('')
         self._progress_lbl.setObjectName('muted')
-        self._elapsed_lbl = QLabel('0:00')
+        self._elapsed_lbl  = QLabel('0:00')
         self._elapsed_lbl.setObjectName('muted')
 
         sl.addWidget(self._status_lbl)
@@ -101,9 +95,8 @@ class RunPopup(QDialog):
         sl.addWidget(self._elapsed_lbl)
         v.addWidget(sb)
 
-        # ── hairline ──────────────────────────────────────────────────────────
-        sep = QWidget(); sep.setFixedHeight(1); sep.setObjectName('hairlineSep')
-        v.addWidget(sep)
+        # hairline below status
+        v.addWidget(self._hairline())
 
         # ── Console ───────────────────────────────────────────────────────────
         self.console = QPlainTextEdit()
@@ -113,16 +106,14 @@ class RunPopup(QDialog):
         v.addWidget(self.console, 1)
 
         # ── Button row ────────────────────────────────────────────────────────
-        sep2 = QWidget(); sep2.setFixedHeight(1); sep2.setObjectName('hairlineSep')
-        v.addWidget(sep2)
+        v.addWidget(self._hairline())
 
         btn_w = QWidget()
         bl = QHBoxLayout(btn_w)
         bl.setContentsMargins(12, 8, 12, 8)
         bl.setSpacing(6)
 
-        # Split stop: primary [Stop] + arrow [▾] sharing danger style
-        self.stop_btn  = QPushButton('Stop')
+        self.stop_btn = QPushButton('Stop')
         self.stop_btn.setObjectName('danger')
         self.stop_btn.setFixedWidth(70)
         self.stop_btn.setToolTip('Gentle stop — sends SIGTERM; PsN writes output before exiting')
@@ -158,11 +149,20 @@ class RunPopup(QDialog):
         self._pulse_state = True
         self._pulse_timer.start(600)
 
+    @staticmethod
+    def _hairline() -> QWidget:
+        w = QWidget(); w.setFixedHeight(1); w.setObjectName('hairlineSep')
+        return w
+
     def _apply_theme(self):
         self.console.setPalette(self._make_console_palette())
-        hdr_style = f'QWidget#runPopupHeader {{ background:{T("bg2")}; border-bottom:1px solid {T("border")}; }}'
-        sb_style  = f'QWidget#runPopupStatus  {{ background:{T("bg3")}; border-bottom:1px solid {T("border")}; }}'
-        self.setStyleSheet(hdr_style + sb_style)
+        # Use bg2 for both header and status — avoids tinted bg3 in light theme.
+        # Hairline widgets carry the separator colour via the app-level stylesheet.
+        self.setStyleSheet(
+            f'QWidget#runPopupHeader {{ background:{T("bg2")}; }}'
+            f'QWidget#runPopupStatus  {{ background:{T("bg2")}; }}'
+            f'QPlainTextEdit {{ border:1px solid {T("border")}; }}'
+        )
 
     def _make_console_palette(self):
         pal = QPalette()
@@ -175,14 +175,12 @@ class RunPopup(QDialog):
     def _start_run(self):
         self.console.appendPlainText(f'$ {self.cmd}\n')
 
-        # Create audit record
         self._run_record = create_run_record(self.model_path, self.cmd, self.tool)
         cwd = self.cwd
         records = load_run_records(cwd)
         records.insert(0, self._run_record)
         save_run_records(cwd, records[:500])
 
-        # Persist to run history
         runs = load_runs()
         self._run_history_id = f"{self.stem}_{int(time.time())}"
         runs.insert(0, {
@@ -210,7 +208,9 @@ class RunPopup(QDialog):
     def _parse_progress(self, line: str):
         m = _RE_ITER.search(line)
         if m:
-            self._progress_lbl.setText(f'iter {int(m.group(1))}  ·  OFV {float(m.group(2)):.2f}')
+            ofv_str = f'{float(m.group(2)):.2f}'
+            self._last_ofv = ofv_str
+            self._progress_lbl.setText(f'iter {int(m.group(1))}  ·  OFV {ofv_str}')
             return
         m = _RE_PSN.search(line)
         if m:
@@ -220,13 +220,17 @@ class RunPopup(QDialog):
         self._finished = True
         self._elapsed_timer.stop()
         self._pulse_timer.stop()
-        self.stop_btn.setEnabled(False)
-        self.kill_btn.setEnabled(False)
+
+        # Hide stop controls — they're meaningless once the process has exited
+        self.stop_btn.setVisible(False)
+        self.kill_btn.setVisible(False)
 
         if rc == 0:
             text = self.console.toPlainText()
             status_str = self._extract_termination(text)
-            self._status_lbl.setText(f'✓  {status_str}')
+            # Absorb final OFV into the status label; clear the progress label
+            ofv_part = f'  ·  OFV {self._last_ofv}' if self._last_ofv else ''
+            self._status_lbl.setText(f'✓  {status_str}{ofv_part}')
             self._status_lbl.setStyleSheet(f'color:{C.green}; font-weight:600;')
             self.setWindowTitle(f'{self.stem} — {status_str}')
         else:
@@ -234,9 +238,9 @@ class RunPopup(QDialog):
             self._status_lbl.setStyleSheet(f'color:{C.red}; font-weight:600;')
             self.setWindowTitle(f'{self.stem} — Failed')
 
+        self._progress_lbl.setText('')
         self.console.appendPlainText(f'\n[Process {"finished" if rc == 0 else f"failed (code {rc})"}]')
 
-        # Finalize run record
         if self._run_record:
             self._run_record = finalize_run_record(self._run_record, self.model_path, rc)
             records = load_run_records(self.cwd)
@@ -245,7 +249,6 @@ class RunPopup(QDialog):
                     records[i] = self._run_record; break
             save_run_records(self.cwd, records)
 
-        # Update run history
         runs = load_runs()
         for r in runs:
             if r.get('id') == self._run_history_id:
