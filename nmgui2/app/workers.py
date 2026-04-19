@@ -15,6 +15,12 @@ try:
 except Exception:
     HAS_PARSER = False
 
+try:
+    from .dataset_check import check_dataset
+    HAS_DS_CHECK = True
+except Exception:
+    HAS_DS_CHECK = False
+
 
 class ScanWorker(QThread):
     result = pyqtSignal(list)
@@ -64,6 +70,7 @@ class ScanWorker(QThread):
                     'table_files': [], 'table_runno': '', 'problem': '', 'data_file': '',
                     'comment': '', 'star': False, 'based_on': None, 'status_tag': '',
                     'notes': '', 'n_thetas': 0, 'n_omegas': 0,
+                    'dataset_report': None,
                 }.items()}
                 mod_mtime = f.stat().st_mtime
                 data_mtime = None
@@ -76,6 +83,11 @@ class ScanWorker(QThread):
                         m['data_file'] = dat.group(1)
                         dp = p / m['data_file']
                         if dp.is_file(): data_mtime = dp.stat().st_mtime
+                    if HAS_DS_CHECK and m['data_file']:
+                        try:
+                            m['dataset_report'] = check_dataset(str(f), m['data_file'])
+                        except Exception:
+                            pass
                     pn = extract_param_names(content)
                     for k in ('theta_names', 'omega_names', 'sigma_names',
                               'theta_units', 'omega_units', 'sigma_units',

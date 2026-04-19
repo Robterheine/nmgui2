@@ -710,12 +710,27 @@ class ModelsTab(QWidget):
             input_match = re.search(r'\$INPUT\s+(.+?)(?:\$|;|\n\s*\n)', content, re.DOTALL | re.IGNORECASE)
             if input_match:
                 cols = re.findall(r'([A-Z][A-Z0-9_]*)', input_match.group(1).upper())
-                # Remove DROP columns
                 cols = [c for c in cols if c not in ('DROP', 'SKIP')]
                 if cols:
                     ds_parts.append(f'Columns: {", ".join(cols[:10])}{"..." if len(cols) > 10 else ""}')
         except Exception:
             pass
+
+        # Dataset integrity report (Phase 3)
+        dr = m.get('dataset_report')
+        if dr is not None:
+            if dr.found and dr.readable and dr.n_rows:
+                ds_parts.append(
+                    f'Rows: {dr.n_rows:,}{"+" if dr.truncated else ""}  '
+                    f'IDs: {dr.n_ids:,}  '
+                    f'Obs: {dr.n_obs:,}  '
+                    f'Doses: {dr.n_doses:,}'
+                    + (f'  BLQ: {dr.n_blq:,}' if dr.n_blq else ''))
+            _level_prefix = {'fail': '[X]', 'warn': '[!]', 'info': '[i]', 'pass': '[OK]'}
+            for issue in dr.issues:
+                pfx = _level_prefix.get(issue.level, '[?]')
+                cnt = f' ({issue.count:,} rows)' if issue.count else ''
+                ds_parts.append(f'{pfx} {issue.message}{cnt}')
 
         if ds_parts:
             self._ds_info.setText('\n'.join(ds_parts))
