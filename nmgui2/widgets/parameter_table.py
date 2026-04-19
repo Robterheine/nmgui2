@@ -16,10 +16,14 @@ from ..app.html_report import generate_html_report
 from ..app.constants import HOME
 
 
+_SECTION_ROW_KEY = 'section_header'   # stored in UserRole to identify header rows
+
+
 class ParameterTable(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._model = None
+        self._section_rows = {}   # block_name -> (header_row, [data_rows])
         v = QVBoxLayout(self); v.setContentsMargins(0,0,0,0); v.setSpacing(0)
         # Toolbar
         toolbar = QWidget(); toolbar.setFixedHeight(34)
@@ -40,26 +44,45 @@ class ParameterTable(QWidget):
         tl.addWidget(self.open_report_btn); tl.addWidget(self.save_report_btn)
         tl.addWidget(self.csv_btn)
         v.addWidget(toolbar)
-        self.table = QTableWidget(0,8)
-        self.table.setHorizontalHeaderLabels(['Param','Name','Estimate','SE','RSE%','Shrink%','Etabar','Units'])
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(['Param', 'Name', 'Estimate', 'SE', 'RSE%', 'Shrink%', 'Etabar', 'Units'])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        # Sensible initial widths — all freely draggable
-        hh.resizeSection(0, 85)   # Param
-        hh.resizeSection(1, 140)  # Name — wide but draggable
-        hh.resizeSection(2, 85)   # Estimate
-        hh.resizeSection(3, 65)   # SE
-        hh.resizeSection(4, 55)   # RSE%
-        hh.resizeSection(5, 55)   # Shrink%
-        hh.resizeSection(6, 55)   # Etabar p
-        hh.resizeSection(7, 50)   # Units
+        hh.resizeSection(0, 85)
+        hh.resizeSection(1, 140)
+        hh.resizeSection(2, 85)
+        hh.resizeSection(3, 65)
+        hh.resizeSection(4, 55)
+        hh.resizeSection(5, 55)
+        hh.resizeSection(6, 55)
+        hh.resizeSection(7, 50)
         hh.setStretchLastSection(False)
         hh.setMinimumSectionSize(40)
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setShowGrid(False)
+        self.table.itemClicked.connect(self._on_item_clicked)
         v.addWidget(self.table)
+
+    def _on_item_clicked(self, item):
+        if item and item.data(Qt.ItemDataRole.UserRole) == _SECTION_ROW_KEY:
+            block = item.data(Qt.ItemDataRole.UserRole + 1)
+            self._toggle_section(block)
+
+    def _toggle_section(self, block):
+        if block not in self._section_rows:
+            return
+        header_row, data_rows = self._section_rows[block]
+        # Detect current state from first data row visibility
+        currently_hidden = data_rows and self.table.isRowHidden(data_rows[0])
+        arrow = '\u25bc' if currently_hidden else '\u25b6'
+        label = f'  {arrow}  {block}  ({len(data_rows)})'
+        hdr_item = self.table.item(header_row, 0)
+        if hdr_item:
+            hdr_item.setText(label)
+        for r in data_rows:
+            self.table.setRowHidden(r, not currently_hidden)
 
     def _open_report(self):
         if not self._model: return
@@ -147,64 +170,78 @@ class ParameterTable(QWidget):
             ('SIGMA', model.get('sigmas',[]), model.get('sigma_ses',[]),
              model.get('sigma_names',[]), model.get('sigma_units',[]), model.get('sigma_fixed',[]), eps_shr, []),
         ]
-        rows = []
+
+        # Build flat list with section header sentinels
+        row_specs = []   # each entry: ('header', block) or ('data', block, ...)
         for block, ests, ses, names, units, fixed, shrinkage, etabar in blocks:
+            if not ests:
+                continue
+            row_specs.append(('header', block, len(ests)))
             for i, est in enumerate(ests):
-                se   = ses[i] if i < len(ses) else None
-                nm   = names[i] if i < len(names) else ''
-                un   = units[i] if i < len(units) else ''
-                fx   = fixed[i] if i < len(fixed) else False
-                shr  = shrinkage[i] if i < len(shrinkage) else None
-                ebp  = etabar[i] if i < len(etabar) else None
-                param_key = f'{block}({i+1})'
-                parent_val = parent_params.get(param_key)
-                rows.append((param_key, nm, est, fmt_num(est), fmt_num(se) if se is not None else '...',
-                            fmt_rse(est,se), shr, ebp, un, fx, parent_val))
-        self.table.setRowCount(len(rows))
+                se  = ses[i]   if i < len(ses)   else None
+                nm  = names[i] if i < len(names) else ''
+                un  = units[i] if i < len(units) else ''
+                fx  = fixed[i] if i < len(fixed) else False
+                shr = shrinkage[i] if i < len(shrinkage) else None
+                ebp = etabar[i]    if i < len(etabar)    else None
+                pk  = f'{block}({i+1})'
+                row_specs.append(('data', block, pk, nm, est,
+                                  fmt_num(est), fmt_num(se) if se is not None else '...',
+                                  fmt_rse(est, se), shr, ebp, un, fx,
+                                  parent_params.get(pk)))
+
+        self._section_rows = {}
+        self.table.setRowCount(len(row_specs))
         R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         L = Qt.AlignmentFlag.AlignLeft  | Qt.AlignmentFlag.AlignVCenter
         grey = QBrush(QColor(C.fg2))
-        changed_color = QColor('#4c8aff')  # Blue for changed parameters
+        changed_color = QColor(C.blue)
 
-        for row, (lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val) in enumerate(rows):
-            # Check if parameter changed from parent
+        # First pass: insert section header rows
+        for ri, spec in enumerate(row_specs):
+            if spec[0] != 'header':
+                continue
+            _, block, count = spec
+            label = f'  \u25bc  {block}  ({count})'
+            hdr_item = QTableWidgetItem(label)
+            hdr_item.setData(Qt.ItemDataRole.UserRole, _SECTION_ROW_KEY)
+            hdr_item.setData(Qt.ItemDataRole.UserRole + 1, block)
+            hdr_item.setBackground(QBrush(QColor(C.bg3)))
+            hdr_item.setForeground(QBrush(QColor(C.blue)))
+            f = hdr_item.font(); f.setBold(True); f.setPointSize(10); hdr_item.setFont(f)
+            self.table.setItem(ri, 0, hdr_item)
+            self.table.setSpan(ri, 0, 1, 8)
+            self.table.setRowHeight(ri, 24)
+            self._section_rows[block] = (ri, [])
+
+        # Second pass: fill data rows, register with section, set items
+        for ri, spec in enumerate(row_specs):
+            if spec[0] != 'data':
+                continue
+            _, block, lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val = spec
+            self._section_rows[block][1].append(ri)
+
             changed_from_parent = False
             parent_tooltip = None
             if parent_val is not None and est_raw is not None:
-                # Consider changed if differs by more than 0.1% or absolute diff > 1e-6
                 if abs(est_raw) > 1e-10:
-                    pct_diff = abs(est_raw - parent_val) / abs(est_raw) * 100
-                    changed_from_parent = pct_diff > 0.1
+                    changed_from_parent = abs(est_raw - parent_val) / abs(est_raw) * 100 > 0.1
                 else:
                     changed_from_parent = abs(est_raw - parent_val) > 1e-6
                 if changed_from_parent:
                     parent_tooltip = f'Changed from {fmt_num(parent_val)} in parent model'
 
-            # Shrinkage text and color
             if shr is not None:
                 shr_txt = f'{shr:.1f}'
-                if shr < 20:
-                    shr_color = QColor(C.green)
-                elif shr < 30:
-                    shr_color = QColor(C.orange)
-                else:
-                    shr_color = QColor(C.red)
+                shr_color = QColor(C.green if shr < 20 else C.orange if shr < 30 else C.red)
             else:
-                shr_txt = ''
-                shr_color = None
+                shr_txt = ''; shr_color = None
 
-            # Etabar p-value text and color
             if ebp is not None:
                 ebp_txt = f'{ebp:.3f}' if ebp >= 0.001 else '<.001'
-                if ebp < 0.01:
-                    ebp_color = QColor(C.red)
-                elif ebp < 0.05:
-                    ebp_color = QColor(C.orange)
-                else:
-                    ebp_color = None
+                ebp_color = QColor(C.red if ebp < 0.01 else C.orange if ebp < 0.05 else C.fg)
             else:
-                ebp_txt = ''
-                ebp_color = None
+                ebp_txt = ''; ebp_color = None
 
             for col, (txt, align) in enumerate([(lbl,L),(nm,L),(est,R),(se,R),(rse,R),(shr_txt,R),(ebp_txt,R),(un,L)]):
                 item = QTableWidgetItem(txt)
@@ -232,4 +269,4 @@ class ParameterTable(QWidget):
                         item.setToolTip(f'Significant etabar (p={ebp:.4f}) — systematic bias in random effect')
                     elif ebp < 0.05:
                         item.setToolTip(f'Marginally significant etabar (p={ebp:.3f})')
-                self.table.setItem(row, col, item)
+                self.table.setItem(ri, col, item)

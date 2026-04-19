@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QLineEdit, QTextEdit, QMenu, QMessageBox, QFileDialog,
     QApplication, QStyledItemDelegate,
     QStackedWidget, QSizePolicy, QDialog, QInputDialog, QCheckBox,
-    QPlainTextEdit,
+    QPlainTextEdit, QScrollArea,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QModelIndex, QAbstractTableModel, QTimer
 from PyQt6.QtGui import QBrush, QColor, QKeySequence, QFont, QAction
@@ -27,6 +27,7 @@ from ..widgets.lst_viewer import LstOutputWidget
 from ..dialogs.duplicate import DuplicateDialog
 from ..dialogs.comparison import ModelComparisonDialog
 from ..dialogs.workbench import ModelWorkbenchDialog
+from ..widgets.collapsible import CollapsibleCard
 from ..dialogs.nmtran import NMTRANPanel
 from ..dialogs.run_record import RunRecordDialog
 from ..dialogs.lst_viewer_dialog import LstViewerDialog
@@ -372,62 +373,77 @@ class ModelsTab(QWidget):
         run_v.addWidget(self.console,1)
         self._detail_stack.addWidget(run_w)
 
-        # 3 — Info
-        info_w = QWidget(); info_v = QVBoxLayout(info_w)
-        info_v.setContentsMargins(10,10,10,10); info_v.setSpacing(8)
+        # 3 — Info  (collapsible cards inside a scroll area)
+        info_scroll = QScrollArea()
+        info_scroll.setWidgetResizable(True)
+        info_scroll.setFrameShape(info_scroll.Shape.NoFrame)
+        info_inner = QWidget()
+        info_v = QVBoxLayout(info_inner)
+        info_v.setContentsMargins(8, 8, 8, 8)
+        info_v.setSpacing(4)
 
-        # Dataset info section
-        ds_lbl = QLabel('DATASET')
-        ds_lbl.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;letter-spacing:0.5px;')
-        info_v.addWidget(ds_lbl)
+        # ── Dataset card ──────────────────────────────────────────────────────
+        self._card_dataset = CollapsibleCard('Dataset', expanded=True)
         self._ds_info = QLabel('No model selected')
         self._ds_info.setWordWrap(True)
         self._ds_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._ds_info.setStyleSheet(f'color:{C.fg};font-size:11px;background:{C.bg3};padding:6px;border-radius:4px;')
-        info_v.addWidget(self._ds_info)
+        self._ds_info.setStyleSheet(f'color:{C.fg};font-size:11px;')
+        self._card_dataset.add_widget(self._ds_info)
+        info_v.addWidget(self._card_dataset)
 
-        info_v.addSpacing(8)
+        # ── Annotation card ───────────────────────────────────────────────────
+        self._card_annot = CollapsibleCard('Annotation', expanded=True)
 
-        info_v.addWidget(QLabel('Comment'))
-        self.comment_edit = QLineEdit(); self.comment_edit.setPlaceholderText('Short label…')
+        ann_lbl_comment = QLabel('Comment')
+        ann_lbl_comment.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;')
+        self._card_annot.add_widget(ann_lbl_comment)
+        self.comment_edit = QLineEdit()
+        self.comment_edit.setPlaceholderText('Short label…')
         self.comment_edit.editingFinished.connect(self._save_meta_fields)
-        info_v.addWidget(self.comment_edit)
+        self._card_annot.add_widget(self.comment_edit)
 
-        # Status row
-        status_row = QHBoxLayout()
-        status_row.addWidget(QLabel('Status:'))
+        status_row = QHBoxLayout(); status_row.setSpacing(8)
+        st_lbl = QLabel('Status')
+        st_lbl.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;')
         self.status_tag_combo = QComboBox()
-        self.status_tag_combo.addItems(['','base','candidate','final'])
+        self.status_tag_combo.addItems(['', 'base', 'candidate', 'final'])
         self.status_tag_combo.currentTextChanged.connect(self._save_meta_fields)
-        status_row.addWidget(self.status_tag_combo); status_row.addStretch()
-        info_v.addLayout(status_row)
+        status_row.addWidget(st_lbl); status_row.addWidget(self.status_tag_combo); status_row.addStretch()
+        self._card_annot.add_layout(status_row)
 
-        # Decision row (annotation system)
-        decision_row = QHBoxLayout()
-        decision_row.addWidget(QLabel('Decision:'))
+        dec_row = QHBoxLayout(); dec_row.setSpacing(8)
+        dec_lbl = QLabel('Decision')
+        dec_lbl.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;')
         self.decision_combo = QComboBox()
         self.decision_combo.addItems(['', 'Include', 'Sensitivity', 'Exploratory', 'Rejected'])
         self.decision_combo.currentTextChanged.connect(self._save_meta_fields)
         self.decision_combo.setToolTip('Categorize model for reporting/submission')
-        decision_row.addWidget(self.decision_combo); decision_row.addStretch()
-        info_v.addLayout(decision_row)
+        dec_row.addWidget(dec_lbl); dec_row.addWidget(self.decision_combo); dec_row.addStretch()
+        self._card_annot.add_layout(dec_row)
 
-        # Tags row (annotation system)
-        info_v.addWidget(QLabel('Tags'))
+        tags_lbl = QLabel('Tags')
+        tags_lbl.setStyleSheet(f'color:{C.fg2};font-size:10px;font-weight:600;')
+        self._card_annot.add_widget(tags_lbl)
         self.tags_edit = QLineEdit()
         self.tags_edit.setPlaceholderText('Comma-separated: pediatric, renal, covariate...')
         self.tags_edit.setToolTip('Add tags for filtering and search')
         self.tags_edit.editingFinished.connect(self._save_meta_fields)
-        info_v.addWidget(self.tags_edit)
+        self._card_annot.add_widget(self.tags_edit)
+        info_v.addWidget(self._card_annot)
 
-        info_v.addWidget(QLabel('Notes'))
-        self.notes_edit = QTextEdit(); self.notes_edit.setPlaceholderText('Rationale, decisions…')
-        self.notes_edit.setMaximumHeight(140)
+        # ── Notes card ────────────────────────────────────────────────────────
+        self._card_notes = CollapsibleCard('Notes', expanded=True)
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setPlaceholderText('Rationale, decisions…')
+        self.notes_edit.setMinimumHeight(100)
         orig_focusOut = self.notes_edit.focusOutEvent
         self.notes_edit.focusOutEvent = lambda e: (self._save_meta_fields(), orig_focusOut(e))
-        info_v.addWidget(self.notes_edit)
+        self._card_notes.add_widget(self.notes_edit)
+        info_v.addWidget(self._card_notes)
+
         info_v.addStretch()
-        self._detail_stack.addWidget(info_w)
+        info_scroll.setWidget(info_inner)
+        self._detail_stack.addWidget(info_scroll)
 
         # 4 — Output (.lst viewer)
         self.lst_output = LstOutputWidget()

@@ -245,6 +245,8 @@ QGroupBox::title {{
 QLabel {{ color: {t['fg']}; }}
 QLabel#muted {{ color: {t['fg2']}; font-size: 12px; }}
 QLabel#section {{ color: {t['fg2']}; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
+QScrollArea {{ background: {t['bg']}; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: {t['bg']}; }}
 QCheckBox {{ color: {t['fg']}; spacing: 6px; }}
 QCheckBox::indicator {{
     width: 14px; height: 14px;
