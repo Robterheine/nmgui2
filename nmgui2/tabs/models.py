@@ -198,7 +198,9 @@ class ModelsTab(QWidget):
         super().__init__(parent)
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
-        self._run_popups: list[RunPopup] = []; self._current_model = None
+        self._run_popups: list[RunPopup] = []
+        self._run_records_cache: list = []   # per-folder history from nmgui_run_records.json
+        self._current_model = None
         self._ref_model_path = None   # user-selected reference for dOFV
         self._table_model = ModelTableModel()
         self._all_models  = []
@@ -514,6 +516,8 @@ class ModelsTab(QWidget):
         if d != self._directory:
             self._ref_model_path = None
         self._directory = d; s = load_settings(); s['working_directory'] = d; save_settings(s)
+        self._run_records_cache = load_run_records(d)[:30]
+        self._refresh_run_list()
         self._meta = load_meta(); self.status_msg.emit('Scanning…'); self.table.setRowCount(0)
         # Reset right panel
         self._current_model = None
@@ -1006,15 +1010,13 @@ class ModelsTab(QWidget):
     def _on_popup_done(self, stem: str, cwd: str, rc: int):
         s = 'finished' if rc == 0 else f'failed (code {rc})'
         self.status_msg.emit(f'{stem}: run {s}')
+        self._run_records_cache = load_run_records(cwd)[:30]
         self._refresh_run_list()
         QTimer.singleShot(1500, self._scan)
 
     def _refresh_run_list(self):
-        popups = self._run_popups
-        self._run_list.setRowCount(len(popups))
-
-        R = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        C_= Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+        R  = Qt.AlignmentFlag.AlignRight  | Qt.AlignmentFlag.AlignVCenter
+        C_ = Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
 
         def _item(text, fg=None, align=None):
             it = QTableWidgetItem(text)
@@ -1023,36 +1025,69 @@ class ModelsTab(QWidget):
             if align: it.setTextAlignment(align)
             return it
 
-        for row, popup in enumerate(popups):
+        def _fmt_secs(secs):
+            if secs is None: return ''
+            m2, s = divmod(int(secs), 60); h, m2 = divmod(m2, 60)
+            return f'{h}:{m2:02d}:{s:02d}' if h else f'{m2}:{s:02d}'
+
+        # Live rows (open popup windows)
+        live_ids = {getattr(p, '_run_record', {}).get('run_id')
+                    for p in self._run_popups if getattr(p, '_run_record', None)}
+
+        # Historical rows: records from disk that don't have a live popup
+        historical = [r for r in self._run_records_cache
+                      if r.get('run_id') not in live_ids]
+
+        n_live = len(self._run_popups)
+        total  = n_live + len(historical)
+        self._run_list.setRowCount(total)
+
+        # ── Live popup rows ───────────────────────────────────────────────────
+        for row, popup in enumerate(self._run_popups):
             finished = getattr(popup, '_finished', False)
             elapsed  = getattr(popup, '_elapsed', 0)
             last_ofv = getattr(popup, '_last_ofv', None)
 
             if finished:
-                raw = getattr(popup._status_lbl, 'text', lambda: '')()
-                ok  = raw.startswith('✓')
-                status_txt = '✓  Done' if ok else '✗  Failed'
-                status_col = C.green   if ok else C.red
+                ok = getattr(popup._status_lbl, 'text', lambda: '')().startswith('✓')
+                status_txt, status_col = ('✓  Done', C.green) if ok else ('✗  Failed', C.red)
             else:
-                status_txt = '●  Running'
-                status_col = T('accent')
-
-            m2, s = divmod(elapsed, 60)
-            h,  m2 = divmod(m2, 60)
-            time_str = f'{h}:{m2:02d}:{s:02d}' if h else f'{m2}:{s:02d}'
+                status_txt, status_col = '●  Running', T('accent')
 
             ofv_str = last_ofv if (finished and last_ofv) else ''
 
             self._run_list.setItem(row, 0, _item(popup.stem))
-            self._run_list.setItem(row, 1, _item(popup.tool, fg=T('fg2'), align=C_))
-            self._run_list.setItem(row, 2, _item(status_txt, fg=status_col))
-            self._run_list.setItem(row, 3, _item(ofv_str,   fg=T('fg2'), align=R))
-            self._run_list.setItem(row, 4, _item(time_str,  fg=T('fg2'), align=R))
+            self._run_list.setItem(row, 1, _item(popup.tool,   fg=T('fg2'), align=C_))
+            self._run_list.setItem(row, 2, _item(status_txt,   fg=status_col))
+            self._run_list.setItem(row, 3, _item(ofv_str,      fg=T('fg2'), align=R))
+            self._run_list.setItem(row, 4, _item(_fmt_secs(elapsed), fg=T('fg2'), align=R))
 
-        self._run_list.setVisible(bool(popups))
+        # ── Historical record rows ────────────────────────────────────────────
+        for i, rec in enumerate(historical):
+            row = n_live + i
+            st  = rec.get('status', '')
+            if st == 'completed':
+                status_txt, status_col = '✓  Done',        C.green
+            elif st == 'running':
+                status_txt, status_col = '?  Interrupted', T('orange')
+            else:
+                status_txt, status_col = '✗  Failed',      C.red
+
+            ofv = rec.get('ofv')
+            ofv_str = f'{ofv:.3f}' if ofv is not None else ''
+
+            fg_dim = T('fg2')   # historical rows use muted text for model name too
+            self._run_list.setItem(row, 0, _item(rec.get('model_stem', ''), fg=fg_dim))
+            self._run_list.setItem(row, 1, _item(rec.get('tool', ''),       fg=fg_dim, align=C_))
+            self._run_list.setItem(row, 2, _item(status_txt, fg=status_col))
+            self._run_list.setItem(row, 3, _item(ofv_str,    fg=fg_dim, align=R))
+            self._run_list.setItem(row, 4, _item(_fmt_secs(rec.get('duration_seconds')),
+                                                  fg=fg_dim, align=R))
+
+        self._run_list.setVisible(bool(total))
 
     def _raise_run_popup(self, index):
         row = index.row()
-        if 0 <= row < len(self._run_popups):
+        if row < len(self._run_popups):   # only live rows have a window to raise
             p = self._run_popups[row]
             p.show(); p.raise_(); p.activateWindow()
