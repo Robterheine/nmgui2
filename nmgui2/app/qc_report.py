@@ -136,7 +136,7 @@ def _check_rse(model: dict) -> list:
             label = f'{block}({i+1}) %RSE'
             val = f'{pct:.1f}%'
             if pct >= 50:
-                results.append(QCResult('Precision', label, FAIL, val,
+                results.append(QCResult('Precision', label, WARN, val,
                                         'Very imprecise estimate'))
             elif pct >= 25:
                 results.append(QCResult('Precision', label, WARN, val,

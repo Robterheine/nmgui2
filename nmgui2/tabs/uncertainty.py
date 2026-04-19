@@ -926,7 +926,9 @@ class ParameterUncertaintyTab(QWidget):
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
         self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 10))
-        self.console.setStyleSheet(f'background: {T("bg2")}; border: 1px solid {T("border")}; border-radius: 4px;')
+        self.console.setStyleSheet(
+            f'QPlainTextEdit{{background:{T("bg2")};color:{T("fg")};'
+            f'border:1px solid {T("border")};border-radius:4px;}}')
         self._results_stack.addWidget(self.console)
 
         # Assessment panel

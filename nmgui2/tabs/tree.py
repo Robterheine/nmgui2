@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QTimer
 from PyQt6.QtGui import QBrush, QColor, QPen, QFont, QTransform
-from ..app.theme import C, T, THEMES, _active_theme
+from ..app.theme import C, T, THEMES
+from ..app import theme as _theme_mod
 
 try:
     import pyqtgraph as pg
@@ -30,9 +31,9 @@ class AncestryTreeWidget(QWidget):
         self._selecting = False
         v = QVBoxLayout(self); v.setContentsMargins(0,0,0,0); v.setSpacing(0)
         self._scene = QGraphicsScene()
-        # Use app background colour — not pyqtgraph bg which can be white in light mode
         self._scene.setBackgroundBrush(QBrush(QColor(C.bg)))
         self._view  = QGraphicsView(self._scene)
+        self._view.setBackgroundBrush(QBrush(QColor(C.bg)))
         self._view.setRenderHint(self._view.renderHints().__class__.Antialiasing, True)
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
@@ -52,8 +53,8 @@ class AncestryTreeWidget(QWidget):
             self._view.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
 
     def set_theme(self, bg, fg):
-        # Always use app background so nodes are visible in both themes
-        self._scene.setBackgroundBrush(QBrush(QColor(THEMES[_active_theme]['bg'])))
+        self._scene.setBackgroundBrush(QBrush(QColor(C.bg)))
+        self._view.setBackgroundBrush(QBrush(QColor(C.bg)))
         self._rebuild()  # redraw nodes with new theme colours
 
     def load(self, models, current_stem=None):
@@ -147,9 +148,9 @@ class AncestryTreeWidget(QWidget):
             if is_current:
                 fill = QColor(C.blue)
             elif is_ok:
-                fill = QColor('#1a3a2a') if _active_theme == 'dark' else QColor('#e6f4ed')
+                fill = QColor('#1a3a2a') if _theme_mod._active_theme == 'dark' else QColor('#e6f4ed')
             elif is_fail:
-                fill = QColor('#3a1a1a') if _active_theme == 'dark' else QColor('#fce8e8')
+                fill = QColor('#3a1a1a') if _theme_mod._active_theme == 'dark' else QColor('#fce8e8')
             else:
                 # Neutral: use BG3 which contrasts against the scene background in both themes
                 fill = QColor(C.bg3)
