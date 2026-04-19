@@ -166,6 +166,12 @@ class RunWorker(QThread):
         import signal
         if self._proc:
             try:
-                if IS_WIN: self._proc.terminate()
-                else: os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
+                if IS_WIN:
+                    # terminate() only kills the immediate process; use taskkill
+                    # to terminate the whole process tree (PsN + spawned NONMEM).
+                    subprocess.run(
+                        ['taskkill', '/T', '/F', '/PID', str(self._proc.pid)],
+                        capture_output=True)
+                else:
+                    os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
             except Exception as e: _log.debug(f'Error stopping process: {e}')
