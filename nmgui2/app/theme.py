@@ -261,41 +261,44 @@ QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
     border-color: {t['accent']};
 }}
 QSpinBox, QDoubleSpinBox {{
-    padding-right: 20px;
+    padding: 4px 22px 4px 8px;
     min-height: 24px;
 }}
 QSpinBox::up-button, QDoubleSpinBox::up-button {{
-    subcontrol-origin: border;
+    subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 18px;
-    height: 12px;
-    border-left: 1px solid {t['border']};
-    border-bottom: 1px solid {t['border']};
-    border-top-right-radius: 4px;
-    background: {t['bg3']};
+    width: 16px;
+    height: 11px;
+    margin-right: 2px;
+    margin-top: 1px;
+    border: none;
+    background: transparent;
 }}
 QSpinBox::down-button, QDoubleSpinBox::down-button {{
-    subcontrol-origin: border;
+    subcontrol-origin: padding;
     subcontrol-position: bottom right;
-    width: 18px;
-    height: 12px;
-    border-left: 1px solid {t['border']};
-    border-bottom-right-radius: 4px;
-    background: {t['bg3']};
+    width: 16px;
+    height: 11px;
+    margin-right: 2px;
+    margin-bottom: 1px;
+    border: none;
+    background: transparent;
 }}
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
 QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-    background: {t['bg4']};
+    background: {t['bg3']};
+    border-radius: 3px;
 }}
 QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
 QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
     background: {t['accent_bg']};
+    border-radius: 3px;
 }}
 QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-    image: url({_up}); width: 10px; height: 7px;
+    image: url({_up}); width: 9px; height: 6px;
 }}
 QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-    image: url({_dn}); width: 10px; height: 7px;
+    image: url({_dn}); width: 9px; height: 6px;
 }}
 QComboBox {{
     background: {t['bg2']};
