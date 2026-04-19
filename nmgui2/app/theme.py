@@ -54,8 +54,8 @@ class _ThemeColors:
     """Mutable singleton — attributes update live on theme change."""
     def _apply(self, theme_name):
         t = THEMES[theme_name]
-        self.bg = t['bg'];    self.bg2 = t['bg2'];   self.bg3 = t['bg3']
-        self.border = t['border']; self.fg = t['fg']; self.fg2 = t['fg2']
+        self.bg = t['bg'];    self.bg2 = t['bg2'];   self.bg3 = t['bg3'];  self.bg4 = t['bg4']
+        self.border = t['border']; self.fg = t['fg']; self.fg2 = t['fg2']; self.fg3 = t['fg3']
         self.green = t['green']; self.red = t['red']; self.orange = t['orange']
         self.blue = t['accent']; self.yellow = t['yellow']; self.star = t['star']
         self.stale = t['orange']
