@@ -85,36 +85,43 @@ def set_active_theme(name):
     C._apply(name)
 
 
-def _arrow_png_uri(color_hex, direction):
-    """Render a triangle arrow as a base64 PNG data URI.
+_arrow_cache_dir = None
 
-    SVG data URIs are unreliable in Qt stylesheets (spaces, apostrophes, and the
-    optional qt-svg plugin all cause silent failures — Qt falls back to native
-    arrows drawn with the system palette, which vanish in dark mode).
-    base64 PNG is parser-safe and plugin-free.
+def _arrow_png_uri(color_hex, direction):
+    """Render a triangle arrow to a cached PNG file and return a url()-safe path.
+
+    Data URIs work for QComboBox::down-arrow but are flaky for
+    QSpinBox::up-arrow/::down-arrow across Qt versions — the image silently
+    fails to render. Writing to a tmp file and referencing by path is
+    reliable for all sub-controls.
     """
-    import base64
-    from PyQt6.QtCore import Qt, QBuffer, QByteArray, QPointF
+    import hashlib, tempfile, os
+    from PyQt6.QtCore import Qt, QPointF
     from PyQt6.QtGui import QPixmap, QPainter, QPolygonF, QColor
-    w, h = 16, 10   # 2x for HiDPI; displayed at 8x5
-    pm = QPixmap(w, h)
-    pm.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    p.setPen(Qt.PenStyle.NoPen)
-    p.setBrush(QColor(color_hex))
-    if direction == 'up':
-        tri = QPolygonF([QPointF(w / 2, 1), QPointF(w - 2, h - 1), QPointF(2, h - 1)])
-    else:
-        tri = QPolygonF([QPointF(2, 1), QPointF(w - 2, 1), QPointF(w / 2, h - 1)])
-    p.drawPolygon(tri)
-    p.end()
-    ba = QByteArray()
-    buf = QBuffer(ba)
-    buf.open(QBuffer.OpenModeFlag.WriteOnly)
-    pm.save(buf, 'PNG')
-    b64 = bytes(ba.toBase64()).decode('ascii')
-    return f'data:image/png;base64,{b64}'
+
+    global _arrow_cache_dir
+    if _arrow_cache_dir is None:
+        _arrow_cache_dir = os.path.join(tempfile.gettempdir(), 'nmgui2_arrows')
+        os.makedirs(_arrow_cache_dir, exist_ok=True)
+
+    key = hashlib.md5(f'{color_hex}-{direction}-v2'.encode()).hexdigest()[:10]
+    path = os.path.join(_arrow_cache_dir, f'arrow_{direction}_{key}.png')
+    if not os.path.exists(path):
+        w, h = 20, 14   # 2x for HiDPI
+        pm = QPixmap(w, h)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(color_hex))
+        if direction == 'up':
+            tri = QPolygonF([QPointF(w / 2, 2), QPointF(w - 3, h - 2), QPointF(3, h - 2)])
+        else:
+            tri = QPolygonF([QPointF(3, 2), QPointF(w - 3, 2), QPointF(w / 2, h - 2)])
+        p.drawPolygon(tri)
+        p.end()
+        pm.save(path, 'PNG')
+    return path.replace('\\', '/')
 
 
 def apply_palette(app, theme_name='dark'):
