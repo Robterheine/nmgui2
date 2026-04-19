@@ -185,10 +185,38 @@ Launch any PsN tool on the current model.
 - **Tool dropdown** — execute / vpc / bootstrap / scm / sir / cdd / npc / sse.
 - **Extra args** — free-form arguments appended to the command.
 - **Clean previous run dir** — checkbox; deletes the `<stem>/` subdirectory before running.
-- **Run** — spawns PsN as a subprocess; stdout/stderr stream live to the console.
-- **Stop** — sends SIGINT/terminate to the process tree.
+- **Run** — spawns PsN as a subprocess. A floating **Run popup window** opens immediately; see below.
 
-Every run creates a **run record** (see §11).
+#### Run popup window
+Each run gets its own independent window (appears as a separate entry in the taskbar/Dock):
+
+- **Header** — model stem, tool name, start time.
+- **Status bar** — pulsing ● while running; shows live iteration number and OFV for `execute` runs (parsed from NONMEM output); shows run N/M progress for PsN multi-run tools. On completion shows ✓ / ✗ with the termination result (e.g. *Minimization Successful*).
+- **Elapsed timer** — counts up from zero.
+- **Console** — live stdout/stderr stream.
+- **Stop button** — opens a menu:
+  - *Gentle stop (SIGTERM)* — asks PsN to finish writing output files before stopping.
+  - *Force kill (SIGKILL)* — immediate termination; no output is written.
+- **Open run dir** — reveals the run directory (`<cwd>/<stem>/`) in the file manager.
+- **Close** — closes the window; if the run is still active you are asked to confirm (the run continues in the background).
+
+Multiple models can run simultaneously — each in its own popup.
+
+#### Active & Recent Runs table
+Below the launch controls, the Run sub-tab shows a table of all runs associated with the current project folder:
+
+| Column | Meaning |
+|---|---|
+| Model | Model stem |
+| Tool | PsN tool used |
+| Status | Live: elapsed time + current OFV (for execute). Finished: ✓ Completed / ✗ Failed / ? Interrupted |
+| Time | Duration |
+
+- **Live rows** (top) — correspond to open popup windows; click to raise the window.
+- **Historical rows** — loaded from `nmgui_run_records.json` in the project folder; persist across app restarts; capped at the 30 most recent entries.
+- **Interrupted** — runs that were active when the app was closed without waiting for completion appear as "? Interrupted".
+
+Every run creates an immutable **run record** (see §11).
 
 ### 4.4 Info
 - **Dataset card** (collapsible) — path, row count, columns, integrity warnings (missing file, non-monotonic TIME, duplicate doses, extreme DV, high BLQ).
@@ -451,20 +479,25 @@ App version, author, environment (Python / PyQt6 / pyqtgraph / numpy versions), 
 
 ## 13. Files written by NMGUI2
 
-All user state lives in `~/.nmgui/` (created on first launch):
+Global user state lives in `~/.nmgui/` (created on first launch):
 
 | File | Purpose |
 |---|---|
 | `settings.json` | Theme, paths, window geometry, splitter sizes |
 | `model_meta.json` | Stars, status tags, comments, notes, parent overrides |
 | `bookmarks.json` | Directory bookmarks |
-| `runs.json` | Run history (last 200) |
-| `run_records.json` | Immutable audit trail |
+| `runs.json` | Global run history (last 200 entries across all projects) |
 | `nmgui_debug.log` | Debug log |
+
+One file is written **inside each project folder**:
+
+| File | Purpose |
+|---|---|
+| `nmgui_run_records.json` | Immutable per-project run audit trail (last 500 entries); drives the Active & Recent Runs table in the Run sub-tab |
 
 Temp files: VPC PNG/PDF output lives in the VPC folder itself; arrow glyph PNGs for the theme are cached in `$TMPDIR/nmgui2_arrows/`.
 
-Delete `~/.nmgui/` to reset to defaults.
+Delete `~/.nmgui/` to reset global settings. Per-project run records are not affected.
 
 ---
 

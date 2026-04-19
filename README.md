@@ -33,6 +33,8 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ## What's new in v2.5.0
 
+- **Concurrent popup runs** — clicking Run now opens a dedicated floating window per model run; multiple models run simultaneously in independent windows, each with its own live console, iteration/OFV progress indicator, elapsed timer, and gentle/force stop controls; on completion the window title and status bar update with the termination result
+- **Active & Recent Runs panel** — the Run sub-tab now shows a persistent table of active and recent runs for the current project folder; click a live row to raise its popup window; historical rows are loaded from `nmgui_run_records.json` in the project directory and survive app restarts; interrupted runs are shown as "? Interrupted"
 - **Theme overhaul** — forced Fusion style across all platforms for consistent dark-mode behaviour; migrated ~20 widgets from per-widget stylesheets to object-name + global QSS so theme toggle reliably refreshes every label, separator, spin-box, combo-box and highlighter in the app
 - **QC report** — right-click any completed model → *QC Report…* to open a self-contained HTML report with a PASS / WARN / FAIL checklist covering termination, covariance, condition number, %RSE, parameter correlations, shrinkage, ETABAR and omega boundary checks
 - **Model workbench** — *Workbench…* button opens a sortable table of all completed models with ΔOFV, ΔAIC, ΔBIC, LRT p-value and reference-model selector for quick multi-model comparison
@@ -61,7 +63,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 **Editor** — syntax-highlighted `.mod` editor with save functionality.
 
-**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments and live console output. Stop button to terminate running jobs. Option to clean previous run directory first.
+**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments. Each run opens its own floating popup window with a live console, iteration/OFV progress indicator, elapsed timer, and Stop button (gentle SIGTERM or force SIGKILL). Multiple models run simultaneously. The **Active & Recent Runs** table below the controls lists all live and historical runs for the current folder; click a live row to raise its window. History persists per project folder across restarts.
 
 **Info** — comment, status tag (base/candidate/final/reject), notes — all persisted in project metadata.
 
@@ -585,10 +587,15 @@ All settings are stored in `~/.nmgui/` (created automatically on first run):
 | `model_meta.json` | Stars, comments, status tags, notes, parent model |
 | `bookmarks.json` | Directory bookmarks |
 | `runs.json` | Run history (last 200 entries) |
-| `run_records.json` | Immutable audit trail of all model runs |
 | `nmgui_debug.log` | Debug log for troubleshooting |
 
-To reset all settings: delete the `~/.nmgui/` folder.
+One file is written **inside each project folder** (not in `~/.nmgui/`):
+
+| File | Contents |
+|---|---|
+| `nmgui_run_records.json` | Immutable audit trail of runs for that project (last 500 entries), used by the Active & Recent Runs table |
+
+To reset all settings: delete the `~/.nmgui/` folder. Run records in individual project folders are not affected.
 
 ---
 
