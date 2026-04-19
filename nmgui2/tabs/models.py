@@ -375,17 +375,17 @@ class ModelsTab(QWidget):
         run_v.addSpacing(10)
         run_v.addWidget(_runs_lbl)
 
-        self._run_list = QTableWidget(0, 5)
-        self._run_list.setHorizontalHeaderLabels(['Model', 'Tool', 'Status', 'OFV', 'Time'])
+        self._run_list = QTableWidget(0, 4)
+        self._run_list.setHorizontalHeaderLabels(['Model', 'Tool', 'Status', 'Time'])
         hh = self._run_list.horizontalHeader()
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)           # Model
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)  # Tool
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed);  hh.resizeSection(3, 62)  # OFV
-        hh.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed);  hh.resizeSection(4, 42)  # Time
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed);  hh.resizeSection(3, 52)  # Time
         self._run_list.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._run_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._run_list.verticalHeader().setVisible(False)
+        self._run_list.setCornerButtonEnabled(False)   # removes the misaligned corner widget
         self._run_list.setShowGrid(False)
         self._run_list.setAlternatingRowColors(False)
         self._run_list.clicked.connect(self._raise_run_popup)
@@ -1046,7 +1046,6 @@ class ModelsTab(QWidget):
         for row, popup in enumerate(self._run_popups):
             finished = getattr(popup, '_finished', False)
             elapsed  = getattr(popup, '_elapsed', 0)
-            last_ofv = getattr(popup, '_last_ofv', None)
 
             if finished:
                 ok = getattr(popup._status_lbl, 'text', lambda: '')().startswith('✓')
@@ -1054,13 +1053,10 @@ class ModelsTab(QWidget):
             else:
                 status_txt, status_col = '●  Running', T('accent')
 
-            ofv_str = last_ofv if (finished and last_ofv) else ''
-
             self._run_list.setItem(row, 0, _item(popup.stem))
-            self._run_list.setItem(row, 1, _item(popup.tool,   fg=T('fg2'), align=C_))
-            self._run_list.setItem(row, 2, _item(status_txt,   fg=status_col))
-            self._run_list.setItem(row, 3, _item(ofv_str,      fg=T('fg2'), align=R))
-            self._run_list.setItem(row, 4, _item(_fmt_secs(elapsed), fg=T('fg2'), align=R))
+            self._run_list.setItem(row, 1, _item(popup.tool,        fg=T('fg2'), align=C_))
+            self._run_list.setItem(row, 2, _item(status_txt,        fg=status_col))
+            self._run_list.setItem(row, 3, _item(_fmt_secs(elapsed), fg=T('fg2'), align=R))
 
         # ── Historical record rows ────────────────────────────────────────────
         for i, rec in enumerate(historical):
@@ -1073,15 +1069,11 @@ class ModelsTab(QWidget):
             else:
                 status_txt, status_col = '✗  Failed',      C.red
 
-            ofv = rec.get('ofv')
-            ofv_str = f'{ofv:.3f}' if ofv is not None else ''
-
-            fg_dim = T('fg2')   # historical rows use muted text for model name too
+            fg_dim = T('fg2')
             self._run_list.setItem(row, 0, _item(rec.get('model_stem', ''), fg=fg_dim))
             self._run_list.setItem(row, 1, _item(rec.get('tool', ''),       fg=fg_dim, align=C_))
             self._run_list.setItem(row, 2, _item(status_txt, fg=status_col))
-            self._run_list.setItem(row, 3, _item(ofv_str,    fg=fg_dim, align=R))
-            self._run_list.setItem(row, 4, _item(_fmt_secs(rec.get('duration_seconds')),
+            self._run_list.setItem(row, 3, _item(_fmt_secs(rec.get('duration_seconds')),
                                                   fg=fg_dim, align=R))
 
         self._run_list.setVisible(bool(total))
