@@ -105,11 +105,12 @@ class AboutDialog(QDialog):
         pg_ver = pg.__version__ if HAS_PG else 'not installed'
         np_ver = 'installed' if HAS_NP else 'not installed'
         env = QLabel(
-            f'<b>Developed with</b>  Claude Sonnet 4.6 by Anthropic<br><br>'
+            f'<b>Developed with</b>  <a href="https://claude.ai" style="color:{C.blue};">Anthropic Claude</a><br><br>'
             f'<b>Environment</b><br>'
             f'Python {sys.version.split()[0]}  ·  '
             f'PyQt6 {_pyqt6_version()}  ·  '
             f'pyqtgraph {pg_ver}  ·  numpy {np_ver}')
+        env.setOpenExternalLinks(True)
         env.setWordWrap(True)
         env.setStyleSheet(f'font-size:11px;color:{C.fg2};')
         bv.addWidget(env)
