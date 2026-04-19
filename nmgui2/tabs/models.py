@@ -1,6 +1,5 @@
 import os, re, subprocess, logging, time, shlex
 from pathlib import Path
-from datetime import datetime
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QLabel, QPushButton,
@@ -13,11 +12,12 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QModelI
 from PyQt6.QtGui import QBrush, QColor, QKeySequence, QFont, QAction, QPalette
 from ..app.theme import C, T, THEMES, _active_theme
 from ..app.constants import IS_WIN, IS_MAC, HOME
-from ..app.config import load_meta, save_meta, get_meta_entry, load_settings, save_settings, load_bookmarks, save_bookmarks, load_runs, save_runs, get_all_tags
+from ..app.config import load_meta, save_meta, get_meta_entry, load_settings, save_settings, load_bookmarks, save_bookmarks, get_all_tags
 from ..app.format import fmt_ofv, fmt_num, fmt_rse
 from ..app.tools import find_tool, get_login_env, launch_rstudio
-from ..app.run_records import create_run_record, finalize_run_record, load_run_records, save_run_records
-from ..app.workers import ScanWorker, RunWorker
+from ..app.run_records import load_run_records
+from ..app.workers import ScanWorker
+from ..dialogs.run_popup import RunPopup
 from ..app.model_io import _parse_param_names_from_mod, _align_param_names
 from ..app.html_report import generate_html_report
 from ..app.qc_report import generate_qc_html, open_report_in_browser
@@ -198,7 +198,7 @@ class ModelsTab(QWidget):
         super().__init__(parent)
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
-        self._run_worker = None; self._current_model = None
+        self._run_popups: list[RunPopup] = []; self._current_model = None
         self._ref_model_path = None   # user-selected reference for dOFV
         self._table_model = ModelTableModel()
         self._all_models  = []
@@ -362,17 +362,15 @@ class ModelsTab(QWidget):
         run_btn_row = QHBoxLayout(); run_btn_row.setSpacing(8)
         self.run_btn  = QPushButton('Run');  self.run_btn.setObjectName('primary')
         self.run_btn.clicked.connect(self._run_model)
-        self.stop_btn = QPushButton('Stop'); self.stop_btn.clicked.connect(self._stop_run)
-        self.stop_btn.setEnabled(False)
         nmtran_btn = QPushButton('NMTRAN msgs…'); nmtran_btn.clicked.connect(self._show_nmtran)
-        run_btn_row.addWidget(self.run_btn); run_btn_row.addWidget(self.stop_btn)
+        run_btn_row.addWidget(self.run_btn)
         run_btn_row.addWidget(nmtran_btn); run_btn_row.addStretch()
         run_v.addLayout(run_btn_row)
-        self.console = QPlainTextEdit(); self.console.setReadOnly(True)
-        self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas',11))
-        self.console.setMaximumBlockCount(5000)
-        _cp = QPalette(); _cp.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _cp.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.console.setPalette(_cp)
-        run_v.addWidget(self.console,1)
+        _hint = QLabel('Each run opens in its own popup window — multiple runs can run simultaneously.')
+        _hint.setObjectName('muted')
+        _hint.setWordWrap(True)
+        run_v.addWidget(_hint)
+        run_v.addStretch(1)
         self._detail_stack.addWidget(run_w)
 
         # 3 — Info  (collapsible cards inside a scroll area)
@@ -969,62 +967,13 @@ class ModelsTab(QWidget):
             if rd.is_dir():
                 try: shutil.rmtree(rd)
                 except Exception as e: QMessageBox.warning(self,'Clean failed',str(e)); return
-        self.console.clear(); self.console.appendPlainText(f'$ {cmd}\n')
-        self.run_btn.setEnabled(False); self.stop_btn.setEnabled(True)
-        if self._run_worker:
-            try: self._run_worker.line_out.disconnect()
-            except Exception: pass  # Signal may not be connected
-            try: self._run_worker.finished.disconnect()
-            except Exception: pass  # Signal may not be connected
-        self._run_worker = RunWorker(cmd, cwd)
-        self._run_worker.line_out.connect(self.console.appendPlainText)
-        self._run_worker.finished.connect(self._on_run_done)
-        self._run_worker.start()
+        popup = RunPopup(m['stem'], tool, cmd, cwd, model_path, parent=None)
+        popup.run_completed.connect(self._on_popup_done)
+        self._run_popups.append(popup)
+        popup.destroyed.connect(lambda p=popup: self._run_popups.remove(p) if p in self._run_popups else None)
+        popup.show()
 
-        # Legacy run history (global)
-        runs = load_runs()
-        runs.insert(0,{'id':f"{m['stem']}_{int(time.time())}","run_name":m['stem'],
-                       "model":model_path,"tool":tool,"command":cmd,"working_dir":cwd,
-                       "status":"running","started":datetime.now().isoformat(),"finished":None})
-        save_runs(runs[:200])
-
-        # Project-level run record (audit trail)
-        self._current_run_record = create_run_record(model_path, cmd, tool)
-        self._current_run_model_path = model_path
-        records = load_run_records(cwd)
-        records.insert(0, self._current_run_record)
-        save_run_records(cwd, records[:500])  # Keep last 500 records
-
-    def _on_run_done(self, rc):
-        self.run_btn.setEnabled(True); self.stop_btn.setEnabled(False)
+    def _on_popup_done(self, stem: str, cwd: str, rc: int):
         s = 'finished' if rc == 0 else f'failed (code {rc})'
-        self.console.appendPlainText(f'\n[Process {s}]')
-        self.status_msg.emit(f'Run {s}')
-
-        # Update legacy run history
-        runs = load_runs()
-        if runs:
-            runs[0]['status']   = 'ok' if rc == 0 else f'failed ({rc})'
-            runs[0]['finished'] = datetime.now().isoformat()
-            runs[0]['exit_code'] = rc
-            save_runs(runs)
-
-        # Finalize project-level run record
-        if hasattr(self, '_current_run_record') and self._current_run_record:
-            model_path = getattr(self, '_current_run_model_path', None)
-            if model_path:
-                cwd = str(Path(model_path).parent)
-                self._current_run_record = finalize_run_record(
-                    self._current_run_record, model_path, rc)
-                # Update the record in storage
-                records = load_run_records(cwd)
-                if records and records[0].get('run_id') == self._current_run_record.get('run_id'):
-                    records[0] = self._current_run_record
-                    save_run_records(cwd, records)
-            self._current_run_record = None
-            self._current_run_model_path = None
-
+        self.status_msg.emit(f'{stem}: run {s}')
         QTimer.singleShot(1500, self._scan)
-
-    def _stop_run(self):
-        if self._run_worker: self._run_worker.stop()
