@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QPush
                               QPlainTextEdit, QStackedWidget, QRadioButton, QButtonGroup,
                               QFormLayout, QDoubleSpinBox, QGridLayout, QLineEdit)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QBrush, QColor, QFont
+from PyQt6.QtGui import QBrush, QColor, QFont, QPalette
 
 from ..app.theme import C, T
 from ..app.constants import (IS_WIN, IS_MAC, BOOT_COMPLETION_PASS, BOOT_COMPLETION_WARN,
@@ -926,9 +926,12 @@ class ParameterUncertaintyTab(QWidget):
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
         self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 10))
-        self.console.setStyleSheet(
-            f'QPlainTextEdit{{background:{T("bg2")};color:{T("fg")};'
-            f'border:1px solid {T("border")};border-radius:4px;}}')
+        _pal = QPalette()
+        _pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        _pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        _pal.setColor(QPalette.ColorRole.Window, QColor(T('bg2')))
+        self.console.setPalette(_pal)
+        self.console.setStyleSheet(f'border:1px solid {T("border")};border-radius:4px;')
         self._results_stack.addWidget(self.console)
 
         # Assessment panel
