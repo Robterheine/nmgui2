@@ -265,7 +265,7 @@ QSpinBox, QDoubleSpinBox {{
     min-height: 24px;
 }}
 QSpinBox::up-button, QDoubleSpinBox::up-button {{
-    subcontrol-origin: padding;
+    subcontrol-origin: border;
     subcontrol-position: top right;
     width: 16px;
     height: 11px;
@@ -275,7 +275,7 @@ QSpinBox::up-button, QDoubleSpinBox::up-button {{
     background: transparent;
 }}
 QSpinBox::down-button, QDoubleSpinBox::down-button {{
-    subcontrol-origin: padding;
+    subcontrol-origin: border;
     subcontrol-position: bottom right;
     width: 16px;
     height: 11px;
