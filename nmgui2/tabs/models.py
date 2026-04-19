@@ -387,7 +387,6 @@ class ModelsTab(QWidget):
         self._ds_info = QLabel('No model selected')
         self._ds_info.setWordWrap(True)
         self._ds_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._ds_info.setStyleSheet(f'color:{C.fg};font-size:11px;')
         self._card_dataset.add_widget(self._ds_info)
         info_v.addWidget(self._card_dataset)
 
@@ -410,8 +409,8 @@ class ModelsTab(QWidget):
         self.decision_combo.setToolTip('Decision — categorize model for reporting/submission')
         self.decision_combo.setMinimumWidth(130)
         self.decision_combo.currentTextChanged.connect(self._save_meta_fields)
-        st_lbl = QLabel('Status:'); st_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
-        de_lbl = QLabel('Decision:'); de_lbl.setStyleSheet(f'color:{C.fg2};font-size:11px;')
+        st_lbl = QLabel('Status:'); st_lbl.setObjectName('muted')
+        de_lbl = QLabel('Decision:'); de_lbl.setObjectName('muted')
         combos_row.addWidget(st_lbl); combos_row.addWidget(self.status_tag_combo)
         combos_row.addSpacing(12)
         combos_row.addWidget(de_lbl); combos_row.addWidget(self.decision_combo)
