@@ -22,6 +22,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 - [Updating NMGUI2](#updating-nmgui2)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Configuration files](#configuration-files)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [Author](#author)
 - [Acknowledgements](#acknowledgements)
@@ -31,12 +32,15 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ## What's new in v2.5.0
 
+- **Theme overhaul** — forced Fusion style across all platforms for consistent dark-mode behaviour; migrated ~20 widgets from per-widget stylesheets to object-name + global QSS so theme toggle reliably refreshes every label, separator, spin-box, combo-box and highlighter in the app
 - **QC report** — right-click any completed model → *QC Report…* to open a self-contained HTML report with a PASS / WARN / FAIL checklist covering termination, covariance, condition number, %RSE, parameter correlations, shrinkage, ETABAR and omega boundary checks
-- **Dataset integrity checks** — at scan time, each model's data file is automatically checked for missing file, column-count mismatches, non-monotonic TIME, duplicate doses, extreme DV values and high BLQ proportion; issues appear in the Info tab's Dataset card
 - **Model workbench** — *Workbench…* button opens a sortable table of all completed models with ΔOFV, ΔAIC, ΔBIC, LRT p-value and reference-model selector for quick multi-model comparison
 - **Enhanced compare dialog** — the two-model comparison dialog now shows a statistics strip with ΔOFV, ΔAIC, ΔBIC, Δ parameters, LRT p-value and a significance verdict
+- **Dataset integrity checks** — at scan time, each model's data file is automatically checked for missing file, column-count mismatches, non-monotonic TIME, duplicate doses, extreme DV values and high BLQ proportion; issues appear in the Info tab's Dataset card
 - **Collapsible layout** — the Info panel uses collapsible cards (Dataset / Annotation / Notes); the Parameters tab THETA / OMEGA / SIGMA blocks collapse and expand by clicking the section header
-- **Dark mode fixes** — Tree canvas and Uncertainty console reliably use the dark theme on all platforms; light-theme tree node colours corrected after theme toggle
+- **Multi-$EST chain parsing** — the `.lst` Output tab now renders one row per estimation step with per-step OFV, ΔOFV, runtime, significant digits and termination status
+- **Run records** — immutable audit trail for every run (UUID, SHA-256 hashes of control stream and dataset, NONMEM/PsN/NMGUI versions, duration, final OFV and status) accessible from the right-click menu
+- **Correctness fixes** — LRT p-value now correctly signed when the reference model has fewer parameters; VPC "Save PDF…" reliably produces a PDF; run record and workbench display OFV = 0.0 correctly; GitHub update-check uses numeric version comparison instead of lexicographic
 
 ---
 
@@ -583,6 +587,36 @@ To reset all settings: delete the `~/.nmgui/` folder.
 
 ---
 
+## Troubleshooting
+
+**App fails to launch — `ModuleNotFoundError: No module named 'PyQt6'`**
+Dependencies did not install. Rerun `pip install -r requirements.txt` (or `pip3` on macOS/Linux). If you see "externally-managed environment" on Linux/macOS, use a virtual environment (see the Linux section).
+
+**App launches but window is blank or scrollbars are native-grey**
+Your Qt style is overriding the stylesheet. NMGUI2 forces Fusion at startup; if you see this, confirm you are on v2.5.0 (`git pull && pip install -r requirements.txt`).
+
+**"R: vpc ✗ xpose ✗ xpose4 ✗" in the VPC tab**
+`Rscript` is not on PATH or the R packages are not installed. Verify `Rscript --version` in a shell, then install packages with
+```bash
+Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
+```
+
+**`execute --version` not found**
+PsN is not on PATH. On Linux/macOS, add the PsN `bin` directory to your shell profile (`~/.zshrc`, `~/.bashrc`). On Windows, add it to the system PATH via *Environment Variables*.
+
+**NM-TRAN messages show "parser.py not available"**
+Your `nmgui2` repository is outdated. Run `git pull`.
+
+**Models tab shows models but OFV column is empty**
+The `.lst` file is missing or incomplete — the run never finished or was deleted. Check the model's run directory.
+
+**Dark mode colours look wrong after toggling theme**
+Fixed in v2.5.0. If you still see stale colours, restart the app.
+
+**Everything else** — enable debug logging and share `~/.nmgui/nmgui_debug.log` when filing an issue.
+
+---
+
 ## Contributing
 
 Contributions are very welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
@@ -606,7 +640,7 @@ Hospital pharmacist – clinical pharmacologist
 
 ## Acknowledgements
 
-Developed with assistance from [Claude](https://www.anthropic.com) by Anthropic.
+Developed with [Anthropic Claude](https://claude.ai).
 
 ---
 
