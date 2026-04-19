@@ -28,7 +28,7 @@ except ImportError:
     HAS_PG = False
 
 try:
-    from parser import read_table_file
+    from ..parser import read_table_file
     HAS_PARSER = True
 except ImportError:
     HAS_PARSER = False

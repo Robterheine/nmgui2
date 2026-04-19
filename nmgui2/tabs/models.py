@@ -33,7 +33,7 @@ from ..dialogs.run_record import RunRecordDialog
 from ..dialogs.lst_viewer_dialog import LstViewerDialog
 
 try:
-    from parser import parse_lst, extract_table_files, inject_estimates
+    from ..parser import parse_lst, extract_table_files, inject_estimates
     HAS_PARSER = True
 except ImportError:
     HAS_PARSER = False

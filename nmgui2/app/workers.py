@@ -8,7 +8,7 @@ from .tools import get_login_env
 _log = logging.getLogger(__name__)
 
 try:
-    from parser import (
+    from ..parser import (
         parse_lst, extract_param_names, extract_table_files,
     )
     HAS_PARSER = True
