@@ -62,7 +62,8 @@ class RunPopup(QDialog):
         hl.setContentsMargins(12, 0, 12, 0)
         hl.setSpacing(10)
 
-        title_lbl = QLabel(f'<b>{self.stem}</b>')
+        title_lbl = QLabel(self.stem)
+        title_lbl.setStyleSheet('font-size:15px; font-weight:700;')
         tool_lbl  = QLabel(self.tool.upper())
         tool_lbl.setObjectName('muted')
         started_lbl = QLabel(f'Started {self._start_ts.strftime("%H:%M:%S")}')
@@ -150,13 +151,15 @@ class RunPopup(QDialog):
 
     def _apply_theme(self):
         self.console.setPalette(self._make_console_palette())
-        # The app-level stylesheet sets background on every QWidget/QLabel globally.
-        # We must (a) give the header/status their own bg2, and (b) force all labels
-        # inside this dialog to be transparent so they don't paint over those bands.
+        # The app-level QSS sets `background: bg` on every QWidget/QLabel globally.
+        # Using `QLabel { background: transparent }` in the dialog's OWN stylesheet
+        # (no ancestor selector) is the most reliable way to override that rule —
+        # a widget's direct stylesheet always beats the application stylesheet.
+        # We use a single bg2 for both header and status to get one uniform band.
         self.setStyleSheet(
+            f'QLabel {{ background: transparent; }}'
             f'QWidget#runPopupHeader {{ background:{T("bg2")}; }}'
             f'QWidget#runPopupStatus  {{ background:{T("bg2")}; }}'
-            f'QDialog#RunPopupDlg QLabel {{ background:transparent; }}'
             f'QPlainTextEdit {{ border:1px solid {T("border")}; }}'
         )
 
