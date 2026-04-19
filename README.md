@@ -13,6 +13,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 ## Table of contents
 
 - [Features](#features)
+- [User guide](USER_GUIDE.md) — full reference for every tab, dialog, and required R/PsN package
 - [Dependencies overview](#dependencies-overview)
 - [Quick start](#quick-start)
 - [Installation — macOS](#installation--macos)
