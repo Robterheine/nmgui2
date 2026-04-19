@@ -137,10 +137,12 @@ class VPCTab(QWidget):
         row += 1
         sg.addWidget(QLabel('Stratify:'),      row, 0); sg.addWidget(self.stratify_edit,    row, 1)
         sg.addWidget(QLabel('PI:'),            row, 2)
-        pi_row = QHBoxLayout(); pi_row.addWidget(self.pi_lo); pi_row.addWidget(QLabel('–')); pi_row.addWidget(self.pi_hi)
+        pi_row = QHBoxLayout(); pi_row.setContentsMargins(0,0,0,0); pi_row.setSpacing(4)
+        pi_row.addWidget(self.pi_lo); pi_row.addWidget(QLabel('–')); pi_row.addWidget(self.pi_hi)
         pi_w = QWidget(); pi_w.setLayout(pi_row); sg.addWidget(pi_w, row, 3)
         sg.addWidget(QLabel('CI:'),            row, 4)
-        ci_row = QHBoxLayout(); ci_row.addWidget(self.ci_lo); ci_row.addWidget(QLabel('–')); ci_row.addWidget(self.ci_hi)
+        ci_row = QHBoxLayout(); ci_row.setContentsMargins(0,0,0,0); ci_row.setSpacing(4)
+        ci_row.addWidget(self.ci_lo); ci_row.addWidget(QLabel('–')); ci_row.addWidget(self.ci_hi)
         ci_w = QWidget(); ci_w.setLayout(ci_row); sg.addWidget(ci_w, row, 5)
         row += 1
         sg.addWidget(QLabel('LLOQ:'),          row, 0); sg.addWidget(self.lloq_edit,        row, 1)

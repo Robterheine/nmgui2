@@ -169,6 +169,29 @@ QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox {{
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {{
     border-color: {t['accent']};
 }}
+QSpinBox, QDoubleSpinBox {{
+    padding-right: 18px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 16px;
+    border-left: 1px solid {t['border']};
+    border-top-right-radius: 4px;
+    background: {t['bg3']};
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 16px;
+    border-left: 1px solid {t['border']};
+    border-bottom-right-radius: 4px;
+    background: {t['bg3']};
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background: {t['bg4']};
+}}
 QComboBox {{
     background: {t['bg2']};
     color: {t['fg']};
