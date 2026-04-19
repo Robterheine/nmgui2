@@ -36,15 +36,30 @@ class CollapsibleCard(QWidget):
         self._title = title
 
     def _body_css(self):
-        # ID selector ensures this rule only matches the body itself, not child
-        # input widgets — a bare 'background:' would block the global app stylesheet
-        # from reaching QLineEdit/QTextEdit descendants.
+        # Qt skips the global app stylesheet for any widget whose ancestor has
+        # setStyleSheet() — so the body CSS must explicitly restyle every child
+        # widget type it may contain.
+        b = C.border; bg = C.bg2; fg = C.fg; fg2 = C.fg2; bg3 = C.bg3
         return (
-            f'QWidget#cardBody{{background:{C.bg2};'
-            f'border-left:1px solid {C.border};'
-            f'border-right:1px solid {C.border};'
-            f'border-bottom:1px solid {C.border};'
-            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;}}')
+            f'QWidget#cardBody{{background:{bg};'
+            f'border-left:1px solid {b};border-right:1px solid {b};'
+            f'border-bottom:1px solid {b};'
+            f'border-bottom-left-radius:6px;border-bottom-right-radius:6px;}}'
+            f'QLabel{{color:{fg};background:transparent;}}'
+            f'QLabel#muted{{color:{fg2};font-size:12px;background:transparent;}}'
+            f'QLineEdit{{background:{bg};color:{fg};border:1px solid {b};'
+            f'border-radius:5px;padding:4px 8px;}}'
+            f'QLineEdit:focus{{border-color:{C.blue};}}'
+            f'QTextEdit{{background:{bg};color:{fg};border:1px solid {b};'
+            f'border-radius:5px;padding:4px 8px;}}'
+            f'QPlainTextEdit{{background:{bg};color:{fg};border:1px solid {b};'
+            f'border-radius:5px;}}'
+            f'QComboBox{{background:{bg};color:{fg};border:1px solid {b};'
+            f'border-radius:5px;padding:4px 8px;}}'
+            f'QComboBox QAbstractItemView{{background:{bg};color:{fg};'
+            f'border:1px solid {b};selection-background-color:{bg3};}}'
+            f'QCheckBox{{color:{fg};}}'
+        )
 
     def _header_css(self):
         return (
