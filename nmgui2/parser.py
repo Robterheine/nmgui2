@@ -6,7 +6,10 @@ standard errors, condition number, shrinkage, and runtime.
 
 import re
 import os
+import logging
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 
 def _method_label(raw_method):
@@ -107,7 +110,7 @@ def _extract_subproblems(text):
             try:
                 sub['ofv'] = float(m.group(1))
             except ValueError:
-                pass
+                _log.debug('Step %d: could not parse OFV from #OBJV line: %r', i + 1, m.group(1))
 
         # Termination block: between '#TERM:' and '#TERE:'.
         term_match = re.search(r'#TERM:(.*?)#TERE:', slice_text, re.DOTALL)
@@ -346,19 +349,19 @@ def parse_lst(lst_path):
         try:
             result['ofv'] = float(objv_matches[-1])
         except ValueError:
-            pass
+            _log.debug('%s: could not parse OFV from #OBJV line: %r', lst_path, objv_matches[-1])
     elif ofv_matches:
         try:
             result['ofv'] = float(ofv_matches[-1])
         except ValueError:
-            pass
+            _log.debug('%s: could not parse OFV from MINIMUM VALUE line: %r', lst_path, ofv_matches[-1])
     else:
         all_ofv = ll_matches + imp_ofv
         if all_ofv:
             try:
                 result['ofv'] = float(all_ofv[-1])
             except ValueError:
-                pass
+                _log.debug('%s: could not parse OFV from fallback line: %r', lst_path, all_ofv[-1])
 
     # Minimization / convergence status — method-aware
     # Classical: FOCE/FO
@@ -513,7 +516,7 @@ def parse_lst(lst_path):
         try:
             result['condition_number'] = float(cond_direct.group(1))
         except ValueError:
-            pass
+            _log.debug('%s: could not parse condition number: %r', lst_path, cond_direct.group(1))
 
     # Strategy 2: Compute from eigenvalues of correlation matrix
     if result['condition_number'] is None:
