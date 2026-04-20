@@ -185,7 +185,8 @@ Launch any PsN tool on the current model.
 - **Tool dropdown** — execute / vpc / bootstrap / scm / sir / cdd / npc / sse.
 - **Extra args** — free-form arguments appended to the command.
 - **Clean previous run dir** — checkbox; deletes the `<stem>/` subdirectory before running.
-- **Run** — spawns PsN as a subprocess. A floating **Run popup window** opens immediately; see below.
+- **Run detached** (Linux/macOS only) — launches the job under `nohup` in a new session so it keeps running even if NMGUI2 is closed or the SSH/MobaXterm session disconnects. Automatically pre-checked when NMGUI2 detects it is running over SSH. Recommended for long runs (bootstrap, SCM, SIR). Output goes to a `.nmgui.log` file in the project folder instead of a live popup; see *Detached runs* below.
+- **Run** — spawns PsN. If **Run detached** is unchecked, a floating **Run popup window** opens immediately; see below. If checked, the run starts silently and a row appears in the Active & Recent Runs table.
 
 #### Run popup window
 Each run gets its own independent window (appears as a separate entry in the taskbar/Dock):
@@ -215,6 +216,25 @@ Below the launch controls, the Run sub-tab shows a table of all runs associated 
 - **Live rows** (top) — correspond to open popup windows; click to raise the window.
 - **Historical rows** — loaded from `nmgui_run_records.json` in the project folder; persist across app restarts; capped at the 30 most recent entries.
 - **Interrupted** — runs that were active when the app was closed without waiting for completion appear as "? Interrupted".
+
+#### Detached runs (SSH / MobaXterm workflow)
+
+When **Run detached** is checked:
+
+1. NMGUI2 launches PsN with `nohup` in a new OS session. The process is fully independent of NMGUI2's lifetime — closing MobaXterm, dropping the SSH connection, or quitting NMGUI2 will not kill the run.
+2. All output is written to `<run_id>.nmgui.log` in the project folder.
+3. A PID file (`<run_id>.nmgui.pid`) is created so NMGUI2 can track liveness.
+4. A row appears immediately in the Active & Recent Runs table showing *◌ Running (detached)* with an elapsed timer.
+5. **Click the row** to open a **Watch Log** window — a live tail of the log file, with an elapsed timer and a Stop button.
+
+When you **reconnect** (restart NMGUI2 or rescan the folder):
+
+- NMGUI2 automatically reconciles all detached runs against their PID files.
+- Runs that finished are marked completed or failed in the run record. The completed timestamp is taken from the log file's modification time for accuracy.
+- A status bar message summarises the outcome: *"Reconciled 2 detached runs: 1 completed, 1 still running."*
+- Still-running jobs appear in the Active & Recent Runs table and can be watched or stopped as above.
+
+> **macOS note:** macOS may put processes to sleep when the lid is closed. If you need a long run to continue while the lid is shut, run `caffeinate -i nmgui2.py` or configure the system to prevent App Nap.
 
 Every run creates an immutable **run record** (see §11).
 
@@ -489,11 +509,13 @@ Global user state lives in `~/.nmgui/` (created on first launch):
 | `runs.json` | Global run history (last 200 entries across all projects) |
 | `nmgui_debug.log` | Debug log |
 
-One file is written **inside each project folder**:
+These files are written **inside each project folder**:
 
 | File | Purpose |
 |---|---|
-| `nmgui_run_records.json` | Immutable per-project run audit trail (last 500 entries); drives the Active & Recent Runs table in the Run sub-tab |
+| `nmgui_run_records.json` | Immutable per-project run audit trail (last 500 entries); drives the Active & Recent Runs table |
+| `<run_id>.nmgui.log` | stdout/stderr of a detached run; tailed by the Watch Log window |
+| `<run_id>.nmgui.pid` | PID and metadata of a running detached job; removed automatically on completion |
 
 Temp files: VPC PNG/PDF output lives in the VPC folder itself; arrow glyph PNGs for the theme are cached in `$TMPDIR/nmgui2_arrows/`.
 
@@ -517,6 +539,7 @@ Delete `~/.nmgui/` to reset global settings. Per-project run records are not aff
 | Audit / archival | **Right-click → View run record**, **QC report…** |
 | Annotation, star, status | **Info sub-tab → Annotation**, Space to star |
 | PopED design-evaluation | **Not in NMGUI2** — NMGUI2 is estimation-focused |
+| SSH / nohup / screen | **Run detached** checkbox in the Run sub-tab |
 
 ---
 

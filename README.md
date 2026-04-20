@@ -31,6 +31,10 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.1
+
+- **Detached runs (SSH/MobaXterm)** — a new "Run detached" checkbox in the Run panel launches PsN under `nohup` in a new session so the job keeps running even if NMGUI2 is closed or the SSH connection drops. Automatically pre-checked when an SSH session is detected. Output is saved to a per-run `.nmgui.log` file in the project folder. Click the detached row in the Active & Recent Runs table to tail the log in a Watch Log window. On the next NMGUI2 startup, finished detached runs are automatically reconciled (status, timestamps, OFV) without relying on any shutdown hooks. Linux and macOS only.
+
 ## What's new in v2.5.0
 
 - **Concurrent popup runs** — clicking Run now opens a dedicated floating window per model run; multiple models run simultaneously in independent windows, each with its own live console, iteration/OFV progress indicator, elapsed timer, and gentle/force stop controls; on completion the window title and status bar update with the termination result
@@ -63,7 +67,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 **Editor** — syntax-highlighted `.mod` editor with save functionality.
 
-**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments. Each run opens its own floating popup window with a live console, iteration/OFV progress indicator, elapsed timer, and Stop button (gentle SIGTERM or force SIGKILL). Multiple models run simultaneously. The **Active & Recent Runs** table below the controls lists all live and historical runs for the current folder; click a live row to raise its window. History persists per project folder across restarts.
+**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments. Each run opens its own floating popup window with a live console, iteration/OFV progress indicator, elapsed timer, and Stop button (gentle SIGTERM or force SIGKILL). Multiple models run simultaneously. A **"Run detached"** checkbox (Linux/macOS) launches the job under `nohup` so it survives SSH disconnection or NMGUI2 closure — automatically pre-checked when running over SSH. The **Active & Recent Runs** table shows live, detached, and historical runs; history persists per project folder across restarts.
 
 **Info** — comment, status tag (base/candidate/final/reject), notes — all persisted in project metadata.
 
@@ -589,11 +593,13 @@ All settings are stored in `~/.nmgui/` (created automatically on first run):
 | `runs.json` | Run history (last 200 entries) |
 | `nmgui_debug.log` | Debug log for troubleshooting |
 
-One file is written **inside each project folder** (not in `~/.nmgui/`):
+These files are written **inside each project folder** (not in `~/.nmgui/`):
 
 | File | Contents |
 |---|---|
 | `nmgui_run_records.json` | Immutable audit trail of runs for that project (last 500 entries), used by the Active & Recent Runs table |
+| `<run_id>.nmgui.log` | stdout/stderr of a detached run; tailed by the Watch Log window |
+| `<run_id>.nmgui.pid` | PID and metadata of a running detached job; removed automatically on completion |
 
 To reset all settings: delete the `~/.nmgui/` folder. Run records in individual project folders are not affected.
 

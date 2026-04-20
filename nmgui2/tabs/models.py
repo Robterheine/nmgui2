@@ -17,7 +17,8 @@ from ..app.format import fmt_ofv, fmt_num, fmt_rse
 from ..app.tools import find_tool, get_login_env, launch_rstudio
 from ..app.run_records import load_run_records
 from ..app.workers import ScanWorker
-from ..dialogs.run_popup import RunPopup
+from ..app import detached_runs as _dr
+from ..dialogs.run_popup import RunPopup, WatchLogPopup
 from ..app.model_io import _parse_param_names_from_mod, _align_param_names
 from ..app.html_report import generate_html_report
 from ..app.qc_report import generate_qc_html, open_report_in_browser
@@ -199,7 +200,10 @@ class ModelsTab(QWidget):
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
         self._run_popups: list[RunPopup] = []
-        self._run_records_cache: list = []   # per-folder history from nmgui_run_records.json
+        self._detached_runs: list[dict] = []   # live detached run descriptors
+        self._run_records_cache: list = []     # per-folder history from nmgui_run_records.json
+        self._last_detach_check = 0.0          # epoch of last is_alive check
+        self._is_ssh = bool(os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'))
         self._current_model = None
         self._ref_model_path = None   # user-selected reference for dOFV
         self._table_model = ModelTableModel()
@@ -360,7 +364,37 @@ class ModelsTab(QWidget):
         self.args_edit = QLineEdit(); self.args_edit.setPlaceholderText('-threads=4  -seed=12345')
         self.clean_cb  = QCheckBox('Clean previous run directory first'); self.clean_cb.setChecked(True)
         rf.addRow('PsN tool:', self.tool_combo); rf.addRow('Extra args:', self.args_edit)
-        rf.addRow('', self.clean_cb); run_v.addLayout(rf)
+        rf.addRow('', self.clean_cb)
+
+        # Detach checkbox — POSIX only (Linux + macOS)
+        if not IS_WIN:
+            self.detach_cb = QCheckBox('Run detached  (survives SSH disconnect / NMGUI2 close)')
+            self.detach_cb.setToolTip(
+                'Runs nohup in a new session so the job keeps going if you\n'
+                'close MobaXterm, disconnect SSH, or quit NMGUI2.\n'
+                'Output is written to a .nmgui.log file in the project folder.\n'
+                'Recommended for long runs (bootstrap, SCM, SIR) over SSH.'
+            )
+            # Pre-check when running over SSH, but let the user override
+            if self._is_ssh:
+                self.detach_cb.setChecked(True)
+            rf.addRow('', self.detach_cb)
+        else:
+            self.detach_cb = None
+
+        run_v.addLayout(rf)
+
+        # SSH info strip — shown when SSH session detected
+        if self._is_ssh and not IS_WIN:
+            ssh_strip = QLabel(
+                'ℹ  SSH session detected — "Run detached" is pre-enabled so runs '
+                'survive disconnect. Uncheck for live popup monitoring.'
+            )
+            ssh_strip.setWordWrap(True)
+            ssh_strip.setObjectName('muted')
+            ssh_strip.setContentsMargins(0, 4, 0, 0)
+            run_v.addWidget(ssh_strip)
+
         run_btn_row = QHBoxLayout(); run_btn_row.setSpacing(8)
         self.run_btn  = QPushButton('Run');  self.run_btn.setObjectName('primary')
         self.run_btn.clicked.connect(self._run_model)
@@ -395,7 +429,7 @@ class ModelsTab(QWidget):
         self._run_list.clicked.connect(self._raise_run_popup)
         run_v.addWidget(self._run_list, 1)
 
-        _hint = QLabel('Click a row to bring its output window to the front.')
+        _hint = QLabel('Click a live or detached row to view its output.')
         _hint.setObjectName('muted')
         run_v.addWidget(_hint)
 
@@ -521,6 +555,26 @@ class ModelsTab(QWidget):
             self._ref_model_path = None
         self._directory = d; s = load_settings(); s['working_directory'] = d; save_settings(s)
         self._run_records_cache = load_run_records(d)[:30]
+        # Reconcile detached runs from previous sessions; reload live descriptors
+        if not IS_WIN:
+            try:
+                still_running, just_finished = _dr.reconcile(d)
+                # Merge still_running into _detached_runs (avoid duplicates by run_id)
+                known_ids = {x['run_id'] for x in self._detached_runs}
+                for desc in still_running:
+                    if desc['run_id'] not in known_ids:
+                        self._detached_runs.append(desc)
+                        known_ids.add(desc['run_id'])
+                if just_finished:
+                    self._run_records_cache = load_run_records(d)[:30]
+                    n = len(just_finished)
+                    self.status_msg.emit(
+                        f'Reconciled {n} detached run{"s" if n > 1 else ""} '
+                        f'that finished since last session.'
+                    )
+                    QTimer.singleShot(1500, self._scan)
+            except Exception as e:
+                _log.debug('Detached run reconciliation error: %s', e)
         self._refresh_run_list()
         self._meta = load_meta(); self.status_msg.emit('Scanning…'); self.table.setRowCount(0)
         # Reset right panel
@@ -1003,13 +1057,27 @@ class ModelsTab(QWidget):
             if rd.is_dir():
                 try: shutil.rmtree(rd)
                 except Exception as e: QMessageBox.warning(self,'Clean failed',str(e)); return
-        popup = RunPopup(m['stem'], tool, cmd, cwd, model_path, parent=None)
-        popup.run_completed.connect(self._on_popup_done)
-        self._run_popups.append(popup)
-        popup.destroyed.connect(lambda p=popup: self._run_popups.remove(p) if p in self._run_popups else None)
-        popup.destroyed.connect(self._refresh_run_list)
-        popup.show()
-        self._refresh_run_list()
+
+        if self.detach_cb is not None and self.detach_cb.isChecked():
+            # ── Detached path ─────────────────────────────────────────────────
+            try:
+                descriptor = _dr.start_detached(cmd, cwd, m['stem'], tool, model_path)
+            except Exception as e:
+                QMessageBox.critical(self, 'Launch failed', str(e)); return
+            self._detached_runs.append(descriptor)
+            self._run_records_cache = load_run_records(cwd)[:30]
+            self._refresh_run_list()
+            log_name = Path(descriptor['log_file']).name
+            self.status_msg.emit(f'{m["stem"]}: detached run started  ·  log: {log_name}')
+        else:
+            # ── Live popup path ───────────────────────────────────────────────
+            popup = RunPopup(m['stem'], tool, cmd, cwd, model_path, parent=None)
+            popup.run_completed.connect(self._on_popup_done)
+            self._run_popups.append(popup)
+            popup.destroyed.connect(lambda p=popup: self._run_popups.remove(p) if p in self._run_popups else None)
+            popup.destroyed.connect(self._refresh_run_list)
+            popup.show()
+            self._refresh_run_list()
 
     def _on_popup_done(self, stem: str, cwd: str, rc: int):
         s = 'finished' if rc == 0 else f'failed (code {rc})'
@@ -1034,45 +1102,70 @@ class ModelsTab(QWidget):
             m2, s = divmod(int(secs), 60); h, m2 = divmod(m2, 60)
             return f'{h}:{m2:02d}:{s:02d}' if h else f'{m2}:{s:02d}'
 
-        # Live rows (open popup windows)
-        live_ids = {getattr(p, '_run_record', {}).get('run_id')
-                    for p in self._run_popups if getattr(p, '_run_record', None)}
+        # Periodically prune finished detached runs (every ~30s)
+        now = time.time()
+        if not IS_WIN and (now - self._last_detach_check) > 30:
+            self._last_detach_check = now
+            alive = []
+            any_done = False
+            for d in self._detached_runs:
+                if _dr.is_alive(d['pid'], d.get('started_epoch')):
+                    alive.append(d)
+                else:
+                    any_done = True
+            self._detached_runs = alive
+            if any_done:
+                self._run_records_cache = load_run_records(self._directory)[:30]
 
-        # Historical rows: records from disk that don't have a live popup
+        # Sets used to de-duplicate historical rows
+        live_ids     = {getattr(p, '_run_record', {}).get('run_id')
+                        for p in self._run_popups if getattr(p, '_run_record', None)}
+        detached_ids = {d['run_id'] for d in self._detached_runs}
+        all_live_ids = live_ids | detached_ids
+
         historical = [r for r in self._run_records_cache
-                      if r.get('run_id') not in live_ids]
+                      if r.get('run_id') not in all_live_ids]
 
-        n_live = len(self._run_popups)
-        total  = n_live + len(historical)
+        n_live     = len(self._run_popups)
+        n_detached = len(self._detached_runs)
+        total      = n_live + n_detached + len(historical)
         self._run_list.setRowCount(total)
 
         # ── Live popup rows ───────────────────────────────────────────────────
         for row, popup in enumerate(self._run_popups):
             finished = getattr(popup, '_finished', False)
             elapsed  = getattr(popup, '_elapsed', 0)
-
             if finished:
                 ok = getattr(popup._status_lbl, 'text', lambda: '')().startswith('✓')
                 status_txt, status_col = ('✓  Done', C.green) if ok else ('✗  Failed', C.red)
             else:
                 status_txt, status_col = '●  Running', T('accent')
-
             self._run_list.setItem(row, 0, _item(popup.stem))
             self._run_list.setItem(row, 1, _item(popup.tool,        fg=T('fg2'), align=C_))
             self._run_list.setItem(row, 2, _item(status_txt,        fg=status_col))
             self._run_list.setItem(row, 3, _item(_fmt_secs(elapsed), fg=T('fg2'), align=R))
 
+        # ── Live detached rows ────────────────────────────────────────────────
+        for i, desc in enumerate(self._detached_runs):
+            row = n_live + i
+            elapsed = int(now) - desc.get('started_epoch', int(now))
+            self._run_list.setItem(row, 0, _item(desc['stem']))
+            self._run_list.setItem(row, 1, _item(desc['tool'],           fg=T('fg2'), align=C_))
+            self._run_list.setItem(row, 2, _item('◌  Running (detached)', fg=T('accent')))
+            self._run_list.setItem(row, 3, _item(_fmt_secs(elapsed),      fg=T('fg2'), align=R))
+
         # ── Historical record rows ────────────────────────────────────────────
         for i, rec in enumerate(historical):
-            row = n_live + i
+            row = n_live + n_detached + i
             st  = rec.get('status', '')
             if st == 'completed':
                 status_txt, status_col = '✓  Done',        C.green
-            elif st == 'running':
+            elif st in ('running', 'detached'):
+                status_txt, status_col = '?  Interrupted', T('orange')
+            elif st == 'interrupted':
                 status_txt, status_col = '?  Interrupted', T('orange')
             else:
                 status_txt, status_col = '✗  Failed',      C.red
-
             fg_dim = T('fg2')
             self._run_list.setItem(row, 0, _item(rec.get('model_stem', ''), fg=fg_dim))
             self._run_list.setItem(row, 1, _item(rec.get('tool', ''),       fg=fg_dim, align=C_))
@@ -1084,6 +1177,12 @@ class ModelsTab(QWidget):
 
     def _raise_run_popup(self, index):
         row = index.row()
-        if row < len(self._run_popups):   # only live rows have a window to raise
+        n_live = len(self._run_popups)
+        n_det  = len(self._detached_runs)
+        if row < n_live:
             p = self._run_popups[row]
             p.show(); p.raise_(); p.activateWindow()
+        elif row < n_live + n_det:
+            desc = self._detached_runs[row - n_live]
+            dlg = WatchLogPopup(desc, parent=None)
+            dlg.show(); dlg.raise_(); dlg.activateWindow()
