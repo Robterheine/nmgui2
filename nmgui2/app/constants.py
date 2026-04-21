@@ -5,12 +5,15 @@ IS_WIN  = sys.platform == 'win32'
 IS_MAC  = sys.platform == 'darwin'
 HOME    = Path.home()
 CONFIG_DIR = HOME / '.nmgui'
-CONFIG_DIR.mkdir(exist_ok=True)
+try:
+    CONFIG_DIR.mkdir(exist_ok=True)
+except OSError:
+    pass  # read-only home (some HPC setups); app continues, file I/O will fail gracefully
 META_FILE      = CONFIG_DIR / 'model_meta.json'
 SETTINGS_FILE  = CONFIG_DIR / 'settings.json'
 BOOKMARKS_FILE = CONFIG_DIR / 'bookmarks.json'
 RUNS_FILE      = CONFIG_DIR / 'runs.json'
-APP_VERSION    = '2.5.3'
+APP_VERSION    = '2.5.4'
 _cfg_lock      = threading.Lock()
 
 # Bootstrap diagnostic thresholds

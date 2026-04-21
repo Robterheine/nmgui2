@@ -93,7 +93,23 @@ def _find_rscript():
 
 
 def _sanitize_r(s):
-    return s.replace('\\', '/').replace('"', '\\"')
+    """Escape a string for safe embedding inside an R double-quoted string literal."""
+    s = s.replace('\\', '/')   # forward-slash paths work on all R platforms
+    s = s.replace('"', '\\"')  # escape embedded quotes
+    # Strip control characters that would break the R string across lines
+    s = ''.join(c for c in s if c >= ' ' or c == '\t')
+    return s
+
+
+def _r_col(name):
+    """Return a name safe for use as an R column reference inside a string argument.
+
+    Strips backticks (which would prematurely close a backtick-quoted symbol)
+    and control characters; the caller embeds the result in double quotes.
+    """
+    name = name.replace('`', '').replace('"', '')
+    name = ''.join(c for c in name if c >= ' ' or c == '\t')
+    return name
 
 
 def _check_r_packages():

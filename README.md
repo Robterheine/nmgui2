@@ -31,6 +31,15 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.4
+
+Bug-fix release (Tier 1 audit items + R availability check).
+
+- **Python 3.9 compatibility** — `detached_runs.py` used `int | None`, `list[dict]` and `tuple[list, list]` type annotations introduced in Python 3.10. Added `from __future__ import annotations` so the file imports cleanly on Python 3.9 (common on HPC clusters running CentOS/RHEL 8)
+- **VPC column name sanitisation** — stratification column names are now cleaned with `_r_col()` before embedding in the generated R script; control characters and embedded quotes that would break the R string literal are stripped. A separate `_sanitize_r` improvement also strips newlines and other control characters from path strings
+- **Config directory creation** — `CONFIG_DIR.mkdir()` is now wrapped in `try/except OSError`; on HPC systems with a read-only home directory the app previously raised `PermissionError` at import time and refused to start
+- **R availability check at startup** — if `Rscript` is not found on PATH, a status bar message is shown immediately on startup explaining that VPC and RStudio features are unavailable; previously the first indication was an opaque error when actually trying to use those features
+
 ## What's new in v2.5.3
 
 Bug-fix release (continued audit follow-up).

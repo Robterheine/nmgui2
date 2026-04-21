@@ -10,7 +10,7 @@ from PyQt6.QtGui import QFont, QPixmap, QPalette, QColor
 
 from ..app.theme import C, T
 from ..app.constants import IS_WIN, IS_MAC
-from ..app.tools import _find_rscript, _sanitize_r, _check_r_packages, get_login_env
+from ..app.tools import _find_rscript, _sanitize_r, _r_col, _check_r_packages, get_login_env
 
 _log = logging.getLogger(__name__)
 HOME = Path.home()
@@ -416,7 +416,7 @@ class VPCTab(QWidget):
 
         strat_line = ''
         if strat:
-            vars_ = [_sanitize_r(v.strip()) for v in strat.split(',') if v.strip()]
+            vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
             if len(vars_) == 1:
                 strat_line = f'stratify = "{vars_[0]}",'
             else:
@@ -455,7 +455,7 @@ tryCatch({{
             vpc_data_parts = [f'opt=vpc_opt({",".join(vpc_opt_parts)})',
                               f'psn_folder="{r_vpc}"']
             if strat:
-                vars_ = [_sanitize_r(v.strip()) for v in strat.split(',') if v.strip()]
+                vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
                 if len(vars_) == 1: vpc_data_parts.append(f'stratify="{vars_[0]}"')
                 else: vpc_data_parts.append('stratify=c(' + ','.join(f'"{v}"' for v in vars_) + ')')
             vpc_call = 'vpc()'

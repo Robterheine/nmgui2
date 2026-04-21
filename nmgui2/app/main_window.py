@@ -9,7 +9,7 @@ from PyQt6.QtGui import QKeySequence, QColor, QAction
 from .constants import IS_WIN, IS_MAC, APP_VERSION
 from .theme import C, T, THEMES, _active_theme, set_active_theme, build_stylesheet, apply_palette
 from .config import load_settings, save_settings
-from .tools import launch_rstudio
+from .tools import launch_rstudio, _find_rscript
 from ..widgets._icons import _make_logo_pixmap, _make_nav_icon
 from ..tabs.models import ModelsTab
 from ..tabs.tree import AncestryTreeWidget
@@ -389,6 +389,13 @@ class MainWindow(QMainWindow):
         if missing:
             self.statusBar().showMessage(
                 f'Missing dependencies: pip3 install {" ".join(missing)}')
+        # Check R availability in background — don't block startup
+        def _r_check():
+            if not _find_rscript():
+                QTimer.singleShot(0, lambda: self.statusBar().showMessage(
+                    'R (Rscript) not found on PATH — VPC and RStudio features unavailable. '
+                    'Install R or set its path in Settings.'))
+        threading.Thread(target=_r_check, daemon=True).start()
 
     def _version_check(self):
         def _fetch():
