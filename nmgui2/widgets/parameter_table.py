@@ -140,7 +140,9 @@ class ParameterTable(QWidget):
             w = _csv.writer(f)
             w.writerow(['Parameter','Name','Estimate','SE','RSE_pct','Units','Fixed'])
             w.writerows(rows)
-        self.parent().parent().status_msg.emit(f'Parameters exported: {Path(dst).name}') if hasattr(self,'parent') else None
+        p = self.parent()
+        if p and p.parent() and hasattr(p.parent(), 'status_msg'):
+            p.parent().status_msg.emit(f'Parameters exported: {Path(dst).name}')
 
     def load(self, model, parent_model=None):
         self._model = model if model.get('has_run') else None

@@ -10,7 +10,7 @@ META_FILE      = CONFIG_DIR / 'model_meta.json'
 SETTINGS_FILE  = CONFIG_DIR / 'settings.json'
 BOOKMARKS_FILE = CONFIG_DIR / 'bookmarks.json'
 RUNS_FILE      = CONFIG_DIR / 'runs.json'
-APP_VERSION    = '2.5.2'
+APP_VERSION    = '2.5.3'
 _cfg_lock      = threading.Lock()
 
 # Bootstrap diagnostic thresholds

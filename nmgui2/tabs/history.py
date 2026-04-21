@@ -1,4 +1,4 @@
-import sys, json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -9,26 +9,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QFont, QPalette
 
 from ..app.theme import C, T
-from ..app.constants import RUNS_FILE
-
-
-def _load_runs():
-    if RUNS_FILE.exists():
-        try:
-            return json.loads(RUNS_FILE.read_text('utf-8'))
-        except Exception:
-            pass
-    return []
-
-
-def _save_runs(runs):
-    tmp = RUNS_FILE.with_suffix('.tmp')
-    try:
-        tmp.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
-        tmp.replace(RUNS_FILE)
-    except Exception:
-        tmp.unlink(missing_ok=True)
-        raise
+from ..app.config import load_runs as _load_runs, save_runs as _save_runs
 
 
 class RunHistoryTab(QWidget):

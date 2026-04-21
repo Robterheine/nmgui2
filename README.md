@@ -31,6 +31,17 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.3
+
+Bug-fix release (continued audit follow-up).
+
+- **Parameter export status message** — the "Parameters exported" status bar message no longer crashes when the widget tree is not in the expected shape; the `hasattr(self,'parent')` guard was always True and gave false safety
+- **GOF axis column fallback** — when a previously-selected X-axis column (e.g. CWRES) is absent from a newly-loaded table, the plot now falls back to the panel default (PRED or TIME) instead of silently selecting column 0 (which was typically ID or TIME at random)
+- **GOF file-open imports** — `__import__('os')` / `__import__('subprocess')` inline hacks in the "Open exported PNG?" handler replaced with normal top-level imports
+- **History tab run I/O** — `_load_runs` / `_save_runs` local duplicates removed; history tab now calls the canonical locked versions from `config.py`, so thread-safety fixes and future bug fixes apply consistently
+- **Unused import removed** — `APP_VERSION` was imported but never used in `detached_runs.py`
+- **RStudio .Rproj creation** — `write_text()` is now wrapped in a `try/except OSError`; read-only project directories (common on shared drives) now return a user-visible error instead of raising an unhandled exception
+
 ## What's new in v2.5.2
 
 Bug-fix release addressing findings from a thorough internal audit.

@@ -22,7 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .constants import IS_WIN, APP_VERSION
+from .constants import IS_WIN
 
 _log = logging.getLogger(__name__)
 

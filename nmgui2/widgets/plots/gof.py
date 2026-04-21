@@ -1,4 +1,4 @@
-import math
+import os, subprocess, sys, math
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QComboBox
 from PyQt6.QtCore import Qt
 try: import pyqtgraph as pg; HAS_PG = True
@@ -157,10 +157,16 @@ class GOFWidget(QWidget):
             except (ValueError, TypeError): return float('nan')
         self._arr = np.array([[to_float(v) for v in row] for row in rows], dtype=float)
 
-        # Populate X dropdowns with all columns
+        # Populate X dropdowns with all columns; restore previous selection or
+        # fall back to PRED/TIME defaults rather than silently picking index 0.
+        _panel_defaults = {(1,0): 'PRED', (1,1): 'TIME', (0,0): 'PRED', (0,1): 'IPRED'}
         for key, cb in self._x_cbs.items():
             cur = cb.currentText(); cb.blockSignals(True); cb.clear()
-            cb.addItems(self._H); idx = cb.findText(cur)
+            cb.addItems(self._H)
+            idx = cb.findText(cur)
+            if idx < 0:
+                fallback = _panel_defaults.get(key, '')
+                idx = cb.findText(fallback)
             cb.setCurrentIndex(max(0, idx)); cb.blockSignals(False)
 
         # Populate filter column combo
@@ -191,15 +197,14 @@ class GOFWidget(QWidget):
             exp.parameters()['height'] = h * scale
             exp.export(dst)
             from PyQt6.QtWidgets import QMessageBox
-            import sys
             IS_WIN = sys.platform == 'win32'
             IS_MAC = sys.platform == 'darwin'
             if QMessageBox.question(self,'Exported',f'GOF plot saved to:\n{dst}\n\nOpen?',
                 QMessageBox.StandardButton.Yes|QMessageBox.StandardButton.No
             ) == QMessageBox.StandardButton.Yes:
-                if IS_WIN:   __import__('os').startfile(dst)
-                elif IS_MAC: __import__('subprocess').Popen(['open', dst])
-                else:        __import__('subprocess').Popen(['xdg-open', dst])
+                if IS_WIN:   os.startfile(dst)
+                elif IS_MAC: subprocess.Popen(['open', dst])
+                else:        subprocess.Popen(['xdg-open', dst])
         except Exception as e:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self,'Export failed',str(e))

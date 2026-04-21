@@ -61,9 +61,12 @@ def launch_rstudio(directory: str, rstudio_path: str = '') -> str:
     else:
         name  = Path(directory).name
         rproj = str(Path(directory) / (name + '.Rproj'))
-        Path(rproj).write_text(
-            'Version: 1.0\n\nRestoreWorkspace: Default\n'
-            'SaveWorkspace: Default\nAlwaysSaveHistory: Default\n')
+        try:
+            Path(rproj).write_text(
+                'Version: 1.0\n\nRestoreWorkspace: Default\n'
+                'SaveWorkspace: Default\nAlwaysSaveHistory: Default\n')
+        except OSError as e:
+            return f'Could not create .Rproj file: {e}'
     try:
         if IS_MAC:
             subprocess.Popen(['open', '-a', rs, rproj])
