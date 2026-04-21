@@ -54,10 +54,10 @@ class MainWindow(QMainWindow):
         if geom:
             try:
                 self.restoreGeometry(QByteArray.fromHex(bytes(geom, 'ascii')))
-                return
             except Exception:
-                pass
-        self.resize(1300, 840)
+                self.resize(1300, 840)
+        else:
+            self.resize(1300, 840)
         spl_sizes = s.get('splitter_sizes')
         if spl_sizes and hasattr(self, 'models_tab'):
             try:

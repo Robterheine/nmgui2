@@ -41,51 +41,60 @@ def get_meta_entry(meta, path):
 
 
 def load_settings():
-    if SETTINGS_FILE.exists():
-        try: return json.loads(SETTINGS_FILE.read_text('utf-8'))
-        except Exception as e: _log.warning(f'Failed to load settings: {e}')
+    with _cfg_lock:
+        if SETTINGS_FILE.exists():
+            try: return json.loads(SETTINGS_FILE.read_text('utf-8'))
+            except Exception as e: _log.warning(f'Failed to load settings: {e}')
     return {'working_directory': str(HOME), 'psn_path': '', 'nonmem_path': ''}
 
 
 def save_settings(s):
-    tmp = SETTINGS_FILE.with_suffix('.tmp')
-    try:
-        tmp.write_text(json.dumps(s, indent=2), encoding='utf-8')
-        tmp.replace(SETTINGS_FILE)
-    except Exception:
-        tmp.unlink(missing_ok=True); raise
+    with _cfg_lock:
+        tmp = SETTINGS_FILE.with_suffix('.tmp')
+        try:
+            tmp.write_text(json.dumps(s, indent=2), encoding='utf-8')
+            tmp.replace(SETTINGS_FILE)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 def load_bookmarks():
-    if BOOKMARKS_FILE.exists():
-        try: return json.loads(BOOKMARKS_FILE.read_text('utf-8'))
-        except Exception as e: _log.warning(f'Failed to load bookmarks: {e}')
+    with _cfg_lock:
+        if BOOKMARKS_FILE.exists():
+            try: return json.loads(BOOKMARKS_FILE.read_text('utf-8'))
+            except Exception as e: _log.warning(f'Failed to load bookmarks: {e}')
     return []
 
 
 def save_bookmarks(b):
-    tmp = BOOKMARKS_FILE.with_suffix('.tmp')
-    try:
-        tmp.write_text(json.dumps(b, indent=2), encoding='utf-8')
-        tmp.replace(BOOKMARKS_FILE)
-    except Exception:
-        tmp.unlink(missing_ok=True); raise
+    with _cfg_lock:
+        tmp = BOOKMARKS_FILE.with_suffix('.tmp')
+        try:
+            tmp.write_text(json.dumps(b, indent=2), encoding='utf-8')
+            tmp.replace(BOOKMARKS_FILE)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 def load_runs():
-    if RUNS_FILE.exists():
-        try: return json.loads(RUNS_FILE.read_text('utf-8'))
-        except Exception as e: _log.warning(f'Failed to load runs: {e}')
+    with _cfg_lock:
+        if RUNS_FILE.exists():
+            try: return json.loads(RUNS_FILE.read_text('utf-8'))
+            except Exception as e: _log.warning(f'Failed to load runs: {e}')
     return []
 
 
 def save_runs(runs):
-    tmp = RUNS_FILE.with_suffix('.tmp')
-    try:
-        tmp.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
-        tmp.replace(RUNS_FILE)
-    except Exception:
-        tmp.unlink(missing_ok=True); raise
+    with _cfg_lock:
+        tmp = RUNS_FILE.with_suffix('.tmp')
+        try:
+            tmp.write_text(json.dumps(runs, indent=2, default=str), encoding='utf-8')
+            tmp.replace(RUNS_FILE)
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 def get_all_tags(meta):

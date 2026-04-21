@@ -1,4 +1,4 @@
-import os, subprocess, logging, time
+import os, signal, subprocess, logging, time
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 from .constants import IS_WIN
@@ -152,7 +152,7 @@ class RunWorker(QThread):
         try:
             kw = dict(shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                       cwd=self.cwd, text=True, bufsize=1, env=self._env)
-            if not IS_WIN: kw['preexec_fn'] = os.setsid
+            if not IS_WIN: kw['start_new_session'] = True
             else: kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
             self._proc = subprocess.Popen(self.cmd, **kw)
             for line in iter(self._proc.stdout.readline, ''):
@@ -163,15 +163,20 @@ class RunWorker(QThread):
             self.line_out.emit(f'[ERROR] {e}'); self.finished.emit(-1)
 
     def stop(self):
-        import signal
-        if self._proc:
-            try:
-                if IS_WIN:
-                    # terminate() only kills the immediate process; use taskkill
-                    # to terminate the whole process tree (PsN + spawned NONMEM).
-                    subprocess.run(
-                        ['taskkill', '/T', '/F', '/PID', str(self._proc.pid)],
-                        capture_output=True)
-                else:
-                    os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
-            except Exception as e: _log.debug(f'Error stopping process: {e}')
+        self._send_signal(signal.SIGTERM if not IS_WIN else None, force=False)
+
+    def stop_hard(self):
+        self._send_signal(signal.SIGKILL if not IS_WIN else None, force=True)
+
+    def _send_signal(self, sig, force):
+        if not self._proc:
+            return
+        try:
+            if IS_WIN:
+                subprocess.run(
+                    ['taskkill', '/T', '/F', '/PID', str(self._proc.pid)],
+                    capture_output=True)
+            else:
+                os.killpg(os.getpgid(self._proc.pid), sig)
+        except Exception as e:
+            _log.debug(f'Error stopping process (force={force}): {e}')

@@ -135,11 +135,12 @@ class ModelWorkbenchDialog(QDialog):
 
     def _populate(self):
         ref = self._ref_model()
-        ref_ofv  = ref.get('ofv')  if ref else None
-        ref_aic  = ref.get('aic')  if ref else None
-        ref_bic  = ref.get('bic')  if ref else None
-        ref_npar = ref.get('n_estimated_params') if ref else None
-        n_obs_ref = ref.get('n_observations') if ref else None
+        ref_ofv    = ref.get('ofv')  if ref else None
+        ref_aic    = ref.get('aic')  if ref else None
+        ref_bic    = ref.get('bic')  if ref else None
+        ref_npar   = ref.get('n_estimated_params') if ref else None
+        ref_method = (ref.get('estimation_method', '') or '') if ref else ''
+        n_obs_ref  = ref.get('n_observations') if ref else None
 
         self._table.setSortingEnabled(False)
         self._table.setRowCount(len(self._models))
@@ -167,7 +168,12 @@ class ModelWorkbenchDialog(QDialog):
             # LRT p-value — flip sign when the reference has more parameters
             # so df and dofv always have the signs _lrt_pval expects.
             lrt_p = None
-            if not is_ref and dofv is not None and dnpar is not None and dnpar != 0:
+            lrt_method_mismatch = (
+                not is_ref
+                and bool(method) and bool(ref_method)
+                and method.upper() != ref_method.upper()
+            )
+            if not is_ref and not lrt_method_mismatch and dofv is not None and dnpar is not None and dnpar != 0:
                 if dnpar > 0:
                     lrt_p = _lrt_pval(dofv, dnpar)
                 else:
@@ -245,6 +251,11 @@ class ModelWorkbenchDialog(QDialog):
             # LRT p-value
             if is_ref:
                 lrt_item = _item('', C_CENTER)
+            elif lrt_method_mismatch:
+                lrt_item = _item('N/A', C_CENTER)
+                lrt_item.setForeground(QBrush(QColor(C.fg2)))
+                lrt_item.setToolTip(
+                    f'LRT invalid: methods differ ({ref_method} vs {method})')
             elif lrt_p is None:
                 lrt_item = _item('—', R)
             else:
@@ -279,10 +290,11 @@ class ModelWorkbenchDialog(QDialog):
             str(HOME / f'workbench_{stem}.csv'), 'CSV files (*.csv)')
         if not dst:
             return
-        ref_ofv  = ref.get('ofv')  if ref else None
-        ref_aic  = ref.get('aic')  if ref else None
-        ref_bic  = ref.get('bic')  if ref else None
-        ref_npar = ref.get('n_estimated_params') if ref else None
+        ref_ofv    = ref.get('ofv')  if ref else None
+        ref_aic    = ref.get('aic')  if ref else None
+        ref_bic    = ref.get('bic')  if ref else None
+        ref_npar   = ref.get('n_estimated_params') if ref else None
+        ref_method = (ref.get('estimation_method', '') or '') if ref else ''
         with open(dst, 'w', newline='', encoding='utf-8') as f:
             w = _csv.writer(f)
             w.writerow(['model','status','method','n_par','ofv','delta_ofv',
@@ -291,23 +303,28 @@ class ModelWorkbenchDialog(QDialog):
                 is_ref = m['path'] == self._ref_path
                 ofv = m.get('ofv'); aic = m.get('aic'); bic = m.get('bic')
                 npar = m.get('n_estimated_params')
-                dofv = (ofv - ref_ofv) if (ofv is not None and ref_ofv is not None) else ''
-                daic = (aic - ref_aic) if (aic is not None and ref_aic is not None) else ''
-                dbic = (bic - ref_bic) if (bic is not None and ref_bic is not None) else ''
+                method_csv = m.get('estimation_method', '') or ''
+                dofv = (ofv - ref_ofv) if (ofv is not None and ref_ofv is not None) else None
+                daic = (aic - ref_aic) if (aic is not None and ref_aic is not None) else None
+                dbic = (bic - ref_bic) if (bic is not None and ref_bic is not None) else None
                 dnpar = (npar - ref_npar) if (npar is not None and ref_npar is not None) else None
-                if is_ref or dofv == '' or dnpar in (None, 0):
-                    lrt_p = ''
-                elif dnpar > 0:
-                    lrt_p = _lrt_pval(dofv, dnpar)
-                else:
-                    lrt_p = _lrt_pval(-dofv, -dnpar)
+                method_mismatch = (
+                    not is_ref and bool(method_csv) and bool(ref_method)
+                    and method_csv.upper() != ref_method.upper()
+                )
+                lrt_p = None
+                if not is_ref and not method_mismatch and dofv is not None and dnpar not in (None, 0):
+                    lrt_p = _lrt_pval(dofv, dnpar) if dnpar > 0 else _lrt_pval(-dofv, -dnpar)
                 w.writerow([
                     m['stem'],
                     m.get('minimization_message','')[:40],
-                    m.get('estimation_method',''),
-                    npar or '',
-                    ofv or '', dofv, daic, dbic,
-                    f'{lrt_p:.6f}' if isinstance(lrt_p, float) else '',
+                    method_csv,
+                    npar if npar is not None else '',
+                    ofv if ofv is not None else '',
+                    f'{dofv:.4f}' if dofv is not None else '',
+                    f'{daic:.4f}' if daic is not None else '',
+                    f'{dbic:.4f}' if dbic is not None else '',
+                    'method_mismatch' if method_mismatch else (f'{lrt_p:.6f}' if lrt_p is not None else ''),
                     'OK' if m.get('covariance_step') else ('FAIL' if m.get('covariance_step') is False else ''),
                     m.get('condition_number') or '',
                 ])

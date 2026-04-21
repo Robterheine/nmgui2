@@ -139,23 +139,24 @@ def is_alive(pid: int, started_epoch: int | None = None) -> bool:
                 fields = proc_stat.read_text().split()
                 clk_tck = os.sysconf('SC_CLK_TCK')
                 boot_time = _boot_time()
-                proc_epoch = int(boot_time + int(fields[21]) / clk_tck)
-                if abs(proc_epoch - started_epoch) > 5:
-                    return False  # different process reusing the PID
+                if boot_time is not None:
+                    proc_epoch = int(boot_time + int(fields[21]) / clk_tck)
+                    if abs(proc_epoch - started_epoch) > 5:
+                        return False  # different process reusing the PID
             except Exception:
                 pass
     return True
 
 
-def _boot_time() -> float:
-    """Return system boot time as Unix epoch (Linux only)."""
+def _boot_time() -> 'float | None':
+    """Return system boot time as Unix epoch (Linux only). Returns None on failure."""
     try:
         for line in Path('/proc/stat').read_text().splitlines():
             if line.startswith('btime '):
                 return float(line.split()[1])
     except Exception:
         pass
-    return 0.0
+    return None
 
 
 # ── Kill ───────────────────────────────────────────────────────────────────────

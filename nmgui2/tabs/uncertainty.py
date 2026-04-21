@@ -1,4 +1,4 @@
-import os, re, subprocess, logging, csv, math
+import os, re, subprocess, logging, csv, math, statistics
 from pathlib import Path
 from datetime import datetime
 
@@ -187,7 +187,7 @@ class BootstrapParser:
             if not sample_vals:
                 continue
             sample_vals.sort()
-            median_val = sample_vals[len(sample_vals)//2]
+            median_val = statistics.median(sample_vals)
 
             if abs(orig_val) > 1e-6:
                 bias = abs(median_val - orig_val) / abs(orig_val)
@@ -351,7 +351,7 @@ class BootstrapParser:
             if not sample_vals:
                 continue
 
-            median = sample_vals[len(sample_vals)//2]
+            median = statistics.median(sample_vals)
             lo = sample_vals[int(len(sample_vals) * 0.025)]
             hi = sample_vals[int(len(sample_vals) * 0.975)]
 
@@ -479,7 +479,7 @@ class SIRParser:
             for col in self.param_cols:
                 vals = sorted([s[col] for s in self.samples if not math.isnan(s.get(col, float('nan')))])
                 if vals:
-                    self.original[col] = vals[len(vals)//2]
+                    self.original[col] = statistics.median(vals)
 
         diagnostics = self._assess()
 
@@ -523,7 +523,7 @@ class SIRParser:
 
         # 2. dOFV median check
         if self.dofv:
-            observed_median = sorted(self.dofv)[len(self.dofv)//2]
+            observed_median = statistics.median(self.dofv)
             # Theoretical median of chi-square ≈ df * (1 - 2/(9*df))^3
             if self.df > 0:
                 theoretical_median = self.df * (1 - 2/(9*self.df))**3
@@ -596,7 +596,7 @@ class SIRParser:
                 if not sample_vals:
                     continue
                 sample_vals.sort()
-                median_val = sample_vals[len(sample_vals)//2]
+                median_val = statistics.median(sample_vals)
                 if abs(orig_val) > 1e-6:
                     shift = abs(median_val - orig_val) / abs(orig_val)
                 else:
@@ -688,7 +688,7 @@ class SIRParser:
             if not sample_vals:
                 continue
 
-            median = sample_vals[len(sample_vals)//2]
+            median = statistics.median(sample_vals)
             lo = sample_vals[int(len(sample_vals) * 0.025)]
             hi = sample_vals[int(len(sample_vals) * 0.975)]
 
@@ -1514,7 +1514,7 @@ class ParameterUncertaintyTab(QWidget):
             orig = original.get(col, None)
             if orig is not None:
                 ax.axvline(orig, color='#e85555', linestyle='--', linewidth=1.5, label='Estimate')
-            median = sorted(vals)[len(vals)//2]
+            median = statistics.median(vals)
             ax.axvline(median, color='#3ec97a', linestyle='-', linewidth=1.5, label='Median')
             ax.set_title(col, fontsize=9)
             ax.tick_params(labelsize=8)

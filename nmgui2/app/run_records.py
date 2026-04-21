@@ -176,7 +176,7 @@ def finalize_run_record(record, model_path, exit_code):
             record['covariance_step'] = parsed.get('covariance_step')
             # Extract warnings
             warnings = []
-            if parsed.get('near_boundary'): warnings.append('PARAMETER NEAR BOUNDARY')
+            if parsed.get('boundary'): warnings.append('PARAMETER NEAR BOUNDARY')
             if parsed.get('eta_shrinkage'):
                 high_shr = [s for s in parsed['eta_shrinkage'] if s and s > 30]
                 if high_shr: warnings.append(f'HIGH ETA SHRINKAGE (>{30}%)')

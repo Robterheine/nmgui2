@@ -50,9 +50,18 @@ class ETACovWidget(QWidget):
     def set_theme(self, bg, fg):
         if HAS_PG and hasattr(self,'gw'): self.gw.setBackground(bg)
 
-    def load(self, header, rows):
+    def load(self, header, rows, mdv_filter=True):
         if not HAS_PG or not HAS_NP: return
-        self._header = [h.upper() for h in header]; self._rows = rows
+        self._header = [h.upper() for h in header]
+        # Filter out MDV=1 (dosing-only) rows so each individual contributes
+        # one representative observation point rather than N_doses extra copies.
+        if mdv_filter and 'MDV' in self._header:
+            mdv_idx = self._header.index('MDV')
+            try:
+                rows = [r for r in rows if float(r[mdv_idx]) == 0]
+            except (ValueError, TypeError, IndexError):
+                pass
+        self._rows = rows
         # ETAs: columns starting with ETA or ETASHRINK excluded
         etas = [h for h in self._header if h.startswith('ETA') and 'SHRINK' not in h]
         # Covariates: numeric columns that are not ETAs, DV, PRED, IPRED, CWRES, MDV, EVID, AMT, TIME, ID

@@ -181,7 +181,7 @@ class EvaluationTab(QWidget):
         self.indfit.load(self._header, self._rows)
         self.cwres_hist.load(self._header, self._rows, mdv)
         self.qq_plot.load(self._header, self._rows, mdv)
-        self.eta_cov.load(self._header, self._rows)
+        self.eta_cov.load(self._header, self._rows, mdv)
         self.data_explorer.load(self._header, self._rows)
 
     def load_model(self, model):
@@ -235,7 +235,7 @@ class EvaluationTab(QWidget):
                 if p.is_file():
                     try:
                         r = parse_phi_file(str(p))
-                        if r.get('obj'): self.waterfall.load(r)
+                        if r.get('obj') is not None: self.waterfall.load(r)
                     except Exception as e: _log.debug(f'Failed to parse phi file {p}: {e}')
                     return
 
