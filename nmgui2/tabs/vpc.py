@@ -73,7 +73,7 @@ class VPCTab(QWidget):
         self._model   = None
         self._worker  = None
         self._rscript = None
-        self._pkg_avail = {'vpc': False, 'xpose': False, 'xpose4': False}
+        self._pkg_avail = {'vpc': False, 'xpose': False}
         self._r_check_done.connect(self._on_r_check_done)
         self._build_ui()
         QTimer.singleShot(500, self._check_r)
@@ -85,6 +85,14 @@ class VPCTab(QWidget):
         settings_grp = QGroupBox('VPC settings')
         sg = QVBoxLayout(settings_grp); sg.setSpacing(6); sg.setContentsMargins(10, 14, 10, 10)
 
+        hint = QLabel(
+            'Workflow: run <code>vpc</code> in PsN first, then select the resulting '
+            '<code>vpc_*</code> folder below '
+            '(must contain <code>m1/</code>, <code>vpctab*</code>, <code>vpc_results.csv</code>).')
+        hint.setWordWrap(True)
+        hint.setObjectName('mutedSmall')
+        sg.addWidget(hint)
+
         def _lbl(text):
             l = QLabel(text); l.setFixedWidth(74); return l
 
@@ -95,9 +103,15 @@ class VPCTab(QWidget):
             return s
 
         # Widget definitions
-        self.tool_cb = QComboBox(); self.tool_cb.addItems(['vpc', 'xpose', 'xpose4'])
+        self.tool_cb = QComboBox(); self.tool_cb.addItems(['vpc', 'xpose'])
         self.tool_cb.currentTextChanged.connect(self._on_tool_change)
         self.tool_cb.setFixedWidth(100)
+
+        self.use_psn_cb = QCheckBox('Use PsN settings')
+        self.use_psn_cb.setToolTip(
+            'When checked (recommended), binning, stratification, pred-corr and LLOQ\n'
+            'are read directly from the PsN output folder — no manual override.\n'
+            'Uncheck to supply your own values for these parameters.')
 
         self.runno_edit = QLineEdit(); self.runno_edit.setPlaceholderText('e.g. 001')
         self.runno_edit.setFixedWidth(80)
@@ -140,7 +154,7 @@ class VPCTab(QWidget):
         sg.addLayout(_hrow(
             _lbl('Backend:'), self.tool_cb, 20,
             QLabel('Run no:'), self.runno_edit, None,
-            self.pred_corr_cb, 20, self.log_y_cb))
+            self.pred_corr_cb, 20, self.log_y_cb, 20, self.use_psn_cb))
 
         # Row 2 — VPC folder
         r2 = QHBoxLayout(); r2.setContentsMargins(0,0,0,0); r2.setSpacing(6)
@@ -268,6 +282,8 @@ class VPCTab(QWidget):
         v.addWidget(spl, 1)
         self._vpc_panel_switch(0)
         self._on_tool_change(self.tool_cb.currentText())
+        self.use_psn_cb.stateChanged.connect(self._on_psn_inherit_change)
+        self.use_psn_cb.setChecked(True)  # fires stateChanged → disables override widgets
 
     def _apply_editor_palette(self, widget):
         pal = QPalette()
@@ -297,9 +313,15 @@ class VPCTab(QWidget):
             self.r_status_lbl.setText('R not found')
             return
         parts = []
-        for p in ('vpc', 'xpose', 'xpose4'):
+        for p in ('vpc', 'xpose'):
             parts.append(f'{p} ✓' if pkgs.get(p) else f'{p} ✗')
         self.r_status_lbl.setText('R: ' + '  '.join(parts))
+
+    def _on_psn_inherit_change(self, _state=None):
+        """Enable/disable manual-override widgets based on 'Use PsN settings' checkbox."""
+        override = not self.use_psn_cb.isChecked()
+        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.nbins_sb):
+            w.setEnabled(override)
 
     def _browse_vpc(self):
         d = str(Path(self._model['path']).parent) if self._model else str(HOME)
@@ -401,65 +423,69 @@ class VPCTab(QWidget):
         vpc_folder = self.vpc_folder_edit.text().strip()
         run_dir    = self.run_dir_edit.text().strip() or vpc_folder
         runno      = self.runno_edit.text().strip() or '001'
-        pred_corr  = 'TRUE' if self.pred_corr_cb.isChecked() else 'FALSE'
         log_y      = self.log_y_cb.isChecked()
-        strat      = self.stratify_edit.text().strip()
+        use_psn    = self.use_psn_cb.isChecked()
         pi_lo      = self.pi_lo.value(); pi_hi = self.pi_hi.value()
         ci_lo      = self.ci_lo.value(); ci_hi = self.ci_hi.value()
-        lloq_raw   = self.lloq_edit.text().strip()
-        lloq       = lloq_raw if lloq_raw else 'NULL'
-        nbins      = int(self.nbins_sb.value())
 
-        r_vpc  = _sanitize_r(vpc_folder)
-        r_run  = _sanitize_r(run_dir)
-        r_out  = _sanitize_r(str(Path(vpc_folder) / 'nmgui_vpc.png'))
-
-        strat_line = ''
-        if strat:
-            vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
-            if len(vars_) == 1:
-                strat_line = f'stratify = "{vars_[0]}",'
-            else:
-                strat_line = 'stratify = c(' + ','.join(f'"{v}"' for v in vars_) + '),'
-        log_line = 'log_y = TRUE,' if log_y else ''
+        r_vpc = _sanitize_r(vpc_folder)
+        r_run = _sanitize_r(run_dir)
+        r_out = _sanitize_r(str(Path(vpc_folder) / 'nmgui_vpc.png'))
 
         if tool == 'vpc':
-            script = f'''# NMGUI VPC — tool: vpc
+            # psn_folder is the authoritative source; only add overrides when user opts in
+            args = {'psn_folder': f'"{r_vpc}"'}
+            if not use_psn:
+                lloq_raw = self.lloq_edit.text().strip()
+                strat    = self.stratify_edit.text().strip()
+                args['pred_corr'] = 'TRUE' if self.pred_corr_cb.isChecked() else 'FALSE'
+                args['lloq']      = lloq_raw if lloq_raw else 'NULL'
+                args['bins']      = '"jenks"'
+                args['n_bins']    = int(self.nbins_sb.value())
+                if strat:
+                    vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
+                    args['stratify'] = (f'"{vars_[0]}"' if len(vars_) == 1
+                                        else 'c(' + ','.join(f'"{v}"' for v in vars_) + ')')
+            args['pi']   = f'c({pi_lo}, {pi_hi})'
+            args['ci']   = f'c({ci_lo}, {ci_hi})'
+            args['show'] = ('list(obs_dv=TRUE, obs_ci=TRUE, pi=TRUE, '
+                            'pi_as_area=TRUE, pi_ci=TRUE, obs_median=TRUE)')
+            args_str  = ',\n    '.join(f'{k} = {v}' for k, v in args.items())
+            log_extra = '\n  vpc_plot <- vpc_plot + ggplot2::scale_y_log10()' if log_y else ''
+            script = f'''# NMGUI VPC — tool: vpc (Ron Keizer)
 library(vpc)
 library(ggplot2)
 
 tryCatch({{
   vpc_plot <- vpc(
-    psn_folder = "{r_vpc}",
-    pred_corr  = {pred_corr},
-    lloq       = {lloq},
-    bins       = "auto",
-    n_bins     = {nbins},
-    {strat_line}
-    pi         = c({pi_lo}, {pi_hi}),
-    ci         = c({ci_lo}, {ci_hi}),
-    {log_line}
-    show = list(obs_dv=TRUE, obs_ci=TRUE, pi=TRUE, pi_as_area=TRUE, pi_ci=TRUE, obs_median=TRUE)
+    {args_str}
   )
-  if (is.null(vpc_plot)) stop("vpc() returned NULL")
+  if (is.null(vpc_plot)) stop("vpc() returned NULL"){log_extra}
   ggsave("{r_out}", vpc_plot, width=8, height=6, dpi=150)
   cat("NMGUI_VPC_OK\\n")
 }}, error=function(e) {{
   cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
 }})
 '''
-        elif tool == 'xpose':
-            vpc_opt_parts = [f'n_bins={nbins}']
-            if lloq_raw: vpc_opt_parts.append(f'lloq={lloq_raw}')
-            if pred_corr == 'TRUE': vpc_opt_parts.append('pred_corr=TRUE')
-            vpc_data_parts = [f'opt=vpc_opt({",".join(vpc_opt_parts)})',
-                              f'psn_folder="{r_vpc}"']
-            if strat:
-                vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
-                if len(vars_) == 1: vpc_data_parts.append(f'stratify="{vars_[0]}"')
-                else: vpc_data_parts.append('stratify=c(' + ','.join(f'"{v}"' for v in vars_) + ')')
-            vpc_call = 'vpc()'
-            if log_y: vpc_call = 'vpc() + ggplot2::scale_y_log10()'
+        else:  # xpose
+            if use_psn:
+                # Let xpose inherit everything from PsN output
+                vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE)'
+            else:
+                lloq_raw = self.lloq_edit.text().strip()
+                strat    = self.stratify_edit.text().strip()
+                opt_parts = [f'bins="jenks"', f'n_bins={int(self.nbins_sb.value())}']
+                if lloq_raw: opt_parts.append(f'lloq={lloq_raw}')
+                if self.pred_corr_cb.isChecked(): opt_parts.append('pred_corr=TRUE')
+                vpc_data_args = [f'opt=vpc_opt({",".join(opt_parts)})',
+                                 f'psn_folder="{r_vpc}"']
+                if strat:
+                    vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
+                    strat_val = (f'"{vars_[0]}"' if len(vars_) == 1
+                                 else 'c(' + ','.join(f'"{v}"' for v in vars_) + ')')
+                    vpc_data_args.append(f'stratify={strat_val}')
+                vpc_data_call = f'vpc_data({", ".join(vpc_data_args)})'
+            vpc_call = 'vpc() + ggplot2::scale_y_log10()' if log_y else 'vpc()'
             script = f'''# NMGUI VPC — tool: xpose
 library(xpose)
 library(ggplot2)
@@ -467,7 +493,7 @@ library(ggplot2)
 tryCatch({{
   xpdb <- xpose_data(runno="{runno}", dir="{r_run}/")
   vpc_plot <- xpdb %>%
-    vpc_data({", ".join(vpc_data_parts)}) %>%
+    {vpc_data_call} %>%
     {vpc_call}
   if (is.null(vpc_plot)) stop("xpose vpc() returned NULL")
   ggsave("{r_out}", vpc_plot, width=8, height=6, dpi=150)
@@ -475,24 +501,6 @@ tryCatch({{
 }}, error=function(e) {{
   cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
   cat("  sdtab files in run dir:", paste(list.files("{r_run}", pattern="^sdtab"), collapse=", "), "\\n")
-}})
-'''
-        else:  # xpose4
-            script = f'''# NMGUI VPC — tool: xpose4
-library(xpose4)
-
-tryCatch({{
-  vpctab_files <- list.files("{r_vpc}", pattern="^vpctab", full.names=TRUE)
-  if (length(vpctab_files)==0) stop("No vpctab file found in VPC folder")
-  vpc_info <- file.path("{r_vpc}", "vpc_results.csv")
-  if (!file.exists(vpc_info)) stop("vpc_results.csv not found in VPC folder")
-  png("{r_out}", width=1200, height=900, res=150)
-  print(xpose.VPC(vpctab=vpctab_files[1], vpc.info=vpc_info))
-  dev.off()
-  cat("NMGUI_VPC_OK\\n")
-}}, error=function(e) {{
-  try(dev.off(), silent=TRUE)
-  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
 }})
 '''
         return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
@@ -508,7 +516,7 @@ tryCatch({{
 
         # Validate stratification column if specified
         strat = self.stratify_edit.text().strip()
-        if strat:
+        if strat and not self.use_psn_cb.isChecked():
             valid, msg = self._validate_stratify_column(vpc_folder, strat)
             if not valid:
                 QMessageBox.warning(self, 'Stratification error', msg)
@@ -667,20 +675,11 @@ tryCatch({{
         if not dst: return
         r_dst = _sanitize_r(dst)
         script = self._last_script_txt
-        tool = self.tool_cb.currentText()
-        if tool in ('vpc', 'xpose'):
-            # ggsave with pdf device
-            if self._last_png:
-                r_orig = _sanitize_r(self._last_png)
-                script = script.replace(f'ggsave("{r_orig}"', f'ggsave("{r_dst}"')
-            # Remove dpi= arg (not needed for PDF)
-            script = re.sub(r',\s*dpi\s*=\s*\d+', '', script)
-        elif tool == 'xpose4':
-            # Base R: replace png() with pdf() — tolerate whitespace variations
-            script = re.sub(
-                r'png\([^)]*?width\s*=\s*\d+[^)]*?\)',
-                f'pdf("{r_dst}", width = 10, height = 7.5)',
-                script, count=1)
+        # ggsave with pdf device (both vpc and xpose backends use ggsave)
+        if self._last_png:
+            r_orig = _sanitize_r(self._last_png)
+            script = script.replace(f'ggsave("{r_orig}"', f'ggsave("{r_dst}"')
+        script = re.sub(r',\s*dpi\s*=\s*\d+', '', script)
         tmp = Path(dst).parent / '_nmgui_vpc_pdf_tmp.R'
         try:
             tmp.write_text(script, 'utf-8')
