@@ -336,14 +336,17 @@ class SimulationPlotTab(QWidget):
         self._log_cb = QCheckBox('Logarithmic Y-axis')
         log_row.addWidget(self._log_cb); log_row.addStretch()
         card_app.add_layout(log_row)
-
-        self._mdv_cb = QCheckBox('Exclude MDV=1 rows')
-        self._mdv_cb.setChecked(True)
-        card_app.add_widget(self._mdv_cb)
         scl.addWidget(card_app)
 
         # ── Section 5: Filters ─────────────────────────────────────────────
-        card_filt = CollapsibleCard('Filters', expanded=False)
+        card_filt = CollapsibleCard('Filters', expanded=True)
+
+        # MDV toggle — at the top of the Filters card so it's always visible
+        mdv_row = QHBoxLayout()
+        self._mdv_cb = QCheckBox('Exclude MDV=1 rows')
+        self._mdv_cb.setChecked(True)
+        mdv_row.addWidget(self._mdv_cb); mdv_row.addStretch()
+        card_filt.add_layout(mdv_row)
 
         # Header for filter rows
         flt_hdr = QWidget()

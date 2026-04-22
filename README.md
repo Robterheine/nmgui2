@@ -31,6 +31,14 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.6.4
+
+Sim Plot MDV filter accessibility fix.
+
+- **MDV filter moved to Filters card** — the "Exclude MDV=1 rows" checkbox is now in the *Filters* card (expanded by default) instead of the collapsed *Appearance* card, making it immediately visible and easy to toggle
+
+---
+
 ## What's new in v2.6.3
 
 Sim Plot usability and layout fixes.
