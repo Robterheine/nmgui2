@@ -336,6 +336,24 @@ class SimulationPlotTab(QWidget):
         self._log_cb = QCheckBox('Logarithmic Y-axis')
         log_row.addWidget(self._log_cb); log_row.addStretch()
         card_app.add_layout(log_row)
+
+        smooth_row = QHBoxLayout(); smooth_row.setSpacing(6)
+        self._smooth_cb = QCheckBox('Smooth curves (LOESS)')
+        smooth_row.addWidget(self._smooth_cb)
+        smooth_row.addSpacing(6)
+        smooth_row.addWidget(QLabel('Span:'))
+        self._smooth_frac = QDoubleSpinBox()
+        self._smooth_frac.setRange(0.05, 1.0)
+        self._smooth_frac.setSingleStep(0.05)
+        self._smooth_frac.setValue(0.30)
+        self._smooth_frac.setDecimals(2)
+        self._smooth_frac.setFixedWidth(62)
+        self._smooth_frac.setToolTip(
+            'LOESS bandwidth fraction — lower follows data more closely, '
+            'higher gives a smoother curve (0.05–1.0)')
+        smooth_row.addWidget(self._smooth_frac)
+        smooth_row.addStretch()
+        card_app.add_layout(smooth_row)
         scl.addWidget(card_app)
 
         # ── Section 5: Filters ─────────────────────────────────────────────
@@ -644,6 +662,9 @@ class SimulationPlotTab(QWidget):
             s['median_color'] = med_color
             s['median_lw']    = med_lw
 
+        smooth      = self._smooth_cb.isChecked()
+        smooth_frac = self._smooth_frac.value()
+
         self._worker = _SimWorker(
             df         = self._df,
             x_col      = x_col,
@@ -654,11 +675,13 @@ class SimulationPlotTab(QWidget):
             mdv_filter = self._mdv_cb.isChecked(),
         )
         self._worker.finished.connect(
-            lambda res: self._on_worker_done(res, specs, x_col, y_col))
+            lambda res: self._on_worker_done(res, specs, x_col, y_col,
+                                             smooth, smooth_frac))
         self._worker.error.connect(self._on_worker_error)
         self._worker.start()
 
-    def _on_worker_done(self, result, specs, x_col, y_col):
+    def _on_worker_done(self, result, specs, x_col, y_col,
+                        smooth=False, smooth_frac=0.3):
         self._plot_btn.setEnabled(True)
         self._plot_btn.setText('Plot')
 
@@ -676,12 +699,14 @@ class SimulationPlotTab(QWidget):
                     pass
 
         self.canvas.plot_result(
-            result     = result,
-            band_specs = specs,
-            x_label    = x_col,
-            y_label    = y_col,
-            log_y      = self._log_cb.isChecked(),
-            obs_xy     = obs_xy,
+            result      = result,
+            band_specs  = specs,
+            x_label     = x_col,
+            y_label     = y_col,
+            log_y       = self._log_cb.isChecked(),
+            obs_xy      = obs_xy,
+            smooth      = smooth,
+            smooth_frac = smooth_frac,
         )
         n_times = len(result['times'])
         self.status_msg.emit(

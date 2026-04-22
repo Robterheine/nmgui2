@@ -31,6 +31,14 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.6.5
+
+Sim Plot LOESS smoothing option.
+
+- **Smooth curves** — new checkbox in the *Appearance* card applies LOESS smoothing to all PI ribbon boundaries and the median line before rendering; a **Span** spinbox (0.05–1.0, default 0.30) controls bandwidth — lower follows data closely, higher gives a smoother curve
+
+---
+
 ## What's new in v2.6.4
 
 Sim Plot MDV filter accessibility fix.

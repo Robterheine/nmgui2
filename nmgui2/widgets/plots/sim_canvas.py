@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from ...app.theme import THEMES, _active_theme
+from ...app.format import loess
 from ...widgets._icons import _placeholder
 
 
@@ -177,11 +178,13 @@ class SimCanvas(QWidget):
         self.canvas.draw()
 
     def plot_result(self, result, band_specs, x_label='', y_label='',
-                    log_y=False, obs_xy=None):
+                    log_y=False, obs_xy=None, smooth=False, smooth_frac=0.3):
         """Render quantile ribbons from a worker result dict.
 
         band_specs: list of {'lo_pct', 'hi_pct', 'color', 'alpha', 'visible'}
         obs_xy: (x_array, y_array) or None
+        smooth: apply LOESS smoothing to ribbons and median
+        smooth_frac: LOESS bandwidth fraction (0.1 = tight, 1.0 = very smooth)
         """
         if not HAS_MPL: return
         self.ax.clear()
@@ -201,19 +204,37 @@ class SimCanvas(QWidget):
             alpha = float(spec.get('alpha', 0.25))
             lo_p  = spec['lo_pct'];  hi_p = spec['hi_pct']
             label = f'{lo_p}–{hi_p}% PI'
-            self.ax.fill_between(times, band['lo'], band['hi'],
+
+            t_plot = times
+            lo_arr = band['lo']
+            hi_arr = band['hi']
+
+            if smooth and HAS_NP:
+                xlo, lo_s = loess(times, lo_arr, frac=smooth_frac)
+                if xlo is not None:
+                    _,   hi_s = loess(times, hi_arr, frac=smooth_frac)
+                    t_plot, lo_arr, hi_arr = xlo, lo_s, hi_s
+
+            self.ax.fill_between(t_plot, lo_arr, hi_arr,
                                  color=color, alpha=alpha, label=label)
             plotted_any = True
 
         # Draw median from last visible band (all bands share the same median)
         last_med = None
+        last_times = times
         for spec, band in zip(band_specs, bands):
             if spec.get('visible', True):
                 last_med = band['med']
         if last_med is not None:
             med_color = band_specs[0].get('median_color', fg)
             med_lw    = band_specs[0].get('median_lw', 2.0)
-            self.ax.plot(times, last_med, color=med_color,
+            t_med = times
+            med_arr = last_med
+            if smooth and HAS_NP:
+                xlo, med_s = loess(times, last_med, frac=smooth_frac)
+                if xlo is not None:
+                    t_med, med_arr = xlo, med_s
+            self.ax.plot(t_med, med_arr, color=med_color,
                          linewidth=med_lw, label='Median', zorder=5)
             plotted_any = True
 
