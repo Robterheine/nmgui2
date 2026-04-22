@@ -31,6 +31,14 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.6.7
+
+Sim Plot panel default width correction.
+
+- **Wider default panel** — splitter default increased from 300 → 380 px and max-width from 400 → 500 px; the vertical scrollbar was consuming ~15 px of horizontal space, causing the band row columns to clip even at 300 px; 380 px gives ~333 px usable content width, well clear of the 270 px band row
+
+---
+
 ## What's new in v2.6.6
 
 Sim Plot left panel layout fixes.

@@ -209,8 +209,8 @@ class SimulationPlotTab(QWidget):
 
         # ── Left controls panel ────────────────────────────────────────────
         left = QWidget()
-        left.setMinimumWidth(240)
-        left.setMaximumWidth(400)
+        left.setMinimumWidth(300)
+        left.setMaximumWidth(500)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(0)
@@ -438,7 +438,7 @@ class SimulationPlotTab(QWidget):
         self._splitter.addWidget(self.canvas)
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
-        self._splitter.setSizes([300, 800])
+        self._splitter.setSizes([380, 800])
 
         root.addWidget(self._splitter)
 
