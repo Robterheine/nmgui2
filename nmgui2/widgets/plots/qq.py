@@ -8,8 +8,9 @@ except ImportError:
     HAS_MPL = False
 try: import numpy as np; HAS_NP = True
 except ImportError: HAS_NP = False
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
-from PyQt6.QtGui import QTextCharFormat, QColor
+from pathlib import Path
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+                              QPushButton, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt
 from ...app.theme import _active_theme, THEMES
 from ...widgets._icons import _placeholder
@@ -19,19 +20,39 @@ class QQPlotWidget(QWidget):
     """Normal QQ plot of CWRES with normality statistics."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        v = QVBoxLayout(self); v.setContentsMargins(0,0,0,0); v.setSpacing(0)
+        v = QVBoxLayout(self); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(0)
         if not HAS_MPL or not HAS_NP:
             v.addWidget(_placeholder('Install matplotlib:\npip3 install matplotlib')); return
-        self.fig = Figure(figsize=(5,5), tight_layout=True)
+
+        tb = QWidget(); tb.setFixedHeight(30)
+        tbl = QHBoxLayout(tb); tbl.setContentsMargins(8, 3, 8, 3); tbl.setSpacing(6)
+        tbl.addStretch()
+        self._export_btn = QPushButton('Save PNG…')
+        self._export_btn.setFixedHeight(22); self._export_btn.setEnabled(False)
+        self._export_btn.clicked.connect(self._export_png)
+        tbl.addWidget(self._export_btn)
+        v.addWidget(tb)
+
+        self.fig = Figure(figsize=(5, 5), tight_layout=True)
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.ax = self.fig.add_subplot(111)
         v.addWidget(self.canvas, 1)
-        # Normality statistics label
+
         self.stats_lbl = QLabel('')
         self.stats_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stats_lbl.setWordWrap(True)
         self.stats_lbl.setStyleSheet('font-size:12px;padding:8px 16px;')
         v.addWidget(self.stats_lbl)
+
+    def _export_png(self):
+        dst, _ = QFileDialog.getSaveFileName(
+            self, 'Save PNG', str(Path.home() / 'cwres_qq.png'), 'PNG images (*.png)')
+        if not dst: return
+        try:
+            self.fig.savefig(dst, dpi=300, bbox_inches='tight',
+                             facecolor=self.fig.get_facecolor())
+        except Exception as e:
+            QMessageBox.critical(self, 'Export error', str(e))
 
     @staticmethod
     def _norm_ppf(p):
@@ -55,21 +76,16 @@ class QQPlotWidget(QWidget):
         n = len(x)
         if n < 3: return None, None
         x = np.sort(x)
-        # Expected order statistics
         m = np.arange(1, n+1, dtype=float)
         mi = (m - 3/8) / (n + 1/4)
         c = QQPlotWidget._norm_ppf(mi)
         c = c / np.sqrt((c**2).sum())
-        # Weights (simplified Shapiro-Wilk)
         a = np.zeros(n)
         half = n // 2
         a[-half:] = c[-half:]
-        # W statistic
         b = np.dot(a, x)
         W = b**2 / ((x - x.mean())**2).sum()
         W = min(max(W, 0.0), 1.0)
-        # p-value via log normal approximation (Royston 1992 Table 1 approximation)
-        # For n in [3, 11]: use polynomial
         if n <= 11:
             gamma = np.polyval([-2.706056, 4.434685, -2.071190, -0.147981, 0.221157, 0.0], W)
             mu_w  = np.polyval([0.0, 0.459, -2.273], n**(-0.5))
@@ -79,7 +95,6 @@ class QQPlotWidget(QWidget):
             mu_w  = np.polyval([0.0, 0.0038915, -0.083751, -0.31082, -1.5861], np.log(n))
             sig_w = np.exp(np.polyval([0.0, -0.0023776, -0.0006714, 1.3822], np.log(n)))
             gamma = (u - mu_w) / sig_w
-        # One-sided p-value from standard normal
         p = 1 - 0.5*(1 + np.sign(gamma)*
             (1 - np.exp(-gamma**2*(0.196854 + 0.115194*abs(gamma) +
              0.000344*gamma**2 + 0.019527*abs(gamma)**3)**(-4))))
@@ -93,15 +108,15 @@ class QQPlotWidget(QWidget):
         try:
             ci = H.index('CWRES'); mi = H.index('MDV') if 'MDV' in H else None
             cwres = np.sort(np.array([float(r[ci]) for r in rows
-                if (mi is None or not mdv_filter or r[mi]==0) and ci < len(r)
-                and np.isfinite(float(r[ci]))]))
+                                      if (mi is None or not mdv_filter or r[mi] == 0)
+                                      and ci < len(r) and np.isfinite(float(r[ci]))]))
             if len(cwres) < 3: return
             n = len(cwres)
             p = (np.arange(1, n+1) - 0.5) / n
             theoretical = self._norm_ppf(p)
 
             self.ax.clear()
-            t = THEMES[_active_theme]; bg=t['bg2']; fg=t['fg']; fg2=t['fg2']
+            t = THEMES[_active_theme]; bg = t['bg2']; fg = t['fg']; fg2 = t['fg2']
             self.fig.patch.set_facecolor(bg); self.ax.set_facecolor(bg)
             self.ax.tick_params(colors=fg2); self.ax.xaxis.label.set_color(fg2)
             self.ax.yaxis.label.set_color(fg2); self.ax.title.set_color(fg)
@@ -109,13 +124,13 @@ class QQPlotWidget(QWidget):
             self.ax.scatter(theoretical, cwres, s=8, alpha=0.5, color=t['accent'])
             mn = min(theoretical.min(), cwres.min())
             mx = max(theoretical.max(), cwres.max())
-            self.ax.plot([mn,mx],[mn,mx], color=t['red'], linewidth=1.5)
+            self.ax.plot([mn, mx], [mn, mx], color=t['red'], linewidth=1.5)
             self.ax.set_xlabel('Theoretical quantiles')
             self.ax.set_ylabel('Sample quantiles (CWRES)')
             self.ax.set_title(f'Normal QQ Plot — CWRES  (n={n})')
             self.canvas.draw()
+            self._export_btn.setEnabled(True)
 
-            # Normality statistics
             W, p_val = self._shapiro_wilk_approx(cwres)
             if W is not None:
                 normal = p_val > 0.05
@@ -128,7 +143,7 @@ class QQPlotWidget(QWidget):
                     f'font-size:12px;padding:8px 16px;color:{color};')
             else:
                 self.stats_lbl.setText('')
-        except Exception as e:
-            pass  # render errors are non-fatal
+        except Exception:
+            pass
 
     def set_theme(self, bg, fg): pass

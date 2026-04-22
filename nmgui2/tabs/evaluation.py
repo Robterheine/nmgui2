@@ -13,6 +13,7 @@ from ..widgets.plots.convergence import ConvergenceWidget
 from ..widgets.plots.cwres_hist import CWRESHistWidget
 from ..widgets.plots.qq import QQPlotWidget
 from ..widgets.plots.eta_cov import ETACovWidget
+from ..widgets.plots.npde_dist import NPDEDistWidget
 from ..widgets.data_explorer import DataExplorerWidget
 
 import logging
@@ -101,7 +102,7 @@ class EvaluationTab(QWidget):
         inner_bar = QWidget(); inner_bar.setFixedHeight(34)
         il = QHBoxLayout(inner_bar); il.setContentsMargins(8, 4, 8, 4); il.setSpacing(3)
         self._gof_btns = []
-        for i, lbl in enumerate(['GOF 2x2', 'CWRES Hist', 'QQ Plot', 'ETA vs Cov']):
+        for i, lbl in enumerate(['GOF 2x2', 'CWRES Hist', 'QQ Plot', 'ETA vs Cov', 'NPDE Dist']):
             btn = QPushButton(lbl); btn.setObjectName('innerPillBtn')
             btn.setCheckable(True); btn.setFixedHeight(24)
             btn.clicked.connect(lambda _, n=i: self._switch_gof(n))
@@ -113,10 +114,12 @@ class EvaluationTab(QWidget):
         self.cwres_hist = CWRESHistWidget()
         self.qq_plot    = QQPlotWidget()
         self.eta_cov    = ETACovWidget()
+        self.npde_dist  = NPDEDistWidget()
         self._gof_stack.addWidget(self.gof)
         self._gof_stack.addWidget(self.cwres_hist)
         self._gof_stack.addWidget(self.qq_plot)
         self._gof_stack.addWidget(self.eta_cov)
+        self._gof_stack.addWidget(self.npde_dist)
         gv.addWidget(self._gof_stack, 1)
         self._stack.addWidget(gof_panel)
 
@@ -138,7 +141,8 @@ class EvaluationTab(QWidget):
 
         v.addWidget(self._stack, 1)
 
-        # Initialise selection
+        # Initialise selection; NPDE button hidden until a file with NPDE is loaded
+        self._gof_btns[4].setVisible(False)
         self._switch_section(0)
         self._switch_gof(0)
 
@@ -182,7 +186,13 @@ class EvaluationTab(QWidget):
         self.cwres_hist.load(self._header, self._rows, mdv)
         self.qq_plot.load(self._header, self._rows, mdv)
         self.eta_cov.load(self._header, self._rows, mdv)
+        self.npde_dist.load(self._header, self._rows, mdv)
         self.data_explorer.load(self._header, self._rows)
+        # Show NPDE Dist button only when NPDE column is present
+        has_npde = 'NPDE' in [h.upper() for h in self._header]
+        self._gof_btns[4].setVisible(has_npde)
+        if not has_npde and self._gof_stack.currentIndex() == 4:
+            self._switch_gof(0)
 
     def load_model(self, model):
         self._model = model
