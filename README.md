@@ -651,6 +651,13 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.6.12
+
+Sim Plot default panel width increased to 600 px.
+
+- **Splitter default** — 380 → 600 px so the panel opens at the width where all spinbox values display fully without the user needing to drag the splitter
+- **Panel max width** — 500 → 700 px to allow further widening if desired
+
 ### v2.6.11
 
 Sim Plot spinboxes — adaptive width instead of fixed pixels.
