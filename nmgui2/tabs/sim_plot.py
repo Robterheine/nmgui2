@@ -53,7 +53,7 @@ _DEFAULT_BANDS = [
 
 def _make_color_btn(color: str) -> QPushButton:
     btn = QPushButton()
-    btn.setFixedSize(32, 22)
+    btn.setFixedSize(26, 22)
     btn.setToolTip('Click to change colour')
     _set_btn_color(btn, color)
     return btn
@@ -75,7 +75,7 @@ class _BandRow(QWidget):
         super().__init__(parent)
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 1, 0, 1)
-        h.setSpacing(4)
+        h.setSpacing(3)   # tight: every pixel counts in this row
 
         self._vis = QCheckBox()
         self._vis.setChecked(True)
@@ -83,34 +83,34 @@ class _BandRow(QWidget):
         self._vis.setFixedWidth(18)
         h.addWidget(self._vis)
 
-        # Lo% spinbox — no label (header row above provides context)
+        # Lo% spinbox — no suffix (column header "Lo%" provides context)
         self._lo = QDoubleSpinBox()
         self._lo.setRange(0.0, 49.9); self._lo.setDecimals(1); self._lo.setSingleStep(2.5)
-        self._lo.setValue(lo); self._lo.setSuffix('%'); self._lo.setFixedWidth(60)
-        self._lo.setToolTip('Lower percentile')
+        self._lo.setValue(lo); self._lo.setFixedWidth(46)
+        self._lo.setToolTip('Lower percentile (%)')
         h.addWidget(self._lo)
 
-        # Hi% spinbox
+        # Hi% spinbox — no suffix
         self._hi = QDoubleSpinBox()
         self._hi.setRange(50.1, 100.0); self._hi.setDecimals(1); self._hi.setSingleStep(2.5)
-        self._hi.setValue(hi); self._hi.setSuffix('%'); self._hi.setFixedWidth(60)
-        self._hi.setToolTip('Upper percentile')
+        self._hi.setValue(hi); self._hi.setFixedWidth(46)
+        self._hi.setToolTip('Upper percentile (%)')
         h.addWidget(self._hi)
 
-        # Colour swatch
+        # Colour swatch — narrower, still clearly a colour picker
         self._color_btn = _make_color_btn(color)
         self._color_btn.clicked.connect(self._pick_color)
         h.addWidget(self._color_btn)
 
-        # Alpha spinbox (no label — header provides context)
+        # Alpha spinbox
         self._alpha = QDoubleSpinBox()
         self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(58)
+        self._alpha.setValue(alpha); self._alpha.setFixedWidth(52)
         self._alpha.setToolTip('Ribbon opacity (0.05 = nearly transparent, 1.0 = solid)')
         h.addWidget(self._alpha)
 
         rm = QPushButton('×')
-        rm.setFixedSize(22, 22)
+        rm.setFixedSize(20, 20)
         rm.setToolTip('Remove this band')
         rm.setObjectName('removeBandBtn')
         rm.clicked.connect(lambda: self.removed.emit(self))
@@ -281,21 +281,21 @@ class SimulationPlotTab(QWidget):
         card_bands.add_layout(preset_row)
 
         # Column header — widths must match _BandRow widget widths exactly:
-        # vis=18, lo=60, hi=60, colour=32, alpha=58, ×=22, spacing=4×5=20
+        # vis=18, lo=46, hi=46, colour=26, alpha=52, ×=20, spacing=3×5=15
         hdr = QWidget()
         hdr_l = QHBoxLayout(hdr)
-        hdr_l.setContentsMargins(0, 2, 0, 0); hdr_l.setSpacing(4)
-        vis_h = _section_header('Vis');    vis_h.setFixedWidth(18)
-        lo_h  = _section_header('Lo%');   lo_h.setFixedWidth(60)
-        hi_h  = _section_header('Hi%');   hi_h.setFixedWidth(60)
-        col_h = _section_header('Colour');col_h.setFixedWidth(32)
-        alp_h = _section_header('Alpha'); alp_h.setFixedWidth(58)
+        hdr_l.setContentsMargins(0, 2, 0, 0); hdr_l.setSpacing(3)
+        vis_h = _section_header('Vis');   vis_h.setFixedWidth(18)
+        lo_h  = _section_header('Lo%');  lo_h.setFixedWidth(46)
+        hi_h  = _section_header('Hi%');  hi_h.setFixedWidth(46)
+        col_h = _section_header('Col');  col_h.setFixedWidth(26)
+        alp_h = _section_header('Alpha');alp_h.setFixedWidth(52)
         hdr_l.addWidget(vis_h)
         hdr_l.addWidget(lo_h)
         hdr_l.addWidget(hi_h)
         hdr_l.addWidget(col_h)
         hdr_l.addWidget(alp_h)
-        hdr_l.addSpacing(22)
+        hdr_l.addSpacing(20)
         card_bands.add_widget(hdr)
 
         # Thin divider
@@ -371,8 +371,10 @@ class SimulationPlotTab(QWidget):
         flt_hdr_l = QHBoxLayout(flt_hdr)
         flt_hdr_l.setContentsMargins(0, 2, 0, 0); flt_hdr_l.setSpacing(4)
         flt_hdr_l.addWidget(_section_header('Column'), 1)
-        flt_hdr_l.addWidget(_section_header('Op'))
-        flt_hdr_l.addWidget(_section_header('Value'))
+        op_h = _section_header('Op');   op_h.setFixedWidth(52)
+        val_h = _section_header('Value'); val_h.setFixedWidth(72)
+        flt_hdr_l.addWidget(op_h)
+        flt_hdr_l.addWidget(val_h)
         flt_hdr_l.addSpacing(22)
         card_filt.add_widget(flt_hdr)
 

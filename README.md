@@ -651,6 +651,19 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.6.8
+
+Sim Plot band row layout overhaul — all controls now fully visible.
+
+- **Removed `%` suffix from Lo/Hi spinboxes** — the column header "Lo%" / "Hi%" already communicates the unit; dropping the suffix saves ~12 px per spinbox and lets the values render fully
+- **Narrowed Lo/Hi spinboxes** — 60 → 46 px (fits "49.9" at 1 decimal place)
+- **Narrowed colour swatch** — 32 → 26 px (still clearly a colour picker)
+- **Narrowed alpha spinbox** — 58 → 52 px
+- **Narrowed remove button** — 22 → 20 px
+- **Tightened row spacing** — 4 → 3 px between widgets
+- **New band row total: 221 px** (was 270 px) — fits comfortably in the available content width with ~40 px to spare, even accounting for the vertical scrollbar
+- **Filter header fixed** — Op and Value column labels now have explicit fixed widths (52 / 72 px) matching the data row, so "Op" is never clipped
+
 ### v2.6.7
 
 Sim Plot panel default width correction.
