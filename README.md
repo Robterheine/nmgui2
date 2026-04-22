@@ -28,170 +28,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 - [Author](#author)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
-
----
-
-## What's new in v2.6.7
-
-Sim Plot panel default width correction.
-
-- **Wider default panel** — splitter default increased from 300 → 380 px and max-width from 400 → 500 px; the vertical scrollbar was consuming ~15 px of horizontal space, causing the band row columns to clip even at 300 px; 380 px gives ~333 px usable content width, well clear of the 270 px band row
-
----
-
-## What's new in v2.6.6
-
-Sim Plot left panel layout fixes.
-
-- **Narrower band rows** — Lo%/Hi% spinboxes reduced from 68 → 60 px, Alpha from 72 → 58 px so all columns (including the × button) fit without clipping
-- **Narrower panel** — default splitter position reduced from 360 → 300 px; max panel width reduced from 480 → 400 px
-- **Span spinbox** — widened from 62 → 70 px so "0.30" is never clipped
-
----
-
-## What's new in v2.6.5
-
-Sim Plot LOESS smoothing option.
-
-- **Smooth curves** — new checkbox in the *Appearance* card applies LOESS smoothing to all PI ribbon boundaries and the median line before rendering; a **Span** spinbox (0.05–1.0, default 0.30) controls bandwidth — lower follows data closely, higher gives a smoother curve
-
----
-
-## What's new in v2.6.4
-
-Sim Plot MDV filter accessibility fix.
-
-- **MDV filter moved to Filters card** — the "Exclude MDV=1 rows" checkbox is now in the *Filters* card (expanded by default) instead of the collapsed *Appearance* card, making it immediately visible and easy to toggle
-
----
-
-## What's new in v2.6.3
-
-Sim Plot usability and layout fixes.
-
-- **Workflow hint** — a note in the Data card explains that the Sim Plot tab requires a NONMEM simulation output file with a replicate column (REP, IREP, SIM, SIMNO…), not a standard estimation sdtab
-- **Replicate column validation** — a status bar warning is shown when no recognised replicate column is found in the loaded file, preventing meaningless plots from being silently generated
-- **Median colour default** — now initialises to the current theme foreground colour instead of white (which was invisible on light backgrounds)
-- **PI band header alignment** — column labels (Vis / Lo% / Hi% / Colour / Alpha) now use exact fixed widths matching the data row widgets so they align correctly
-- **Alpha spinbox** — widened from 58 px to 72 px; values such as "0.25" no longer clip to "0"
-- **Y-axis label overflow** — replaced `tight_layout` with explicit `subplots_adjust` so the Y-axis label no longer overflows beyond the right edge of the canvas
-
-## What's new in v2.6.2
-
-Performance and audit fixes.
-
-- **Threaded table loading** — the Evaluation tab now parses sdtab files in a background QThread; the Load button shows "Loading…" while parsing and the UI stays fully responsive on large files or slow network drives
-- **IndFit row bounds guard** — ragged rows (fewer columns than the header) in the Individual Fits widget no longer raise IndexError; they are silently skipped
-- **GOF replot error logging** — the silent `except Exception: pass` in the GOF 2×2 replot is replaced with a debug-level log entry so errors are visible with `--debug` without crashing
-
-## What's new in v2.6.1
-
-Bug fixes for the Sim Plot tab and the Models tab METHOD column.
-
-- **SIM method label** — simulation-only runs (`$SIM` without `$EST`) now display **SIM** in the METHOD column of the Models tab instead of the incorrect default **FO**
-- **Sim Plot layout** — PI band rows redesigned: label-free compact layout with a column header row, `%` suffix on spinboxes, wider panel (360 px default), compact Browse/Load buttons; filter rows similarly updated
-
-## What's new in v2.6.0
-
-New **Simulation Plot** tab for Monte Carlo prediction interval visualisation.
-
-- **Sim Plot tab** — a dedicated tab (Ctrl+6) for plotting prediction intervals from NONMEM Monte Carlo simulation output. Load any NONMEM table file or CSV (no row-count cap), configure PI bands, and generate publication-ready plots in seconds
-- **Unlimited file loading** — the table parser now accepts `max_rows=None` so large simulation files (50k–500k rows typical for 1 000 replicates × 500 time points) load fully without truncation
-- **Replicate auto-detection** — the tab recognises explicit replicate columns (`REP`, `IREP`, `SIM`, `SIMNO`, `REP_NO`, `SIM_NUM`, etc.) and also detects ID-cycling automatically when no explicit column is present
-- **Configurable PI bands** — up to 4 simultaneous prediction interval ribbons, each with its own percentile pair (Lo/Hi %), colour (colour picker), alpha and visibility toggle. Four presets cover the most common pharmacometric conventions (5/95 + 25/75, 2.5/97.5 + 10/90, etc.)
-- **Multiple filters** — up to 6 independent column filters (`==`, `!=`, `>`, `<`, `>=`, `<=`), ANDed together, to subset by compartment, dose group, sex, or any other column before plotting
-- **Median line** — configurable colour and line width; computed as the 50th percentile across replicates
-- **Log/linear Y-axis** — one checkbox toggles between linear and logarithmic scale, essential for PK concentration-time plots
-- **MDV=1 exclusion** — dosing-only rows filtered out by default before quantile computation
-- **Observed data overlay** — optional second file load; observed DV points are overlaid as a semi-transparent scatter on the simulated ribbons, with independent X/Y column selectors
-- **Background computation** — all quantile calculations run in a QThread so the UI stays responsive on large datasets
-- **Save PNG** — 300 DPI export via matplotlib `savefig`
-- **Model context** — selecting a model in the Models tab sets the browse directory for the Sim Plot file dialog, consistent with Evaluation and VPC tabs
-
-## What's new in v2.5.8
-
-Bug fix for the ETA vs Covariate plot.
-
-- **ET\d+ columns now recognised as ETAs** — NONMEM truncates `ETA(12)` to `ET12` in TABLE output. The ETA dropdown previously required the full `ETA` prefix, so `ET12`, `ET13`, `ET14` etc. were silently placed in the covariates list and the dropdown stayed empty. Fixed by also accepting `ET\d+` and `PHI\d+` column names as ETAs
-- **Residual columns excluded from covariates** — `NPDE`, `IWRES` and `WRES` added to the covariate skip-list (alongside the existing `CWRES`, `PRED`, `IPRED` etc.) so they no longer appear as candidate covariates
-
-## What's new in v2.5.7
-
-New GOF features.
-
-- **NPDE distribution plot** — a new "NPDE Dist" pill appears in the GOF sub-strip whenever the loaded table file contains an NPDE column. Shows a histogram with a normal density overlay and mean/SD statistics, identical in style to the CWRES Hist panel. When NPDE is absent the button is hidden automatically
-- **PNG export on all matplotlib GOF panels** — CWRES Hist, QQ Plot and NPDE Dist each now have a "Save PNG…" button that saves a 300 DPI PNG via matplotlib's `savefig`; the button is disabled until a plot has been rendered
-
-## What's new in v2.5.6
-
-Bug fix for the Ron Keizer `vpc` backend.
-
-- **Three CI bands now visible** — `pi_as_area` was incorrectly set to `TRUE`, which collapsed the three separate confidence ribbons (around the 5th, 50th and 95th simulated percentiles) into a single filled slab. Changed to `FALSE` (the vpc package default) so a proper three-band VPC is displayed
-- **Readr parsing warnings suppressed** — NONMEM simulation files embed a `TABLE NO.` header row every N records; readr emits ~2000 parsing-failure warnings per VPC run (one per simulation replicate). These are harmless but were alarming. The vpc() call is now wrapped in `withCallingHandlers` to muffle only those specific warnings while keeping real R errors visible
-
-## What's new in v2.5.5
-
-VPC tab overhaul — fixes implausible plots from the Ron Keizer `vpc` backend and removes the outdated `xpose4` backend.
-
-- **xpose4 backend removed** — xpose4 is no longer maintained and produced implausible VPCs; the modern `xpose` package is a strict improvement
-- **"Use PsN settings" mode (default on)** — when checked, binning, stratification, pred-corr and LLOQ are inherited directly from the PsN output folder for both the `vpc` and `xpose` backends. Previously the tab always forced `bins="auto"` and explicit `pred_corr`/`stratify` args that overrode PsN's values, misaligning observations and simulated prediction intervals
-- **Correct bins argument** — when overriding manually, `bins="jenks"` is used instead of the invalid `"auto"` string
-- **Workflow hint** — a one-line note at the top of the VPC settings panel explains that a PsN `vpc` run must be completed first
-- **Validation gate fix** — stratification column validation is now skipped when "Use PsN settings" is checked (the column is inherited from PsN and may not appear literally in the widget)
-- **R status bar** now shows only the two current backends: `vpc` and `xpose`
-
-## What's new in v2.5.4
-
-Bug-fix release (Tier 1 audit items + R availability check).
-
-- **Python 3.9 compatibility** — `detached_runs.py` used `int | None`, `list[dict]` and `tuple[list, list]` type annotations introduced in Python 3.10. Added `from __future__ import annotations` so the file imports cleanly on Python 3.9 (common on HPC clusters running CentOS/RHEL 8)
-- **VPC column name sanitisation** — stratification column names are now cleaned with `_r_col()` before embedding in the generated R script; control characters and embedded quotes that would break the R string literal are stripped. A separate `_sanitize_r` improvement also strips newlines and other control characters from path strings
-- **Config directory creation** — `CONFIG_DIR.mkdir()` is now wrapped in `try/except OSError`; on HPC systems with a read-only home directory the app previously raised `PermissionError` at import time and refused to start
-- **R availability check at startup** — if `Rscript` is not found on PATH, a status bar message is shown immediately on startup explaining that VPC and RStudio features are unavailable; previously the first indication was an opaque error when actually trying to use those features
-
-## What's new in v2.5.3
-
-Bug-fix release (continued audit follow-up).
-
-- **Parameter export status message** — the "Parameters exported" status bar message no longer crashes when the widget tree is not in the expected shape; the `hasattr(self,'parent')` guard was always True and gave false safety
-- **GOF axis column fallback** — when a previously-selected X-axis column (e.g. CWRES) is absent from a newly-loaded table, the plot now falls back to the panel default (PRED or TIME) instead of silently selecting column 0 (which was typically ID or TIME at random)
-- **GOF file-open imports** — `__import__('os')` / `__import__('subprocess')` inline hacks in the "Open exported PNG?" handler replaced with normal top-level imports
-- **History tab run I/O** — `_load_runs` / `_save_runs` local duplicates removed; history tab now calls the canonical locked versions from `config.py`, so thread-safety fixes and future bug fixes apply consistently
-- **Unused import removed** — `APP_VERSION` was imported but never used in `detached_runs.py`
-- **RStudio .Rproj creation** — `write_text()` is now wrapped in a `try/except OSError`; read-only project directories (common on shared drives) now return a user-visible error instead of raising an unhandled exception
-
-## What's new in v2.5.2
-
-Bug-fix release addressing findings from a thorough internal audit.
-
-- **Force-kill fixed** — the "Force kill (SIGKILL)" stop option in run popups now works correctly; previously it called a non-existent method and silently did nothing
-- **Boundary warning restored** — "Parameter near boundary" warnings are now correctly recorded in run history; a key-name mismatch was preventing this flag from ever being stored
-- **Median statistics corrected** — bootstrap and SIR results (bias, RSE, median parameter, dOFV median) now use a proper median calculation; the previous index-based approach produced a systematic upward bias for even-sized samples (7 call sites fixed)
-- **Splitter layout persists** — panel splitter sizes are now correctly restored on startup; an early-return in geometry restore was skipping the splitter step
-- **Detached run reconciliation fixed (macOS)** — `_boot_time()` previously returned `0.0` on non-Linux platforms, causing every detached run to be marked finished immediately after restart; it now returns `None` and the start-time cross-check is skipped when unavailable
-- **Config write thread-safety** — all config file writers (`save_settings`, `save_bookmarks`, `save_runs`) now hold the same lock as `save_meta`, preventing rare corruption from concurrent worker and main-thread writes
-- **Subprocess session handling** — `RunWorker` now uses `start_new_session=True` (was `preexec_fn=os.setsid`, which is unsafe with Python threads and can deadlock on macOS); `import signal` moved to module scope
-- **LRT method-mismatch guard** — the workbench comparison table now shows "N/A" with a tooltip instead of a p-value when the reference and candidate models used different estimation methods (e.g. FOCE vs SAEM); exported CSV emits `method_mismatch` in that column
-- **Waterfall plot at OBJ=0** — subjects with an individual OBJ of exactly 0.0 were excluded from the waterfall plot because the value is falsy; corrected to `is not None`
-- **ETA–covariate plot filters MDV rows** — dosing records (MDV=1) are now excluded from ETA vs covariate scatter plots, consistent with all other diagnostic plots
-
-## What's new in v2.5.1
-
-- **Detached runs (SSH/MobaXterm)** — a new "Run detached" checkbox in the Run panel launches PsN under `nohup` in a new session so the job keeps running even if NMGUI2 is closed or the SSH connection drops. Automatically pre-checked when an SSH session is detected. Output is saved to a per-run `.nmgui.log` file in the project folder. Click the detached row in the Active & Recent Runs table to tail the log in a Watch Log window. On the next NMGUI2 startup, finished detached runs are automatically reconciled (status, timestamps, OFV) without relying on any shutdown hooks. Linux and macOS only.
-
-## What's new in v2.5.0
-
-- **Concurrent popup runs** — clicking Run now opens a dedicated floating window per model run; multiple models run simultaneously in independent windows, each with its own live console, iteration/OFV progress indicator, elapsed timer, and gentle/force stop controls; on completion the window title and status bar update with the termination result
-- **Active & Recent Runs panel** — the Run sub-tab now shows a persistent table of active and recent runs for the current project folder; click a live row to raise its popup window; historical rows are loaded from `nmgui_run_records.json` in the project directory and survive app restarts; interrupted runs are shown as "? Interrupted"
-- **Theme overhaul** — forced Fusion style across all platforms for consistent dark-mode behaviour; migrated ~20 widgets from per-widget stylesheets to object-name + global QSS so theme toggle reliably refreshes every label, separator, spin-box, combo-box and highlighter in the app
-- **QC report** — right-click any completed model → *QC Report…* to open a self-contained HTML report with a PASS / WARN / FAIL checklist covering termination, covariance, condition number, %RSE, parameter correlations, shrinkage, ETABAR and omega boundary checks
-- **Model workbench** — *Workbench…* button opens a sortable table of all completed models with ΔOFV, ΔAIC, ΔBIC, LRT p-value and reference-model selector for quick multi-model comparison
-- **Enhanced compare dialog** — the two-model comparison dialog now shows a statistics strip with ΔOFV, ΔAIC, ΔBIC, Δ parameters, LRT p-value and a significance verdict
-- **Dataset integrity checks** — at scan time, each model's data file is automatically checked for missing file, column-count mismatches, non-monotonic TIME, duplicate doses, extreme DV values and high BLQ proportion; issues appear in the Info tab's Dataset card
-- **Collapsible layout** — the Info panel uses collapsible cards (Dataset / Annotation / Notes); the Parameters tab THETA / OMEGA / SIGMA blocks collapse and expand by clicking the section header
-- **Multi-$EST chain parsing** — the `.lst` Output tab now renders one row per estimation step with per-step OFV, ΔOFV, runtime, significant digits and termination status
-- **Run records** — immutable audit trail for every run (UUID, SHA-256 hashes of control stream and dataset, NONMEM/PsN/NMGUI versions, duration, final OFV and status) accessible from the right-click menu
-- **Correctness fixes** — LRT p-value now correctly signed when the reference model has fewer parameters; VPC "Save PDF…" reliably produces a PDF; run record and workbench display OFV = 0.0 correctly; GitHub update-check uses numeric version comparison instead of lexicographic
+- [Changelog](#changelog)
 
 ---
 
@@ -809,3 +646,161 @@ Developed with [Anthropic Claude](https://claude.ai).
 ## License
 
 [MIT License](LICENSE) — free to use, modify and distribute.
+
+---
+
+## Changelog
+
+### v2.6.7
+
+Sim Plot panel default width correction.
+
+- **Wider default panel** — splitter default increased from 300 → 380 px and max-width from 400 → 500 px; the vertical scrollbar was consuming ~15 px of horizontal space, causing the band row columns to clip even at 300 px; 380 px gives ~333 px usable content width, well clear of the 270 px band row
+
+### v2.6.6
+
+Sim Plot left panel layout fixes.
+
+- **Narrower band rows** — Lo%/Hi% spinboxes reduced from 68 → 60 px, Alpha from 72 → 58 px so all columns (including the × button) fit without clipping
+- **Narrower panel** — default splitter position reduced from 360 → 300 px; max panel width reduced from 480 → 400 px
+- **Span spinbox** — widened from 62 → 70 px so "0.30" is never clipped
+
+### v2.6.5
+
+Sim Plot LOESS smoothing option.
+
+- **Smooth curves** — new checkbox in the *Appearance* card applies LOESS smoothing to all PI ribbon boundaries and the median line before rendering; a **Span** spinbox (0.05–1.0, default 0.30) controls bandwidth — lower follows data closely, higher gives a smoother curve
+
+### v2.6.4
+
+Sim Plot MDV filter accessibility fix.
+
+- **MDV filter moved to Filters card** — the "Exclude MDV=1 rows" checkbox is now in the *Filters* card (expanded by default) instead of the collapsed *Appearance* card, making it immediately visible and easy to toggle
+
+### v2.6.3
+
+Sim Plot usability and layout fixes.
+
+- **Workflow hint** — a note in the Data card explains that the Sim Plot tab requires a NONMEM simulation output file with a replicate column (REP, IREP, SIM, SIMNO…), not a standard estimation sdtab
+- **Replicate column validation** — a status bar warning is shown when no recognised replicate column is found in the loaded file, preventing meaningless plots from being silently generated
+- **Median colour default** — now initialises to the current theme foreground colour instead of white (which was invisible on light backgrounds)
+- **PI band header alignment** — column labels (Vis / Lo% / Hi% / Colour / Alpha) now use exact fixed widths matching the data row widgets so they align correctly
+- **Alpha spinbox** — widened from 58 px to 72 px; values such as "0.25" no longer clip to "0"
+- **Y-axis label overflow** — replaced `tight_layout` with explicit `subplots_adjust` so the Y-axis label no longer overflows beyond the right edge of the canvas
+
+### v2.6.2
+
+Performance and audit fixes.
+
+- **Threaded table loading** — the Evaluation tab now parses sdtab files in a background QThread; the Load button shows "Loading…" while parsing and the UI stays fully responsive on large files or slow network drives
+- **IndFit row bounds guard** — ragged rows (fewer columns than the header) in the Individual Fits widget no longer raise IndexError; they are silently skipped
+- **GOF replot error logging** — the silent `except Exception: pass` in the GOF 2×2 replot is replaced with a debug-level log entry so errors are visible with `--debug` without crashing
+
+### v2.6.1
+
+Bug fixes for the Sim Plot tab and the Models tab METHOD column.
+
+- **SIM method label** — simulation-only runs (`$SIM` without `$EST`) now display **SIM** in the METHOD column of the Models tab instead of the incorrect default **FO**
+- **Sim Plot layout** — PI band rows redesigned: label-free compact layout with a column header row, `%` suffix on spinboxes, wider panel (360 px default), compact Browse/Load buttons; filter rows similarly updated
+
+### v2.6.0
+
+New **Simulation Plot** tab for Monte Carlo prediction interval visualisation.
+
+- **Sim Plot tab** — a dedicated tab (Ctrl+6) for plotting prediction intervals from NONMEM Monte Carlo simulation output. Load any NONMEM table file or CSV (no row-count cap), configure PI bands, and generate publication-ready plots in seconds
+- **Unlimited file loading** — the table parser now accepts `max_rows=None` so large simulation files (50k–500k rows typical for 1 000 replicates × 500 time points) load fully without truncation
+- **Replicate auto-detection** — the tab recognises explicit replicate columns (`REP`, `IREP`, `SIM`, `SIMNO`, `REP_NO`, `SIM_NUM`, etc.) and also detects ID-cycling automatically when no explicit column is present
+- **Configurable PI bands** — up to 4 simultaneous prediction interval ribbons, each with its own percentile pair (Lo/Hi %), colour (colour picker), alpha and visibility toggle. Four presets cover the most common pharmacometric conventions (5/95 + 25/75, 2.5/97.5 + 10/90, etc.)
+- **Multiple filters** — up to 6 independent column filters (`==`, `!=`, `>`, `<`, `>=`, `<=`), ANDed together, to subset by compartment, dose group, sex, or any other column before plotting
+- **Median line** — configurable colour and line width; computed as the 50th percentile across replicates
+- **Log/linear Y-axis** — one checkbox toggles between linear and logarithmic scale, essential for PK concentration-time plots
+- **MDV=1 exclusion** — dosing-only rows filtered out by default before quantile computation
+- **Observed data overlay** — optional second file load; observed DV points are overlaid as a semi-transparent scatter on the simulated ribbons, with independent X/Y column selectors
+- **Background computation** — all quantile calculations run in a QThread so the UI stays responsive on large datasets
+- **Save PNG** — 300 DPI export via matplotlib `savefig`
+- **Model context** — selecting a model in the Models tab sets the browse directory for the Sim Plot file dialog, consistent with Evaluation and VPC tabs
+
+### v2.5.8
+
+Bug fix for the ETA vs Covariate plot.
+
+- **ET\d+ columns now recognised as ETAs** — NONMEM truncates `ETA(12)` to `ET12` in TABLE output. The ETA dropdown previously required the full `ETA` prefix, so `ET12`, `ET13`, `ET14` etc. were silently placed in the covariates list and the dropdown stayed empty. Fixed by also accepting `ET\d+` and `PHI\d+` column names as ETAs
+- **Residual columns excluded from covariates** — `NPDE`, `IWRES` and `WRES` added to the covariate skip-list (alongside the existing `CWRES`, `PRED`, `IPRED` etc.) so they no longer appear as candidate covariates
+
+### v2.5.7
+
+New GOF features.
+
+- **NPDE distribution plot** — a new "NPDE Dist" pill appears in the GOF sub-strip whenever the loaded table file contains an NPDE column. Shows a histogram with a normal density overlay and mean/SD statistics, identical in style to the CWRES Hist panel. When NPDE is absent the button is hidden automatically
+- **PNG export on all matplotlib GOF panels** — CWRES Hist, QQ Plot and NPDE Dist each now have a "Save PNG…" button that saves a 300 DPI PNG via matplotlib's `savefig`; the button is disabled until a plot has been rendered
+
+### v2.5.6
+
+Bug fix for the Ron Keizer `vpc` backend.
+
+- **Three CI bands now visible** — `pi_as_area` was incorrectly set to `TRUE`, which collapsed the three separate confidence ribbons (around the 5th, 50th and 95th simulated percentiles) into a single filled slab. Changed to `FALSE` (the vpc package default) so a proper three-band VPC is displayed
+- **Readr parsing warnings suppressed** — NONMEM simulation files embed a `TABLE NO.` header row every N records; readr emits ~2000 parsing-failure warnings per VPC run (one per simulation replicate). These are harmless but were alarming. The vpc() call is now wrapped in `withCallingHandlers` to muffle only those specific warnings while keeping real R errors visible
+
+### v2.5.5
+
+VPC tab overhaul — fixes implausible plots from the Ron Keizer `vpc` backend and removes the outdated `xpose4` backend.
+
+- **xpose4 backend removed** — xpose4 is no longer maintained and produced implausible VPCs; the modern `xpose` package is a strict improvement
+- **"Use PsN settings" mode (default on)** — when checked, binning, stratification, pred-corr and LLOQ are inherited directly from the PsN output folder for both the `vpc` and `xpose` backends. Previously the tab always forced `bins="auto"` and explicit `pred_corr`/`stratify` args that overrode PsN's values, misaligning observations and simulated prediction intervals
+- **Correct bins argument** — when overriding manually, `bins="jenks"` is used instead of the invalid `"auto"` string
+- **Workflow hint** — a one-line note at the top of the VPC settings panel explains that a PsN `vpc` run must be completed first
+- **Validation gate fix** — stratification column validation is now skipped when "Use PsN settings" is checked (the column is inherited from PsN and may not appear literally in the widget)
+- **R status bar** now shows only the two current backends: `vpc` and `xpose`
+
+### v2.5.4
+
+Bug-fix release (Tier 1 audit items + R availability check).
+
+- **Python 3.9 compatibility** — `detached_runs.py` used `int | None`, `list[dict]` and `tuple[list, list]` type annotations introduced in Python 3.10. Added `from __future__ import annotations` so the file imports cleanly on Python 3.9 (common on HPC clusters running CentOS/RHEL 8)
+- **VPC column name sanitisation** — stratification column names are now cleaned with `_r_col()` before embedding in the generated R script; control characters and embedded quotes that would break the R string literal are stripped. A separate `_sanitize_r` improvement also strips newlines and other control characters from path strings
+- **Config directory creation** — `CONFIG_DIR.mkdir()` is now wrapped in `try/except OSError`; on HPC systems with a read-only home directory the app previously raised `PermissionError` at import time and refused to start
+- **R availability check at startup** — if `Rscript` is not found on PATH, a status bar message is shown immediately on startup explaining that VPC and RStudio features are unavailable; previously the first indication was an opaque error when actually trying to use those features
+
+### v2.5.3
+
+Bug-fix release (continued audit follow-up).
+
+- **Parameter export status message** — the "Parameters exported" status bar message no longer crashes when the widget tree is not in the expected shape; the `hasattr(self,'parent')` guard was always True and gave false safety
+- **GOF axis column fallback** — when a previously-selected X-axis column (e.g. CWRES) is absent from a newly-loaded table, the plot now falls back to the panel default (PRED or TIME) instead of silently selecting column 0 (which was typically ID or TIME at random)
+- **GOF file-open imports** — `__import__('os')` / `__import__('subprocess')` inline hacks in the "Open exported PNG?" handler replaced with normal top-level imports
+- **History tab run I/O** — `_load_runs` / `_save_runs` local duplicates removed; history tab now calls the canonical locked versions from `config.py`, so thread-safety fixes and future bug fixes apply consistently
+- **Unused import removed** — `APP_VERSION` was imported but never used in `detached_runs.py`
+- **RStudio .Rproj creation** — `write_text()` is now wrapped in a `try/except OSError`; read-only project directories (common on shared drives) now return a user-visible error instead of raising an unhandled exception
+
+### v2.5.2
+
+Bug-fix release addressing findings from a thorough internal audit.
+
+- **Force-kill fixed** — the "Force kill (SIGKILL)" stop option in run popups now works correctly; previously it called a non-existent method and silently did nothing
+- **Boundary warning restored** — "Parameter near boundary" warnings are now correctly recorded in run history; a key-name mismatch was preventing this flag from ever being stored
+- **Median statistics corrected** — bootstrap and SIR results (bias, RSE, median parameter, dOFV median) now use a proper median calculation; the previous index-based approach produced a systematic upward bias for even-sized samples (7 call sites fixed)
+- **Splitter layout persists** — panel splitter sizes are now correctly restored on startup; an early-return in geometry restore was skipping the splitter step
+- **Detached run reconciliation fixed (macOS)** — `_boot_time()` previously returned `0.0` on non-Linux platforms, causing every detached run to be marked finished immediately after restart; it now returns `None` and the start-time cross-check is skipped when unavailable
+- **Config write thread-safety** — all config file writers (`save_settings`, `save_bookmarks`, `save_runs`) now hold the same lock as `save_meta`, preventing rare corruption from concurrent worker and main-thread writes
+- **Subprocess session handling** — `RunWorker` now uses `start_new_session=True` (was `preexec_fn=os.setsid`, which is unsafe with Python threads and can deadlock on macOS); `import signal` moved to module scope
+- **LRT method-mismatch guard** — the workbench comparison table now shows "N/A" with a tooltip instead of a p-value when the reference and candidate models used different estimation methods (e.g. FOCE vs SAEM); exported CSV emits `method_mismatch` in that column
+- **Waterfall plot at OBJ=0** — subjects with an individual OBJ of exactly 0.0 were excluded from the waterfall plot because the value is falsy; corrected to `is not None`
+- **ETA–covariate plot filters MDV rows** — dosing records (MDV=1) are now excluded from ETA vs covariate scatter plots, consistent with all other diagnostic plots
+
+### v2.5.1
+
+- **Detached runs (SSH/MobaXterm)** — a new "Run detached" checkbox in the Run panel launches PsN under `nohup` in a new session so the job keeps running even if NMGUI2 is closed or the SSH connection drops. Automatically pre-checked when an SSH session is detected. Output is saved to a per-run `.nmgui.log` file in the project folder. Click the detached row in the Active & Recent Runs table to tail the log in a Watch Log window. On the next NMGUI2 startup, finished detached runs are automatically reconciled (status, timestamps, OFV) without relying on any shutdown hooks. Linux and macOS only.
+
+### v2.5.0
+
+- **Concurrent popup runs** — clicking Run now opens a dedicated floating window per model run; multiple models run simultaneously in independent windows, each with its own live console, iteration/OFV progress indicator, elapsed timer, and gentle/force stop controls; on completion the window title and status bar update with the termination result
+- **Active & Recent Runs panel** — the Run sub-tab now shows a persistent table of active and recent runs for the current project folder; click a live row to raise its popup window; historical rows are loaded from `nmgui_run_records.json` in the project directory and survive app restarts; interrupted runs are shown as "? Interrupted"
+- **Theme overhaul** — forced Fusion style across all platforms for consistent dark-mode behaviour; migrated ~20 widgets from per-widget stylesheets to object-name + global QSS so theme toggle reliably refreshes every label, separator, spin-box, combo-box and highlighter in the app
+- **QC report** — right-click any completed model → *QC Report…* to open a self-contained HTML report with a PASS / WARN / FAIL checklist covering termination, covariance, condition number, %RSE, parameter correlations, shrinkage, ETABAR and omega boundary checks
+- **Model workbench** — *Workbench…* button opens a sortable table of all completed models with ΔOFV, ΔAIC, ΔBIC, LRT p-value and reference-model selector for quick multi-model comparison
+- **Enhanced compare dialog** — the two-model comparison dialog now shows a statistics strip with ΔOFV, ΔAIC, ΔBIC, Δ parameters, LRT p-value and a significance verdict
+- **Dataset integrity checks** — at scan time, each model's data file is automatically checked for missing file, column-count mismatches, non-monotonic TIME, duplicate doses, extreme DV values and high BLQ proportion; issues appear in the Info tab's Dataset card
+- **Collapsible layout** — the Info panel uses collapsible cards (Dataset / Annotation / Notes); the Parameters tab THETA / OMEGA / SIGMA blocks collapse and expand by clicking the section header
+- **Multi-$EST chain parsing** — the `.lst` Output tab now renders one row per estimation step with per-step OFV, ΔOFV, runtime, significant digits and termination status
+- **Run records** — immutable audit trail for every run (UUID, SHA-256 hashes of control stream and dataset, NONMEM/PsN/NMGUI versions, duration, final OFV and status) accessible from the right-click menu
+- **Correctness fixes** — LRT p-value now correctly signed when the reference model has fewer parameters; VPC "Save PDF…" reliably produces a PDF; run record and workbench display OFV = 0.0 correctly; GitHub update-check uses numeric version comparison instead of lexicographic
