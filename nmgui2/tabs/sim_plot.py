@@ -97,9 +97,10 @@ class _BandRow(QWidget):
 
         self._lo = QDoubleSpinBox()
         self._lo.setRange(0.0, 49.9); self._lo.setDecimals(1); self._lo.setSingleStep(2.5)
-        self._lo.setValue(lo); self._lo.setFixedWidth(64)   # 64 px: 36 px text area for "49.9"
+        self._lo.setValue(lo)
+        self._lo.setMinimumWidth(62); self._lo.setMaximumWidth(110)
         self._lo.setToolTip('Lower percentile (%)')
-        row1.addWidget(self._lo)
+        row1.addWidget(self._lo, 1)   # stretch=1: takes available space up to max
 
         lbl_hi = _section_header('Hi%')
         lbl_hi.setFixedWidth(22)
@@ -107,9 +108,10 @@ class _BandRow(QWidget):
 
         self._hi = QDoubleSpinBox()
         self._hi.setRange(50.1, 100.0); self._hi.setDecimals(1); self._hi.setSingleStep(2.5)
-        self._hi.setValue(hi); self._hi.setFixedWidth(64)   # 64 px: 36 px text area for "100.0"
+        self._hi.setValue(hi)
+        self._hi.setMinimumWidth(62); self._hi.setMaximumWidth(110)
         self._hi.setToolTip('Upper percentile (%)')
-        row1.addWidget(self._hi)
+        row1.addWidget(self._hi, 1)   # stretch=1: equal share with lo
 
         self._color_btn = _make_color_btn(color)
         self._color_btn.clicked.connect(self._pick_color)
@@ -121,21 +123,21 @@ class _BandRow(QWidget):
         rm.setObjectName('removeBandBtn')
         rm.clicked.connect(lambda: self.removed.emit(self))
         row1.addWidget(rm)
-        row1.addStretch()   # absorb any remaining width on the right, not the checkbox
         v.addLayout(row1)
 
         # ── Line 2: alpha ─────────────────────────────────────────────────
         row2 = QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(4)
-        spc = QWidget(); spc.setFixedWidth(_VIS_W)   # align under checkbox (literal, not sizeHint)
+        spc = QWidget(); spc.setFixedWidth(_VIS_W)
         row2.addWidget(spc)
         lbl_a = _section_header('Alpha')
         lbl_a.setFixedWidth(34)
         row2.addWidget(lbl_a)
         self._alpha = QDoubleSpinBox()
         self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(64)   # 64 px: shows "0.25" fully
+        self._alpha.setValue(alpha)
+        self._alpha.setMinimumWidth(62); self._alpha.setMaximumWidth(90)
         self._alpha.setToolTip('Ribbon opacity (0.05 = transparent, 1.0 = solid)')
         row2.addWidget(self._alpha)
         row2.addStretch()

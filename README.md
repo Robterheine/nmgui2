@@ -651,6 +651,13 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.6.11
+
+Sim Plot spinboxes — adaptive width instead of fixed pixels.
+
+- **Stop guessing font metrics** — fixed-width spinboxes (64 px) still clipped values because macOS font size varies with display scaling; switched Lo%, Hi% and Alpha spinboxes to `setMinimumWidth(62)` + `setMaximumWidth(110/90)` with `addWidget(stretch=1)` so they expand to fill whatever space the panel provides
+- **Result**: spinboxes now use the full available panel width (typically 80–110 px each), guaranteeing values like "95.0" and "0.25" always display completely regardless of system font size or display scaling
+
 ### v2.6.10
 
 Sim Plot band row — fix checkbox expansion and spinbox clipping.
