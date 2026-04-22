@@ -31,6 +31,13 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.6
+
+Bug fix for the Ron Keizer `vpc` backend.
+
+- **Three CI bands now visible** — `pi_as_area` was incorrectly set to `TRUE`, which collapsed the three separate confidence ribbons (around the 5th, 50th and 95th simulated percentiles) into a single filled slab. Changed to `FALSE` (the vpc package default) so a proper three-band VPC is displayed
+- **Readr parsing warnings suppressed** — NONMEM simulation files embed a `TABLE NO.` header row every N records; readr emits ~2000 parsing-failure warnings per VPC run (one per simulation replicate). These are harmless but were alarming. The vpc() call is now wrapped in `withCallingHandlers` to muffle only those specific warnings while keeping real R errors visible
+
 ## What's new in v2.5.5
 
 VPC tab overhaul — fixes implausible plots from the Ron Keizer `vpc` backend and removes the outdated `xpose4` backend.

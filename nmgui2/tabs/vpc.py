@@ -448,8 +448,8 @@ class VPCTab(QWidget):
                                         else 'c(' + ','.join(f'"{v}"' for v in vars_) + ')')
             args['pi']   = f'c({pi_lo}, {pi_hi})'
             args['ci']   = f'c({ci_lo}, {ci_hi})'
-            args['show'] = ('list(obs_dv=TRUE, obs_ci=TRUE, pi=TRUE, '
-                            'pi_as_area=TRUE, pi_ci=TRUE, obs_median=TRUE)')
+            args['show'] = ('list(obs_dv=TRUE, obs_ci=FALSE, pi=TRUE, '
+                            'pi_as_area=FALSE, pi_ci=TRUE, obs_median=TRUE, sim_median=TRUE)')
             args_str  = ',\n    '.join(f'{k} = {v}' for k, v in args.items())
             log_extra = '\n  vpc_plot <- vpc_plot + ggplot2::scale_y_log10()' if log_y else ''
             script = f'''# NMGUI VPC — tool: vpc (Ron Keizer)
@@ -457,8 +457,15 @@ library(vpc)
 library(ggplot2)
 
 tryCatch({{
-  vpc_plot <- vpc(
-    {args_str}
+  # withCallingHandlers muffles readr "parsing failures" from NONMEM TABLE headers
+  vpc_plot <- withCallingHandlers(
+    vpc(
+      {args_str}
+    ),
+    warning = function(w) {{
+      if (grepl("parsing failure", conditionMessage(w), ignore.case=TRUE))
+        invokeRestart("muffleWarning")
+    }}
   )
   if (is.null(vpc_plot)) stop("vpc() returned NULL"){log_extra}
   ggsave("{r_out}", vpc_plot, width=8, height=6, dpi=150)
