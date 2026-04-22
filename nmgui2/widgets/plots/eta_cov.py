@@ -1,4 +1,5 @@
 import math
+import re
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
     QListWidget, QAbstractItemView,
@@ -62,11 +63,13 @@ class ETACovWidget(QWidget):
             except (ValueError, TypeError, IndexError):
                 pass
         self._rows = rows
-        # ETAs: columns starting with ETA or ETASHRINK excluded
-        etas = [h for h in self._header if h.startswith('ETA') and 'SHRINK' not in h]
-        # Covariates: numeric columns that are not ETAs, DV, PRED, IPRED, CWRES, MDV, EVID, AMT, TIME, ID
-        skip = {'DV','PRED','IPRED','CWRES','MDV','EVID','AMT','CMT','SS','II','ADDL','RATE'}
-        cov_candidates = [h for h in self._header if not h.startswith('ETA')
+        # ETAs: ETA\d+, ET\d+ (NONMEM truncates ETA(12) → ET12 in TABLE output), PHI\d+
+        _eta = re.compile(r'^(?:ETA|ET|PHI)\d+$')
+        etas = [h for h in self._header if _eta.match(h)]
+        # Covariates: non-ETA numeric columns, excluding NONMEM bookkeeping columns
+        skip = {'DV','PRED','IPRED','CWRES','NPDE','IWRES','WRES',
+                'MDV','EVID','AMT','CMT','SS','II','ADDL','RATE'}
+        cov_candidates = [h for h in self._header if not _eta.match(h)
                           and h not in skip and not h.startswith('OMEGA')
                           and not h.startswith('SIGMA') and not h.startswith('THETA')]
         self.eta_cb.clear(); self.eta_cb.addItems(etas)

@@ -31,6 +31,13 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.5.8
+
+Bug fix for the ETA vs Covariate plot.
+
+- **ET\d+ columns now recognised as ETAs** — NONMEM truncates `ETA(12)` to `ET12` in TABLE output. The ETA dropdown previously required the full `ETA` prefix, so `ET12`, `ET13`, `ET14` etc. were silently placed in the covariates list and the dropdown stayed empty. Fixed by also accepting `ET\d+` and `PHI\d+` column names as ETAs
+- **Residual columns excluded from covariates** — `NPDE`, `IWRES` and `WRES` added to the covariate skip-list (alongside the existing `CWRES`, `PRED`, `IPRED` etc.) so they no longer appear as candidate covariates
+
 ## What's new in v2.5.7
 
 New GOF features.
