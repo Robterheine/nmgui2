@@ -296,6 +296,11 @@ def parse_lst(lst_path):
 
     # Detect estimation method from control stream or output
     est_method = 'FO'  # default
+    # Simulation-only runs have $SIM/$SIMULATION but no $EST — label them 'SIM'
+    if re.search(r'^\s*\$SIM(?:ULATION)?\b', text, re.MULTILINE | re.IGNORECASE) and \
+            not re.search(r'^\s*\$EST(?:IMATION)?\b', text, re.MULTILINE | re.IGNORECASE):
+        est_method = 'SIM'
+        result['estimation_method'] = est_method
     method_match = re.search(r'\$EST(?:IMATION)?\s[^;]*?METHOD\s*=\s*(\w+)', text, re.IGNORECASE)
     if method_match:
         m_raw = method_match.group(1).upper()
