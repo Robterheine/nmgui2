@@ -39,6 +39,7 @@ class IndFitWidget(QWidget):
         if 'ID' in self._header:
             col = self._header.index('ID'); seen = {}
             for row in rows:
+                if col >= len(row): continue   # guard against ragged rows
                 v = row[col]
                 if v not in seen: seen[v] = True
             self._ids = list(seen.keys())

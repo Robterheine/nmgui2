@@ -2,7 +2,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                               QStackedWidget, QFileDialog, QLineEdit, QCheckBox)
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 
 from ..app.theme import C, T
 from ..app.constants import IS_WIN, IS_MAC
@@ -26,6 +26,27 @@ except Exception:
     HAS_PARSER = False
 
 HOME = Path.home()
+_MAX_ROWS = 15_000
+
+
+class _TableLoadWorker(QThread):
+    """Load a NONMEM table file in the background so the UI stays responsive."""
+    finished = pyqtSignal(list, list)   # header, rows
+    error    = pyqtSignal(str)
+
+    def __init__(self, path: str):
+        super().__init__()
+        self._path = path
+
+    def run(self):
+        try:
+            h, r = read_table_file(self._path, max_rows=_MAX_ROWS)
+            if h is None:
+                self.error.emit('Could not parse file')
+            else:
+                self.finished.emit(h, r)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class EvaluationTab(QWidget):
@@ -41,6 +62,7 @@ class EvaluationTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._header = None; self._rows = None; self._model = None
+        self._load_worker: _TableLoadWorker | None = None
         self._build_ui()
 
     def _build_ui(self):
@@ -63,7 +85,10 @@ class EvaluationTab(QWidget):
         self.file_edit = QLineEdit()
         self.file_edit.setPlaceholderText('sdtab / output table file…')
         br = QPushButton('Browse…'); br.clicked.connect(self._browse)
-        ld = QPushButton('Load'); ld.setObjectName('primary'); ld.clicked.connect(self._load)
+        self._load_btn = QPushButton('Load')
+        self._load_btn.setObjectName('primary')
+        self._load_btn.clicked.connect(self._load)
+        ld = self._load_btn
         self.mdv_cb = QCheckBox('Exclude MDV=1'); self.mdv_cb.setChecked(True)
         self.mdv_cb.stateChanged.connect(self._reload)
         file_row.addWidget(self.file_edit, 1)
@@ -163,20 +188,43 @@ class EvaluationTab(QWidget):
 
     def _load(self):
         path = self.file_edit.text().strip()
-        if not path or not Path(path).is_file(): self.status_msg.emit('File not found'); return
-        if not HAS_PARSER: self.status_msg.emit('parser.py not available'); return
-        MAX_ROWS = 15000
-        h, r = read_table_file(path, max_rows=MAX_ROWS)
-        if h is None: self.status_msg.emit('Could not parse file'); return
-        self._header = h; self._rows = r; self._reload()
+        if not path or not Path(path).is_file():
+            self.status_msg.emit('File not found'); return
+        if not HAS_PARSER:
+            self.status_msg.emit('parser.py not available'); return
+        # Cancel any in-progress load
+        if self._load_worker and self._load_worker.isRunning():
+            self._load_worker.finished.disconnect()
+            self._load_worker.error.disconnect()
+            self._load_worker.quit()
         fname = Path(path).name
-        truncated = len(r) >= MAX_ROWS
+        self._load_btn.setEnabled(False)
+        self._load_btn.setText('Loading…')
+        self.status_msg.emit(f'Parsing {fname}…')
+        self._load_worker = _TableLoadWorker(path)
+        self._load_worker.finished.connect(self._on_load_done)
+        self._load_worker.error.connect(self._on_load_error)
+        self._load_worker.start()
+
+    def _on_load_done(self, h, r):
+        self._load_btn.setEnabled(True)
+        self._load_btn.setText('Load')
+        self._header = h; self._rows = r; self._reload()
+        fname = Path(self.file_edit.text()).name
+        truncated = len(r) >= _MAX_ROWS
         if truncated:
-            self._table_lbl.setText(f'·  {fname}  (first {len(r):,} rows, {len(h)} cols) [TRUNCATED]')
-            self.status_msg.emit(f'Showing first {len(r):,} of file — {fname} (file has more rows)')
+            self._table_lbl.setText(
+                f'·  {fname}  (first {len(r):,} rows, {len(h)} cols) [TRUNCATED]')
+            self.status_msg.emit(
+                f'Showing first {len(r):,} of file — {fname} (file has more rows)')
         else:
             self._table_lbl.setText(f'·  {fname}  ({len(r):,} rows, {len(h)} cols)')
             self.status_msg.emit(f'Loaded {len(r):,} rows, {len(h)} columns — {fname}')
+
+    def _on_load_error(self, msg):
+        self._load_btn.setEnabled(True)
+        self._load_btn.setText('Load')
+        self.status_msg.emit(f'Load error: {msg}')
 
     def _reload(self):
         if self._header is None: return

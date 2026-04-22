@@ -145,7 +145,9 @@ class GOFWidget(QWidget):
                            pen=pg.mkPen('#aaaaaa',width=1.5,style=Qt.PenStyle.DashLine))
                 xlo, ylo = loess(x, y)
                 if xlo is not None: p.plot(xlo, ylo, pen=pg.mkPen('#ff9999', width=2))
-        except Exception: pass  # replot errors are non-fatal
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug('GOF replot error: %s', e)
 
     def load(self, header, rows, mdv_filter=True):
         if not HAS_PG or not HAS_NP: return
