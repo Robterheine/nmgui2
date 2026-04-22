@@ -6,7 +6,6 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea,
     QPushButton, QLabel, QLineEdit, QComboBox, QCheckBox,
     QDoubleSpinBox, QFileDialog, QMessageBox, QSizePolicy,
-    QFrame,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
@@ -53,7 +52,7 @@ _DEFAULT_BANDS = [
 
 def _make_color_btn(color: str) -> QPushButton:
     btn = QPushButton()
-    btn.setFixedSize(26, 22)
+    btn.setFixedSize(32, 22)
     btn.setToolTip('Click to change colour')
     _set_btn_color(btn, color)
     return btn
@@ -68,53 +67,76 @@ def _set_btn_color(btn: QPushButton, color: str):
 
 
 class _BandRow(QWidget):
-    """One compact row in the PI bands list (no text labels — uses header row above)."""
+    """Two-line band entry: line 1 = vis + Lo/Hi/Colour/×, line 2 = Alpha.
+    Inline labels replace the old separate column-header row, allowing each
+    spinbox to be wide enough to render its value on macOS (≥58 px)."""
     removed = pyqtSignal(object)
 
     def __init__(self, lo=5.0, hi=95.0, color='#569cd6', alpha=0.25, parent=None):
         super().__init__(parent)
-        h = QHBoxLayout(self)
-        h.setContentsMargins(0, 1, 0, 1)
-        h.setSpacing(3)   # tight: every pixel counts in this row
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 3, 0, 3)
+        v.setSpacing(2)
+
+        # ── Line 1: visibility + percentile pair + colour + remove ────────
+        row1 = QHBoxLayout()
+        row1.setContentsMargins(0, 0, 0, 0)
+        row1.setSpacing(4)
 
         self._vis = QCheckBox()
         self._vis.setChecked(True)
         self._vis.setToolTip('Show/hide this band')
-        self._vis.setFixedWidth(18)
-        h.addWidget(self._vis)
+        row1.addWidget(self._vis)
 
-        # Lo% spinbox — no suffix (column header "Lo%" provides context)
+        lbl_lo = _section_header('Lo%')
+        lbl_lo.setFixedWidth(22)
+        row1.addWidget(lbl_lo)
+
         self._lo = QDoubleSpinBox()
         self._lo.setRange(0.0, 49.9); self._lo.setDecimals(1); self._lo.setSingleStep(2.5)
-        self._lo.setValue(lo); self._lo.setFixedWidth(46)
+        self._lo.setValue(lo); self._lo.setFixedWidth(58)
         self._lo.setToolTip('Lower percentile (%)')
-        h.addWidget(self._lo)
+        row1.addWidget(self._lo)
 
-        # Hi% spinbox — no suffix
+        lbl_hi = _section_header('Hi%')
+        lbl_hi.setFixedWidth(22)
+        row1.addWidget(lbl_hi)
+
         self._hi = QDoubleSpinBox()
         self._hi.setRange(50.1, 100.0); self._hi.setDecimals(1); self._hi.setSingleStep(2.5)
-        self._hi.setValue(hi); self._hi.setFixedWidth(46)
+        self._hi.setValue(hi); self._hi.setFixedWidth(58)
         self._hi.setToolTip('Upper percentile (%)')
-        h.addWidget(self._hi)
+        row1.addWidget(self._hi)
 
-        # Colour swatch — narrower, still clearly a colour picker
         self._color_btn = _make_color_btn(color)
         self._color_btn.clicked.connect(self._pick_color)
-        h.addWidget(self._color_btn)
-
-        # Alpha spinbox
-        self._alpha = QDoubleSpinBox()
-        self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(52)
-        self._alpha.setToolTip('Ribbon opacity (0.05 = nearly transparent, 1.0 = solid)')
-        h.addWidget(self._alpha)
+        row1.addWidget(self._color_btn)
 
         rm = QPushButton('×')
-        rm.setFixedSize(20, 20)
+        rm.setFixedSize(22, 22)
         rm.setToolTip('Remove this band')
         rm.setObjectName('removeBandBtn')
         rm.clicked.connect(lambda: self.removed.emit(self))
-        h.addWidget(rm)
+        row1.addWidget(rm)
+        v.addLayout(row1)
+
+        # ── Line 2: alpha (indented to align under Lo% label) ────────────
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(0, 0, 0, 0)
+        row2.setSpacing(4)
+        # spacer equal to vis checkbox width so "Alpha" aligns under "Lo%"
+        spc = QWidget(); spc.setFixedWidth(self._vis.sizeHint().width())
+        row2.addWidget(spc)
+        lbl_a = _section_header('Alpha')
+        lbl_a.setFixedWidth(34)
+        row2.addWidget(lbl_a)
+        self._alpha = QDoubleSpinBox()
+        self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
+        self._alpha.setValue(alpha); self._alpha.setFixedWidth(58)
+        self._alpha.setToolTip('Ribbon opacity (0.05 = transparent, 1.0 = solid)')
+        row2.addWidget(self._alpha)
+        row2.addStretch()
+        v.addLayout(row2)
 
     def _pick_color(self):
         c = QColor(self._color_btn._color)
@@ -279,29 +301,6 @@ class SimulationPlotTab(QWidget):
         self._preset_cb.currentIndexChanged.connect(self._apply_preset)
         preset_row.addWidget(self._preset_cb, 1)
         card_bands.add_layout(preset_row)
-
-        # Column header — widths must match _BandRow widget widths exactly:
-        # vis=18, lo=46, hi=46, colour=26, alpha=52, ×=20, spacing=3×5=15
-        hdr = QWidget()
-        hdr_l = QHBoxLayout(hdr)
-        hdr_l.setContentsMargins(0, 2, 0, 0); hdr_l.setSpacing(3)
-        vis_h = _section_header('Vis');   vis_h.setFixedWidth(18)
-        lo_h  = _section_header('Lo%');  lo_h.setFixedWidth(46)
-        hi_h  = _section_header('Hi%');  hi_h.setFixedWidth(46)
-        col_h = _section_header('Col');  col_h.setFixedWidth(26)
-        alp_h = _section_header('Alpha');alp_h.setFixedWidth(52)
-        hdr_l.addWidget(vis_h)
-        hdr_l.addWidget(lo_h)
-        hdr_l.addWidget(hi_h)
-        hdr_l.addWidget(col_h)
-        hdr_l.addWidget(alp_h)
-        hdr_l.addSpacing(20)
-        card_bands.add_widget(hdr)
-
-        # Thin divider
-        div = QFrame(); div.setFrameShape(QFrame.Shape.HLine)
-        div.setFixedHeight(1); div.setObjectName('hairlineSep')
-        card_bands.add_widget(div)
 
         self._bands_container = QWidget()
         self._bands_layout = QVBoxLayout(self._bands_container)

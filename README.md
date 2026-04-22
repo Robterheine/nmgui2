@@ -651,6 +651,16 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.6.9
+
+Sim Plot band row redesign — two-line layout with inline labels.
+
+- **Root cause fixed** — macOS QDoubleSpinBox has a minimum intrinsic rendering width (~58 px); forcing 46 px clipped the value to nothing. Pixel-squeezing six controls onto one line was the wrong architecture
+- **Two-line band rows** — each band now uses two compact lines: line 1 holds the visibility checkbox, Lo%, Hi%, colour swatch and remove button; line 2 holds Alpha. Inline labels ("Lo%", "Hi%", "Alpha") replace the old separate column-header row
+- **Spinboxes now 58 px** — wide enough for macOS to render "49.9" and "0.25" without clipping
+- **Column-header row removed** — no longer needed; inline labels provide the same context without alignment fragility
+- **Colour swatch restored to 32 px** — previous shrink to 26 px hit macOS button minimums
+
 ### v2.6.8
 
 Sim Plot band row layout overhaul — all controls now fully visible.
