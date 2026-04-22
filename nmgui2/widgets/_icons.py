@@ -218,6 +218,40 @@ def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap
         p.setBrush(QBrush(c)); p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(QPointF(cx, cy + s*0.12), s*0.04, s*0.04)
 
+    elif name == 'simplot':
+        # Simulation plot: axes + two filled PI ribbons + bold median line
+        sw = max(1.2, s * 0.06); pen.setWidthF(sw); p.setPen(pen)
+        m = s * 0.14
+        # axes
+        p.drawLine(QPointF(m, m*0.8), QPointF(m, s - m))
+        p.drawLine(QPointF(m, s - m), QPointF(s - m*0.8, s - m))
+        # outer ribbon (lighter)
+        outer = QPainterPath()
+        outer.moveTo(m, s - m - s*0.07)
+        outer.cubicTo(s*0.4, s - m - s*0.38, s*0.6, s - m - s*0.28, s - m*0.9, s - m - s*0.60)
+        outer.lineTo(s - m*0.9, s - m - s*0.44)
+        outer.cubicTo(s*0.6, s - m - s*0.12, s*0.4, s - m - s*0.20, m, s - m - s*0.01)
+        outer.closeSubpath()
+        outer_c = QColor(color); outer_c.setAlphaF(0.18)
+        p.setBrush(QBrush(outer_c)); p.setPen(Qt.PenStyle.NoPen); p.drawPath(outer)
+        # inner ribbon (more opaque)
+        inner = QPainterPath()
+        inner.moveTo(m, s - m - s*0.10)
+        inner.cubicTo(s*0.4, s - m - s*0.30, s*0.6, s - m - s*0.22, s - m*0.9, s - m - s*0.54)
+        inner.lineTo(s - m*0.9, s - m - s*0.50)
+        inner.cubicTo(s*0.6, s - m - s*0.18, s*0.4, s - m - s*0.24, m, s - m - s*0.04)
+        inner.closeSubpath()
+        inner_c = QColor(color); inner_c.setAlphaF(0.35)
+        p.setBrush(QBrush(inner_c)); p.setPen(Qt.PenStyle.NoPen); p.drawPath(inner)
+        # median line
+        pen_med = QPen(c); pen_med.setWidthF(sw * 1.5)
+        pen_med.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen_med); p.setBrush(Qt.BrushStyle.NoBrush)
+        med = QPainterPath()
+        med.moveTo(m, s - m - s*0.055)
+        med.cubicTo(s*0.4, s - m - s*0.26, s*0.6, s - m - s*0.20, s - m*0.9, s - m - s*0.52)
+        p.drawPath(med)
+
     p.end()
     return px
 

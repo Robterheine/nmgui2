@@ -31,6 +31,23 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.6.0
+
+New **Simulation Plot** tab for Monte Carlo prediction interval visualisation.
+
+- **Sim Plot tab** — a dedicated tab (Ctrl+6) for plotting prediction intervals from NONMEM Monte Carlo simulation output. Load any NONMEM table file or CSV (no row-count cap), configure PI bands, and generate publication-ready plots in seconds
+- **Unlimited file loading** — the table parser now accepts `max_rows=None` so large simulation files (50k–500k rows typical for 1 000 replicates × 500 time points) load fully without truncation
+- **Replicate auto-detection** — the tab recognises explicit replicate columns (`REP`, `IREP`, `SIM`, `SIMNO`, `REP_NO`, `SIM_NUM`, etc.) and also detects ID-cycling automatically when no explicit column is present
+- **Configurable PI bands** — up to 4 simultaneous prediction interval ribbons, each with its own percentile pair (Lo/Hi %), colour (colour picker), alpha and visibility toggle. Four presets cover the most common pharmacometric conventions (5/95 + 25/75, 2.5/97.5 + 10/90, etc.)
+- **Multiple filters** — up to 6 independent column filters (`==`, `!=`, `>`, `<`, `>=`, `<=`), ANDed together, to subset by compartment, dose group, sex, or any other column before plotting
+- **Median line** — configurable colour and line width; computed as the 50th percentile across replicates
+- **Log/linear Y-axis** — one checkbox toggles between linear and logarithmic scale, essential for PK concentration-time plots
+- **MDV=1 exclusion** — dosing-only rows filtered out by default before quantile computation
+- **Observed data overlay** — optional second file load; observed DV points are overlaid as a semi-transparent scatter on the simulated ribbons, with independent X/Y column selectors
+- **Background computation** — all quantile calculations run in a QThread so the UI stays responsive on large datasets
+- **Save PNG** — 300 DPI export via matplotlib `savefig`
+- **Model context** — selecting a model in the Models tab sets the browse directory for the Sim Plot file dialog, consistent with Evaluation and VPC tabs
+
 ## What's new in v2.5.8
 
 Bug fix for the ETA vs Covariate plot.

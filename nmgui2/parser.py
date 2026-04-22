@@ -1053,7 +1053,7 @@ def read_table_file(filepath, max_rows=5000):
 
     rows = []
     for i in range(data_start_idx, len(raw_lines)):
-        if len(rows) >= max_rows:
+        if max_rows is not None and len(rows) >= max_rows:
             break
         line = raw_lines[i].rstrip('\n')
         stripped = line.strip()

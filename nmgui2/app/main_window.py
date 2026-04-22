@@ -18,6 +18,7 @@ from ..tabs.vpc import VPCTab
 from ..tabs.uncertainty import ParameterUncertaintyTab
 from ..tabs.history import RunHistoryTab
 from ..tabs.settings import SettingsTab
+from ..tabs.sim_plot import SimulationPlotTab
 from ..dialogs.about import AboutDialog
 from ..dialogs.shortcuts import KeyboardShortcutsDialog
 
@@ -128,7 +129,7 @@ class MainWindow(QMainWindow):
         theme_shortcut.triggered.connect(self._toggle_theme)
         self.addAction(theme_shortcut)
 
-        for i in range(7):
+        for i in range(8):
             act = QAction(self)
             act.setShortcut(QKeySequence(f'Ctrl+{i+1}'))
             act.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -207,8 +208,9 @@ class MainWindow(QMainWindow):
             ('Evaluation',  'evaluation',  'Ctrl+3'),
             ('VPC',         'vpc',         'Ctrl+4'),
             ('Uncertainty', 'uncertainty', 'Ctrl+5'),
-            ('History',     'history',     'Ctrl+6'),
-            ('Settings',    'settings',    'Ctrl+7'),
+            ('Sim Plot',    'simplot',     'Ctrl+6'),
+            ('History',     'history',     'Ctrl+7'),
+            ('Settings',    'settings',    'Ctrl+8'),
         ]
         for i, (label, icon_name, shortcut) in enumerate(nav_defs):
             btn = QPushButton()
@@ -255,15 +257,17 @@ class MainWindow(QMainWindow):
         self.eval_tab        = EvaluationTab()
         self.vpc_tab         = VPCTab()
         self.uncertainty_tab = ParameterUncertaintyTab()
+        self.sim_plot_tab    = SimulationPlotTab()
         self.history_tab     = RunHistoryTab()
         self.settings_tab    = SettingsTab()
-        self._stack.addWidget(self.models_tab)
-        self._stack.addWidget(self.tree_tab)
-        self._stack.addWidget(self.eval_tab)
-        self._stack.addWidget(self.vpc_tab)
-        self._stack.addWidget(self.uncertainty_tab)
-        self._stack.addWidget(self.history_tab)
-        self._stack.addWidget(self.settings_tab)
+        self._stack.addWidget(self.models_tab)       # 0
+        self._stack.addWidget(self.tree_tab)          # 1
+        self._stack.addWidget(self.eval_tab)          # 2
+        self._stack.addWidget(self.vpc_tab)           # 3
+        self._stack.addWidget(self.uncertainty_tab)   # 4
+        self._stack.addWidget(self.sim_plot_tab)      # 5
+        self._stack.addWidget(self.history_tab)       # 6
+        self._stack.addWidget(self.settings_tab)      # 7
         body.addWidget(self._stack, 1)
 
         body_w = QWidget()
@@ -274,6 +278,7 @@ class MainWindow(QMainWindow):
         self.eval_tab.status_msg.connect(self.statusBar().showMessage)
         self.vpc_tab.status_msg.connect(self.statusBar().showMessage)
         self.uncertainty_tab.status_msg.connect(self.statusBar().showMessage)
+        self.sim_plot_tab.status_msg.connect(self.statusBar().showMessage)
         self.models_tab.model_selected.connect(self._on_model_selected)
         self.models_tab.model_selected.connect(self._on_model_selected_for_tree)
         self.tree_tab.model_clicked.connect(self._tree_model_clicked)
@@ -294,9 +299,11 @@ class MainWindow(QMainWindow):
                 self.vpc_tab.load_model(self._selected_model)
             elif index == 4 and self.uncertainty_tab._model is not self._selected_model:
                 self.uncertainty_tab.load_model(self._selected_model)
+            elif index == 5 and self.sim_plot_tab._model is not self._selected_model:
+                self.sim_plot_tab.load_model(self._selected_model)
         if index == 1:
             self._refresh_tree()
-        elif index == 5:
+        elif index == 6:
             self.history_tab.load()
 
     def _refresh_tree(self):
@@ -327,6 +334,7 @@ class MainWindow(QMainWindow):
         self._rs_btn.setEnabled(True)
         self.eval_tab.load_model(model)
         self.vpc_tab.load_model(model)
+        self.sim_plot_tab.load_model(model)
 
     def _launch_rstudio_global(self):
         directory = self.models_tab.current_directory()
@@ -351,6 +359,7 @@ class MainWindow(QMainWindow):
             self.eval_tab.waterfall, self.eval_tab.conv,
             self.eval_tab.cwres_hist, self.eval_tab.qq_plot,
             self.eval_tab.eta_cov, self.eval_tab.data_explorer,
+            self.sim_plot_tab,
             self.tree_tab,
         ):
             if hasattr(w, 'set_theme'):
