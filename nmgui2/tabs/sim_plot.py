@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor
 
-from ..app.theme import C, T
+from ..app.theme import C, T, THEMES, _active_theme
 from ..widgets.collapsible import CollapsibleCard
 from ..widgets.plots.sim_canvas import SimCanvas, _SimWorker
 
@@ -105,12 +105,14 @@ class _BandRow(QWidget):
         # Alpha spinbox (no label — header provides context)
         self._alpha = QDoubleSpinBox()
         self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(58)
-        self._alpha.setToolTip('Ribbon opacity (alpha)')
+        self._alpha.setValue(alpha); self._alpha.setFixedWidth(72)
+        self._alpha.setToolTip('Ribbon opacity (0.05 = nearly transparent, 1.0 = solid)')
         h.addWidget(self._alpha)
 
-        rm = QPushButton('×'); rm.setFixedSize(22, 22)
+        rm = QPushButton('×')
+        rm.setFixedSize(22, 22)
         rm.setToolTip('Remove this band')
+        rm.setObjectName('removeBandBtn')
         rm.clicked.connect(lambda: self.removed.emit(self))
         h.addWidget(rm)
 
@@ -226,6 +228,16 @@ class SimulationPlotTab(QWidget):
         # ── Section 1: Data ────────────────────────────────────────────────
         card_data = CollapsibleCard('Data', expanded=True)
 
+        hint = QLabel(
+            '<b>Tip:</b> Load a NONMEM <i>simulation</i> output file — one that contains '
+            'a replicate column (<code>REP</code>, <code>IREP</code>, <code>SIM</code>, '
+            '<code>SIMNO</code>…) alongside <code>ID</code>, <code>TIME</code> and a '
+            'dependent variable such as <code>IPRED</code>. Standard estimation sdtab '
+            'files (without a replicate column) will produce meaningless plots.')
+        hint.setWordWrap(True)
+        hint.setObjectName('mutedSmall')
+        card_data.add_widget(hint)
+
         file_row = QHBoxLayout(); file_row.setSpacing(4)
         self._file_edit = QLineEdit()
         self._file_edit.setPlaceholderText('NONMEM table or CSV file…')
@@ -268,16 +280,22 @@ class SimulationPlotTab(QWidget):
         preset_row.addWidget(self._preset_cb, 1)
         card_bands.add_layout(preset_row)
 
-        # Column header for band rows
+        # Column header — widths must match _BandRow widget widths exactly:
+        # vis=18, lo=68, hi=68, colour=32, alpha=72, ×=22, spacing=4×5=20
         hdr = QWidget()
         hdr_l = QHBoxLayout(hdr)
         hdr_l.setContentsMargins(0, 2, 0, 0); hdr_l.setSpacing(4)
-        hdr_l.addWidget(_section_header('Vis'))
-        hdr_l.addWidget(_section_header('Lo%'), 1)
-        hdr_l.addWidget(_section_header('Hi%'), 1)
-        hdr_l.addWidget(_section_header('Colour'))
-        hdr_l.addWidget(_section_header('Alpha'))
-        hdr_l.addSpacing(22)   # room for × button
+        vis_h = _section_header('Vis');    vis_h.setFixedWidth(18)
+        lo_h  = _section_header('Lo%');   lo_h.setFixedWidth(68)
+        hi_h  = _section_header('Hi%');   hi_h.setFixedWidth(68)
+        col_h = _section_header('Colour');col_h.setFixedWidth(32)
+        alp_h = _section_header('Alpha'); alp_h.setFixedWidth(72)
+        hdr_l.addWidget(vis_h)
+        hdr_l.addWidget(lo_h)
+        hdr_l.addWidget(hi_h)
+        hdr_l.addWidget(col_h)
+        hdr_l.addWidget(alp_h)
+        hdr_l.addSpacing(22)
         card_bands.add_widget(hdr)
 
         # Thin divider
@@ -301,7 +319,8 @@ class SimulationPlotTab(QWidget):
 
         med_row = QHBoxLayout(); med_row.setSpacing(6)
         med_row.addWidget(QLabel('Median colour:'))
-        self._med_color_btn = _make_color_btn('#ffffff')
+        _med_default = THEMES[_active_theme]['fg']   # adapts to dark/light at startup
+        self._med_color_btn = _make_color_btn(_med_default)
         self._med_color_btn.clicked.connect(self._pick_median_color)
         med_row.addWidget(self._med_color_btn)
         med_row.addSpacing(8)
@@ -577,6 +596,19 @@ class SimulationPlotTab(QWidget):
 
         for fr in self._filter_rows:
             fr.set_columns(cols)
+
+        # Warn if no proper simulation replicate column was found
+        rep_selected = self._rep_cb.currentText()
+        has_proper_rep = any(_REP_PATTERN.match(c) for c in cols)
+        if not has_proper_rep:
+            if rep_selected == '_REP_AUTO':
+                self.status_msg.emit(
+                    '⚠ No REP/IREP/SIM column found — replicate inferred from ID cycling. '
+                    'This may be an estimation sdtab, not a simulation file.')
+            else:
+                self.status_msg.emit(
+                    '⚠ No recognised replicate column (REP/IREP/SIM/SIMNO) found. '
+                    'Select the correct replicate column manually before plotting.')
 
     # ── Plot ───────────────────────────────────────────────────────────────────
 

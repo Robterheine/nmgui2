@@ -161,7 +161,8 @@ class SimCanvas(QWidget):
         tbl.addWidget(self._export_btn)
         v.addWidget(tb)
 
-        self.fig    = Figure(figsize=(8, 5), tight_layout=True)
+        self.fig    = Figure(figsize=(8, 5))
+        self.fig.subplots_adjust(left=0.12, right=0.97, top=0.95, bottom=0.10)
         self.canvas = FigureCanvasQTAgg(self.fig)
         self.ax     = self.fig.add_subplot(111)
         v.addWidget(self.canvas, 1)
