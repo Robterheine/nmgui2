@@ -651,6 +651,15 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.6.10
+
+Sim Plot band row — fix checkbox expansion and spinbox clipping.
+
+- **Checkbox fixed width** — `setFixedWidth(20)` added to the visibility checkbox; without it, `QCheckBox` has `Preferred` size policy and silently absorbs all spare horizontal space, pushing the colour swatch and × button off-screen
+- **`row1.addStretch()`** — explicit stretch added at the end of the band row so any remaining panel width goes to blank space on the right, not to widgets
+- **Spinboxes widened 58 → 64 px** — on macOS the arrow buttons consume ~28 px, leaving 30 px text area at 58 px; "95.0" (4 chars) needs ~32 px and clipped to "9". At 64 px the text area is 36 px, enough for all expected values
+- **Alpha row spacer uses literal 20 px** — previously used `sizeHint()` which would not match the now-fixed checkbox width
+
 ### v2.6.9
 
 Sim Plot band row redesign — two-line layout with inline labels.

@@ -83,10 +83,13 @@ class _BandRow(QWidget):
         row1.setContentsMargins(0, 0, 0, 0)
         row1.setSpacing(4)
 
+        _VIS_W = 20   # fixed width for checkbox — prevents Qt giving it all spare space
+
         self._vis = QCheckBox()
         self._vis.setChecked(True)
         self._vis.setToolTip('Show/hide this band')
-        row1.addWidget(self._vis)
+        self._vis.setFixedWidth(_VIS_W)   # ← critical: without this the checkbox
+        row1.addWidget(self._vis)          #   expands and pushes everything off-screen
 
         lbl_lo = _section_header('Lo%')
         lbl_lo.setFixedWidth(22)
@@ -94,7 +97,7 @@ class _BandRow(QWidget):
 
         self._lo = QDoubleSpinBox()
         self._lo.setRange(0.0, 49.9); self._lo.setDecimals(1); self._lo.setSingleStep(2.5)
-        self._lo.setValue(lo); self._lo.setFixedWidth(58)
+        self._lo.setValue(lo); self._lo.setFixedWidth(64)   # 64 px: 36 px text area for "49.9"
         self._lo.setToolTip('Lower percentile (%)')
         row1.addWidget(self._lo)
 
@@ -104,7 +107,7 @@ class _BandRow(QWidget):
 
         self._hi = QDoubleSpinBox()
         self._hi.setRange(50.1, 100.0); self._hi.setDecimals(1); self._hi.setSingleStep(2.5)
-        self._hi.setValue(hi); self._hi.setFixedWidth(58)
+        self._hi.setValue(hi); self._hi.setFixedWidth(64)   # 64 px: 36 px text area for "100.0"
         self._hi.setToolTip('Upper percentile (%)')
         row1.addWidget(self._hi)
 
@@ -118,21 +121,21 @@ class _BandRow(QWidget):
         rm.setObjectName('removeBandBtn')
         rm.clicked.connect(lambda: self.removed.emit(self))
         row1.addWidget(rm)
+        row1.addStretch()   # absorb any remaining width on the right, not the checkbox
         v.addLayout(row1)
 
-        # ── Line 2: alpha (indented to align under Lo% label) ────────────
+        # ── Line 2: alpha ─────────────────────────────────────────────────
         row2 = QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(4)
-        # spacer equal to vis checkbox width so "Alpha" aligns under "Lo%"
-        spc = QWidget(); spc.setFixedWidth(self._vis.sizeHint().width())
+        spc = QWidget(); spc.setFixedWidth(_VIS_W)   # align under checkbox (literal, not sizeHint)
         row2.addWidget(spc)
         lbl_a = _section_header('Alpha')
         lbl_a.setFixedWidth(34)
         row2.addWidget(lbl_a)
         self._alpha = QDoubleSpinBox()
         self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(58)
+        self._alpha.setValue(alpha); self._alpha.setFixedWidth(64)   # 64 px: shows "0.25" fully
         self._alpha.setToolTip('Ribbon opacity (0.05 = transparent, 1.0 = solid)')
         row2.addWidget(self._alpha)
         row2.addStretch()
