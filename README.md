@@ -31,6 +31,16 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ---
 
+## What's new in v2.6.6
+
+Sim Plot left panel layout fixes.
+
+- **Narrower band rows** — Lo%/Hi% spinboxes reduced from 68 → 60 px, Alpha from 72 → 58 px so all columns (including the × button) fit without clipping
+- **Narrower panel** — default splitter position reduced from 360 → 300 px; max panel width reduced from 480 → 400 px
+- **Span spinbox** — widened from 62 → 70 px so "0.30" is never clipped
+
+---
+
 ## What's new in v2.6.5
 
 Sim Plot LOESS smoothing option.

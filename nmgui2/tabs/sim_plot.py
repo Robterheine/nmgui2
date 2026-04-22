@@ -86,14 +86,14 @@ class _BandRow(QWidget):
         # Lo% spinbox — no label (header row above provides context)
         self._lo = QDoubleSpinBox()
         self._lo.setRange(0.0, 49.9); self._lo.setDecimals(1); self._lo.setSingleStep(2.5)
-        self._lo.setValue(lo); self._lo.setSuffix('%'); self._lo.setFixedWidth(68)
+        self._lo.setValue(lo); self._lo.setSuffix('%'); self._lo.setFixedWidth(60)
         self._lo.setToolTip('Lower percentile')
         h.addWidget(self._lo)
 
         # Hi% spinbox
         self._hi = QDoubleSpinBox()
         self._hi.setRange(50.1, 100.0); self._hi.setDecimals(1); self._hi.setSingleStep(2.5)
-        self._hi.setValue(hi); self._hi.setSuffix('%'); self._hi.setFixedWidth(68)
+        self._hi.setValue(hi); self._hi.setSuffix('%'); self._hi.setFixedWidth(60)
         self._hi.setToolTip('Upper percentile')
         h.addWidget(self._hi)
 
@@ -105,7 +105,7 @@ class _BandRow(QWidget):
         # Alpha spinbox (no label — header provides context)
         self._alpha = QDoubleSpinBox()
         self._alpha.setRange(0.05, 1.0); self._alpha.setDecimals(2); self._alpha.setSingleStep(0.05)
-        self._alpha.setValue(alpha); self._alpha.setFixedWidth(72)
+        self._alpha.setValue(alpha); self._alpha.setFixedWidth(58)
         self._alpha.setToolTip('Ribbon opacity (0.05 = nearly transparent, 1.0 = solid)')
         h.addWidget(self._alpha)
 
@@ -209,8 +209,8 @@ class SimulationPlotTab(QWidget):
 
         # ── Left controls panel ────────────────────────────────────────────
         left = QWidget()
-        left.setMinimumWidth(300)
-        left.setMaximumWidth(480)
+        left.setMinimumWidth(240)
+        left.setMaximumWidth(400)
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.setSpacing(0)
@@ -281,15 +281,15 @@ class SimulationPlotTab(QWidget):
         card_bands.add_layout(preset_row)
 
         # Column header — widths must match _BandRow widget widths exactly:
-        # vis=18, lo=68, hi=68, colour=32, alpha=72, ×=22, spacing=4×5=20
+        # vis=18, lo=60, hi=60, colour=32, alpha=58, ×=22, spacing=4×5=20
         hdr = QWidget()
         hdr_l = QHBoxLayout(hdr)
         hdr_l.setContentsMargins(0, 2, 0, 0); hdr_l.setSpacing(4)
         vis_h = _section_header('Vis');    vis_h.setFixedWidth(18)
-        lo_h  = _section_header('Lo%');   lo_h.setFixedWidth(68)
-        hi_h  = _section_header('Hi%');   hi_h.setFixedWidth(68)
+        lo_h  = _section_header('Lo%');   lo_h.setFixedWidth(60)
+        hi_h  = _section_header('Hi%');   hi_h.setFixedWidth(60)
         col_h = _section_header('Colour');col_h.setFixedWidth(32)
-        alp_h = _section_header('Alpha'); alp_h.setFixedWidth(72)
+        alp_h = _section_header('Alpha'); alp_h.setFixedWidth(58)
         hdr_l.addWidget(vis_h)
         hdr_l.addWidget(lo_h)
         hdr_l.addWidget(hi_h)
@@ -347,7 +347,7 @@ class SimulationPlotTab(QWidget):
         self._smooth_frac.setSingleStep(0.05)
         self._smooth_frac.setValue(0.30)
         self._smooth_frac.setDecimals(2)
-        self._smooth_frac.setFixedWidth(62)
+        self._smooth_frac.setFixedWidth(70)
         self._smooth_frac.setToolTip(
             'LOESS bandwidth fraction — lower follows data more closely, '
             'higher gives a smoother curve (0.05–1.0)')
@@ -438,7 +438,7 @@ class SimulationPlotTab(QWidget):
         self._splitter.addWidget(self.canvas)
         self._splitter.setStretchFactor(0, 0)
         self._splitter.setStretchFactor(1, 1)
-        self._splitter.setSizes([360, 800])
+        self._splitter.setSizes([300, 800])
 
         root.addWidget(self._splitter)
 
