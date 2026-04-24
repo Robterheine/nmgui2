@@ -92,10 +92,9 @@ Comprehensive diagnostic plots and data exploration:
 Auto-loads `sdtab` files when a model is selected. Shows truncation warning if data exceeds 15,000 rows.
 
 ### VPC tab
-Generate Visual Predictive Checks via three R backends:
+Generate Visual Predictive Checks via two R backends:
 - **vpc** (R package by Ronny Keizer)
 - **xpose** (tidyverse-based)
-- **xpose4** (classic)
 
 Features:
 - Prediction-corrected VPC (pcVPC) option
@@ -205,7 +204,6 @@ All Python dependencies are listed in `requirements.txt` and installed automatic
 | RStudio | Optional but recommended |
 | R package: vpc | `install.packages("vpc")` |
 | R package: xpose | `install.packages("xpose")` |
-| R package: xpose4 | `install.packages("xpose4")` |
 | R package: tidyverse | `install.packages("tidyverse")` — required by xpose |
 | R package: ggplot2 | `install.packages("ggplot2")` — required by vpc/xpose |
 
@@ -269,7 +267,7 @@ Download from https://posit.co/download/rstudio-desktop/ and add to `/Applicatio
 ### 6. Install required R packages
 
 ```bash
-Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
+Rscript -e 'install.packages(c("vpc","xpose","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
 ```
 
 ### 7. Install Perl (required by PsN — usually pre-installed on macOS)
@@ -361,7 +359,7 @@ Download from https://posit.co/download/rstudio-desktop/
 Open Command Prompt or RStudio and run:
 
 ```cmd
-Rscript -e "install.packages(c('vpc','xpose','xpose4','tidyverse','ggplot2'), repos='https://cran.r-project.org')"
+Rscript -e "install.packages(c('vpc','xpose','tidyverse','ggplot2'), repos='https://cran.r-project.org')"
 ```
 
 ### 5. Install Perl (required by PsN)
@@ -460,7 +458,7 @@ sudo apt --fix-broken install
 ### 5. Install required R packages
 
 ```bash
-Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
+Rscript -e 'install.packages(c("vpc","xpose","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
 ```
 
 ### 6. Install PsN
@@ -606,10 +604,10 @@ Dependencies did not install. Rerun `pip install -r requirements.txt` (or `pip3`
 **App launches but window is blank or scrollbars are native-grey**
 Your Qt style is overriding the stylesheet. NMGUI2 forces Fusion at startup; if you see this, confirm you are on v2.5.0 (`git pull && pip install -r requirements.txt`).
 
-**"R: vpc ✗ xpose ✗ xpose4 ✗" in the VPC tab**
+**"R: vpc ✗ xpose ✗" in the VPC tab**
 `Rscript` is not on PATH or the R packages are not installed. Verify `Rscript --version` in a shell, then install packages with
 ```bash
-Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
+Rscript -e 'install.packages(c("vpc","xpose","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
 ```
 
 **`execute --version` not found**
