@@ -39,7 +39,7 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 - Columns: OFV, ΔOFV (relative to best or user-selected reference), minimisation status, covariance step, condition number, estimation method, individuals, observations, parameters, AIC, runtime
 - Colour-coded rows: green = successful, red = failed/terminated, orange = boundary/stale
 - Filter buttons: All, Completed, Failed — plus free-text search
-- **Right-click context menu** on any model: toggle star, duplicate, set reference model, compare with another model, open workbench, open QC report, open run report, view `.lst`, show NM-TRAN messages, view run record
+- **Right-click context menu** on any model: run, toggle star, duplicate, set reference model, compare with another model, copy paths, open folder, view `.lst`, view `.ext`, open QC report, open run report, view run record, show NM-TRAN messages, workbench, delete (excludes dataset)
 - Keyboard navigation: ↑↓ move rows, Space toggles star, Enter jumps to Output
 
 ### Model detail panel
@@ -63,6 +63,16 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 - Correlation and covariance matrices
 - Eigenvalues and condition number
 - "Open in browser" exports full HTML
+
+### Files tab
+A three-pane file browser built into NMGUI, positioned directly below the Models tab (Ctrl+2).
+
+- **Left panel** — extension filter checkboxes pre-populated with `.mod`, `.ctl`, `.lst`, `.tab`, `.csv`, `.ext`, `.cov`, `.cor`, `.phi`. Custom extensions can be added and removed. Filter state persists across sessions.
+- **Middle panel** — sortable file list showing name, size and last-modified date for all files in the current project directory matching the active filters.
+- **Right panel** — content viewer:
+  - Text files: monospace editor with syntax highlighting for `.mod` / `.ctl` (reuses the NMHighlighter). Inline find bar (Ctrl+F equivalent).
+  - `.csv` and `.tab` files: spreadsheet table. NONMEM `TABLE NO.` header lines are automatically detected and skipped. Large files are capped at 5 000 rows.
+  - **Edit / Save / Discard** for text files and `.csv` files. `.tab` files remain read-only.
 
 ### Ancestry tree (Tree tab)
 Interactive node graph of model lineage based on `";; 1. Based on:"` PsN metadata or manually set parent. Zoom, pan, double-click any node to select that model in the Models tab. Visual indicators for starred and final models.
@@ -539,7 +549,7 @@ Snapshot zips of older NMGUI releases are kept in the [`previous releases/`](pre
 2. Click **Browse…** or use ⌘O / Ctrl+O and navigate to a folder containing `.mod` files
 3. Click **+ Bookmark** to save the directory for quick access
 4. Select a model row to view its parameters, output, and diagnostic plots
-5. Go to **Settings** (⌘7 / Ctrl+7) to configure paths if PsN/NONMEM/RStudio are not auto-detected
+5. Go to **Settings** (⌘9 / Ctrl+9) to configure paths if PsN/NONMEM/RStudio are not auto-detected
 
 ---
 
@@ -548,12 +558,14 @@ Snapshot zips of older NMGUI releases are kept in the [`previous releases/`](pre
 | Action | macOS | Windows / Linux |
 |---|---|---|
 | Models tab | ⌘1 | Ctrl+1 |
-| Tree tab | ⌘2 | Ctrl+2 |
-| Evaluation tab | ⌘3 | Ctrl+3 |
-| VPC tab | ⌘4 | Ctrl+4 |
-| Uncertainty tab | ⌘5 | Ctrl+5 |
-| History tab | ⌘6 | Ctrl+6 |
-| Settings tab | ⌘7 | Ctrl+7 |
+| Files tab | ⌘2 | Ctrl+2 |
+| Tree tab | ⌘3 | Ctrl+3 |
+| Evaluation tab | ⌘4 | Ctrl+4 |
+| VPC tab | ⌘5 | Ctrl+5 |
+| Uncertainty tab | ⌘6 | Ctrl+6 |
+| Sim Plot tab | ⌘7 | Ctrl+7 |
+| History tab | ⌘8 | Ctrl+8 |
+| Settings tab | ⌘9 | Ctrl+9 |
 | Open directory | ⌘O | Ctrl+O |
 | Rescan directory | ⌘R | Ctrl+R |
 | Navigate model table | ↑ / ↓ | ↑ / ↓ |
@@ -650,6 +662,21 @@ Developed with [Anthropic Claude](https://claude.ai).
 ---
 
 ## Changelog
+
+### v2.7.0
+
+New **Files tab** and **Models tab right-click additions**.
+
+- **Files tab (Ctrl+2)** — three-pane file browser: extension filter checkboxes (`.mod`, `.ctl`, `.lst`, `.tab`, `.csv`, `.ext`, `.cov`, `.cor`, `.phi` pre-populated; custom extensions addable), sortable file list (name / size / modified), and content viewer with syntax highlighting for `.mod`/`.ctl`, inline find, and spreadsheet view for `.csv`/`.tab` with NONMEM `TABLE NO.` header handling. Row cap of 5 000 with notice. Edit/Save/Discard for text and CSV files.
+- **Run** added to the top of the Models right-click menu — runs the selected model with current panel settings.
+- **Open folder** added to the right-click menu — opens the model's directory in Finder / Explorer / xdg-open.
+- **View .ext** added to the right-click menu (shown when a run exists) — opens the parameter-estimates-by-iteration file.
+- **Delete…** added to the bottom of the right-click menu — removes `.mod` and all paired output files; parses `$DATA` to identify and exclude the dataset. Confirmation dialog lists every file before deletion.
+- **Navigation shortcuts shifted**: Ctrl+2 = Files, Ctrl+3 = Tree, Ctrl+4 = Evaluation, Ctrl+5 = VPC, Ctrl+6 = Uncertainty, Ctrl+7 = Sim Plot, Ctrl+8 = History, Ctrl+9 = Settings.
+
+### v2.6.13
+
+- **Run detached defaults to OFF** — the "Run detached" checkbox now always starts unchecked, regardless of whether an SSH session is detected. Detached mode must be opted in to explicitly.
 
 ### v2.6.12
 
