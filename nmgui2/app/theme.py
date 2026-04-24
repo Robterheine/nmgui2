@@ -92,7 +92,7 @@ def monospace_font(size: int = 11):
     _ensure_sf_mono()
     font = QFont()
     font.setFamilies([
-        'SF Mono',
+        '.SF NS Mono',      # macOS: actual Qt family name after addApplicationFont
         'Consolas',
         'DejaVu Sans Mono',
         'JetBrains Mono',
@@ -204,7 +204,7 @@ def build_stylesheet(theme_name='dark'):
 /* ── Base ─────────────────────────────────────── */
 QMainWindow, QWidget, QDialog {{
     background: {t['bg']}; color: {t['fg']};
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 13px;
 }}
 

@@ -663,6 +663,11 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.6
+
+- **SF Mono actually renders now** — Qt registers `SFNSMono.ttf` under the internal family name `.SF NS Mono` (not `SF Mono`). The font priority list now uses the correct name, so macOS editors show SF Mono instead of Courier.
+- **Removed `system-ui` from base stylesheet** — Qt does not understand the CSS `system-ui` keyword and emitted a 74 ms warning on every startup. Replaced with `-apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif`.
+
 ### v2.7.5
 
 - **SF Mono now loads on macOS** — `QFontDatabase.addApplicationFont()` explicitly registers `/System/Library/Fonts/SFNSMono.ttf` (and the italic variant) at startup. Qt's normal font enumeration cannot see SF Mono; this one-time registration makes the `SF Mono` name resolvable so editors render in SF Mono instead of falling back to Menlo.
