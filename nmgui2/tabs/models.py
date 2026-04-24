@@ -375,9 +375,7 @@ class ModelsTab(QWidget):
                 'Output is written to a .nmgui.log file in the project folder.\n'
                 'Recommended for long runs (bootstrap, SCM, SIR) over SSH.'
             )
-            # Pre-check when running over SSH, but let the user override
-            if self._is_ssh:
-                self.detach_cb.setChecked(True)
+            # Always default to unchecked; user must opt in explicitly
             rf.addRow('', self.detach_cb)
         else:
             self.detach_cb = None
@@ -387,8 +385,8 @@ class ModelsTab(QWidget):
         # SSH info strip — shown when SSH session detected
         if self._is_ssh and not IS_WIN:
             ssh_strip = QLabel(
-                'ℹ  SSH session detected — "Run detached" is pre-enabled so runs '
-                'survive disconnect. Uncheck for live popup monitoring.'
+                'ℹ  SSH session detected — check "Run detached" to keep runs '
+                'alive after disconnect.'
             )
             ssh_strip.setWordWrap(True)
             ssh_strip.setObjectName('muted')
