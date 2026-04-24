@@ -663,6 +663,15 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.2
+
+- **File list panel wider** — Files tab middle pane default width increased from 240 → 320 px so filenames are no longer truncated on first open.
+- **SF Mono added** to the monospace font priority list (macOS 10.12+, the font used by Xcode and Terminal). On a standard Mac without JetBrains Mono installed the editors now use SF Mono instead of Menlo.
+
+### v2.7.1
+
+- **Consistent monospace font** — both the Models tab editor and the Files tab viewer now use a shared `monospace_font()` helper that calls `QFont.setFamilies()` with a priority list: JetBrains Mono → SF Mono → Cascadia Code → Cascadia Mono → Consolas → DejaVu Sans Mono → Liberation Mono → Menlo → Ubuntu Mono → Courier New. `StyleHint.TypeWriter` ensures a monospace fallback on minimal installs. Both editors render at 11 pt.
+
 ### v2.7.0
 
 New **Files tab** and **Models tab right-click additions**.
