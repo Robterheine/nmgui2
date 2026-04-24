@@ -663,6 +663,10 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.7
+
+- **Eliminated `-apple-system` startup warning** — Qt cannot resolve CSS-level font aliases like `-apple-system`; replaced with `"Helvetica Neue", "Segoe UI", Arial, sans-serif` which Qt can find on all platforms without the 71 ms alias-population penalty.
+
 ### v2.7.6
 
 - **SF Mono actually renders now** — Qt registers `SFNSMono.ttf` under the internal family name `.SF NS Mono` (not `SF Mono`). The font priority list now uses the correct name, so macOS editors show SF Mono instead of Courier.

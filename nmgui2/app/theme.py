@@ -204,7 +204,7 @@ def build_stylesheet(theme_name='dark'):
 /* ── Base ─────────────────────────────────────── */
 QMainWindow, QWidget, QDialog {{
     background: {t['bg']}; color: {t['fg']};
-    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-family: "Helvetica Neue", "Segoe UI", Arial, sans-serif;
     font-size: 13px;
 }}
 
