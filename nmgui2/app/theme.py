@@ -58,32 +58,50 @@ THEMES = {
 }
 
 _active_theme = 'dark'
+_sf_mono_loaded = False
 
 
 def T(key):
     return THEMES[_active_theme][key]
 
 
-def monospace_font(size: int = 11):
-    """Return a consistent modern monospace QFont for all code/text editors.
+def _ensure_sf_mono():
+    """Load SF Mono from disk on macOS so Qt can find it by name.
 
-    Uses setFamilies() so Qt picks the first installed font from the list.
-    Priority order: modern dev fonts first, then platform built-ins, then the
-    generic TypeWriter hint as ultimate fallback.
+    Qt's font enumeration cannot see SF Mono through normal APIs; calling
+    addApplicationFont() once is the only way to make setFamilies(['SF Mono'])
+    resolve to the actual font rather than falling back to Menlo.
     """
+    global _sf_mono_loaded
+    if _sf_mono_loaded:
+        return
+    _sf_mono_loaded = True
+    import sys
+    if sys.platform != 'darwin':
+        return
+    from PyQt6.QtGui import QFontDatabase
+    for path in (
+        '/System/Library/Fonts/SFNSMono.ttf',
+        '/System/Library/Fonts/SFNSMonoItalic.ttf',
+    ):
+        QFontDatabase.addApplicationFont(path)
+
+
+def monospace_font(size: int = 11):
     from PyQt6.QtGui import QFont
+    _ensure_sf_mono()
     font = QFont()
     font.setFamilies([
-        'SF Mono',          # macOS 10.12+ (Xcode, Terminal)
-        'Consolas',         # Windows built-in, clean and modern
-        'DejaVu Sans Mono', # Linux standard, also on macOS/Windows
-        'JetBrains Mono',   # cross-platform, popular in dev tools
-        'Cascadia Code',    # Windows Terminal
-        'Cascadia Mono',    # same, without ligatures
-        'Liberation Mono',  # Fedora/RHEL Linux
-        'Menlo',            # macOS pre-SF Mono
-        'Ubuntu Mono',      # Ubuntu Linux
-        'Courier New',      # universal fallback
+        'SF Mono',
+        'Consolas',
+        'DejaVu Sans Mono',
+        'JetBrains Mono',
+        'Cascadia Code',
+        'Cascadia Mono',
+        'Liberation Mono',
+        'Menlo',
+        'Ubuntu Mono',
+        'Courier New',
     ])
     font.setPointSize(size)
     font.setStyleHint(QFont.StyleHint.TypeWriter)

@@ -663,6 +663,10 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.5
+
+- **SF Mono now loads on macOS** — `QFontDatabase.addApplicationFont()` explicitly registers `/System/Library/Fonts/SFNSMono.ttf` (and the italic variant) at startup. Qt's normal font enumeration cannot see SF Mono; this one-time registration makes the `SF Mono` name resolvable so editors render in SF Mono instead of falling back to Menlo.
+
 ### v2.7.4
 
 - **Virtualised table viewer** — CSV and NONMEM TABLE files in the Files tab are now backed by `QAbstractTableModel` + `QTableView` instead of `QTableWidget`. Qt only fetches data for visible rows, so files of any size (100k+ rows) open instantly and scroll smoothly. The 5 000-row cap and the "Showing first N rows" notice have been removed. Column sorting tries numeric comparison first, falling back to case-insensitive string sort.
