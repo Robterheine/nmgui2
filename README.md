@@ -663,6 +663,10 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.4
+
+- **Virtualised table viewer** — CSV and NONMEM TABLE files in the Files tab are now backed by `QAbstractTableModel` + `QTableView` instead of `QTableWidget`. Qt only fetches data for visible rows, so files of any size (100k+ rows) open instantly and scroll smoothly. The 5 000-row cap and the "Showing first N rows" notice have been removed. Column sorting tries numeric comparison first, falling back to case-insensitive string sort.
+
 ### v2.7.3
 
 - **Font priority reordered** — SF Mono is now first in the editor font chain: SF Mono → Consolas → DejaVu Sans Mono → JetBrains Mono → Cascadia Code → Liberation Mono → Menlo → Ubuntu Mono → Courier New. macOS users will see SF Mono by default.

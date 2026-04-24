@@ -3,12 +3,13 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QColor, QPalette, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
-    QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QStackedWidget, QTableWidget, QTableWidgetItem, QTableView,
+    QVBoxLayout, QWidget,
 )
 
 from ..app.config import load_settings, save_settings
@@ -20,7 +21,6 @@ _log = logging.getLogger(__name__)
 _PRESET_EXTS    = ['mod', 'ctl', 'lst', 'tab', 'csv', 'ext', 'cov', 'cor', 'phi']
 _TABLE_EXTS     = {'csv', 'tab'}
 _HIGHLIGHT_EXTS = {'mod', 'ctl'}
-_MAX_ROWS       = 5000
 
 
 def _read_nonmem_table(path: Path):
@@ -69,6 +69,89 @@ def _fmt_size(n: int) -> str:
     return f'{n / 1_048_576:.1f} MB'
 
 
+# ── Virtualised table model ───────────────────────────────────────────────────
+
+class _TableModel(QAbstractTableModel):
+    """Lightweight virtualised model — Qt only fetches data for visible rows."""
+
+    def __init__(self, headers: list, rows: list, parent=None):
+        super().__init__(parent)
+        self._headers  = headers
+        self._rows     = rows   # list[list[str]]
+        self._editable = False
+
+    # Qt required overrides
+    def rowCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._rows)
+
+    def columnCount(self, parent=QModelIndex()):
+        return 0 if parent.isValid() else len(self._headers)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+            row = self._rows[index.row()]
+            col = index.column()
+            return row[col] if col < len(row) else ''
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
+        if orientation == Qt.Orientation.Horizontal:
+            return self._headers[section] if section < len(self._headers) else ''
+        return str(section + 1)
+
+    def flags(self, index):
+        base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if self._editable:
+            base |= Qt.ItemFlag.ItemIsEditable
+        return base
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if role == Qt.ItemDataRole.EditRole and index.isValid():
+            row = self._rows[index.row()]
+            col = index.column()
+            if col < len(row):
+                row[col] = str(value)
+                self.dataChanged.emit(index, index, [role])
+                return True
+        return False
+
+    # Sorting — tries numeric first, falls back to string
+    def sort(self, column, order=Qt.SortOrder.AscendingOrder):
+        self.layoutAboutToBeChanged.emit()
+        reverse = (order == Qt.SortOrder.DescendingOrder)
+
+        def _key(row):
+            val = row[column] if column < len(row) else ''
+            try:
+                return (0, float(val))
+            except (ValueError, TypeError):
+                return (1, val.lower())
+
+        self._rows.sort(key=_key, reverse=reverse)
+        self.layoutChanged.emit()
+
+    # Accessors for save
+    def get_headers(self):
+        return self._headers
+
+    def get_rows(self):
+        return self._rows
+
+    def set_editable(self, editable: bool):
+        self._editable = editable
+        if self._rows:
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(len(self._rows) - 1, len(self._headers) - 1),
+            )
+
+
+# ── Main tab widget ───────────────────────────────────────────────────────────
+
 class FileExplorerTab(QWidget):
     status_msg = pyqtSignal(str)
 
@@ -78,6 +161,7 @@ class FileExplorerTab(QWidget):
         self._current_file  = None
         self._current_delim = ','
         self._highlighter   = None
+        self._table_model:  _TableModel | None = None
         self._ext_checkboxes: dict[str, QCheckBox] = {}
         self._custom_exts:    list[str] = []
         self._build_ui()
@@ -229,7 +313,7 @@ class FileExplorerTab(QWidget):
         sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
-        # Stacked: index 0 = text, index 1 = table
+        # Stacked: index 0 = text, index 1 = virtualised table
         self._content_stack = QStackedWidget()
 
         self._text_view = QPlainTextEdit()
@@ -240,8 +324,7 @@ class FileExplorerTab(QWidget):
         pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
         self._text_view.setPalette(pal)
 
-        self._table_view = QTableWidget()
-        self._table_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table_view = QTableView()
         self._table_view.setAlternatingRowColors(True)
         self._table_view.setSortingEnabled(True)
         self._table_view.setShowGrid(True)
@@ -249,16 +332,15 @@ class FileExplorerTab(QWidget):
         self._table_view.verticalHeader().setVisible(False)
         self._table_view.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table_view.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._table_view.horizontalHeader().setDefaultSectionSize(100)
+        self._table_view.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive)
 
         self._content_stack.addWidget(self._text_view)   # 0
         self._content_stack.addWidget(self._table_view)  # 1
         v.addWidget(self._content_stack, 1)
-
-        self._row_notice = QLabel('')
-        self._row_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._row_notice.setObjectName('mutedLabel')
-        self._row_notice.setVisible(False)
-        v.addWidget(self._row_notice)
 
         return w
 
@@ -267,16 +349,15 @@ class FileExplorerTab(QWidget):
     def load_directory(self, path: str | None):
         self._directory = path
         self._current_file = None
+        self._table_model = None
+        self._table_view.setModel(None)
         self._content_title.setText('No file selected')
         self._text_view.setPlainText('')
-        self._table_view.clearContents()
-        self._table_view.setRowCount(0)
         self._edit_btn.setChecked(False)
         self._edit_btn.setVisible(False)
         self._save_btn.setVisible(False)
         self._discard_btn.setVisible(False)
         self._find_edit.setVisible(False)
-        self._row_notice.setVisible(False)
         self._rebuild_file_list()
 
     # ── Extension filter ──────────────────────────────────────────────────────
@@ -320,7 +401,6 @@ class FileExplorerTab(QWidget):
             self._custom_exts.remove(ext)
         cb = self._ext_checkboxes.pop(ext, None)
         if cb:
-            # Find and remove the parent row widget
             for i in range(self._custom_cb_container.count()):
                 item = self._custom_cb_container.itemAt(i)
                 w = item.widget() if item else None
@@ -400,7 +480,6 @@ class FileExplorerTab(QWidget):
     def _load_file(self, path: Path):
         ext = path.suffix.lstrip('.').lower()
         self._content_title.setText(path.name)
-        self._row_notice.setVisible(False)
         if ext in _TABLE_EXTS:
             self._load_table_file(path, ext)
         else:
@@ -451,30 +530,10 @@ class FileExplorerTab(QWidget):
             self._discard_btn.setVisible(False)
             return
 
-        truncated = len(rows) > _MAX_ROWS
-        display_rows = rows[:_MAX_ROWS]
-
-        self._table_view.setSortingEnabled(False)
-        self._table_view.clearContents()
-        self._table_view.setColumnCount(len(headers))
-        self._table_view.setHorizontalHeaderLabels(headers)
-        self._table_view.setRowCount(len(display_rows))
-
-        for r, row in enumerate(display_rows):
-            for c in range(min(len(row), len(headers))):
-                it = QTableWidgetItem(row[c])
-                it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
-                self._table_view.setItem(r, c, it)
-
-        self._table_view.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents)
-        self._table_view.setSortingEnabled(True)
+        self._table_model = _TableModel(headers, rows)
+        self._table_view.setModel(self._table_model)
+        self._table_view.resizeColumnsToContents()
         self._content_stack.setCurrentIndex(1)
-
-        if truncated:
-            self._row_notice.setText(
-                f'Showing first {_MAX_ROWS:,} of {len(rows):,} rows')
-            self._row_notice.setVisible(True)
 
         self._find_edit.setVisible(False)
         self._edit_btn.setVisible(True)
@@ -487,6 +546,8 @@ class FileExplorerTab(QWidget):
         if self._content_stack.currentIndex() == 0:
             self._text_view.setReadOnly(not checked)
         else:
+            if self._table_model:
+                self._table_model.set_editable(checked)
             trigger = (QAbstractItemView.EditTrigger.DoubleClicked
                        if checked else QAbstractItemView.EditTrigger.NoEditTriggers)
             self._table_view.setEditTriggers(trigger)
@@ -506,21 +567,12 @@ class FileExplorerTab(QWidget):
                         self, 'Read-only',
                         '.tab files are NONMEM output — direct editing is not supported.')
                     return
-                headers = [
-                    self._table_view.horizontalHeaderItem(c).text()
-                    for c in range(self._table_view.columnCount())
-                ]
-                out_rows = [headers]
-                for r in range(self._table_view.rowCount()):
-                    row = []
-                    for c in range(self._table_view.columnCount()):
-                        it = self._table_view.item(r, c)
-                        row.append(it.text() if it else '')
-                    out_rows.append(row)
+                if not self._table_model:
+                    return
+                out_rows = [self._table_model.get_headers()] + self._table_model.get_rows()
                 delim = self._current_delim or ','
                 with self._current_file.open('w', newline='', encoding='utf-8') as fh:
-                    writer = csv.writer(fh, delimiter=delim)
-                    writer.writerows(out_rows)
+                    csv.writer(fh, delimiter=delim).writerows(out_rows)
             self.status_msg.emit(f'Saved {self._current_file.name}')
             self._edit_btn.setChecked(False)
         except Exception as e:
