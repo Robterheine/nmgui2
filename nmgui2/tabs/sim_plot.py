@@ -530,10 +530,22 @@ class SimulationPlotTab(QWidget):
             h, r = read_table_file(path, max_rows=None)
             if h is None:
                 self.status_msg.emit('Could not parse file.'); return
-            self._df = pd.DataFrame(r, columns=[c.upper() for c in h])
+            raw_cols = [c.upper() for c in h]
+            seen: dict = {}
+            cols: list = []
+            for c in raw_cols:
+                if c in seen:
+                    seen[c] += 1
+                    cols.append(f'{c}_{seen[c]}')
+                else:
+                    seen[c] = 1
+                    cols.append(c)
+            dups = sorted({c for c in seen if seen[c] > 1})
+            self._df = pd.DataFrame(r, columns=cols)
             self._populate_columns()
             n, nc = len(self._df), len(self._df.columns)
-            self._data_lbl.setText(f'{Path(path).name}  ({n:,} rows, {nc} cols)')
+            dup_note = f'  ⚠ renamed: {", ".join(dups)}' if dups else ''
+            self._data_lbl.setText(f'{Path(path).name}  ({n:,} rows, {nc} cols){dup_note}')
             self.status_msg.emit(f'Loaded {n:,} rows, {nc} columns — {Path(path).name}')
             self._plot_btn.setEnabled(True)
         except Exception as e:

@@ -663,6 +663,10 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.7.9
+
+- **Sim Plot — fix crash on duplicate column names** — NONMEM sdtab files that list the same column twice (e.g. `IPRED` appearing as both column 3 and 18) caused `pd.to_numeric` to raise `arg must be a list, tuple, 1-d array, or Series` because selecting a duplicate column returns a DataFrame instead of a Series. Duplicates are now renamed at load time (`IPRED` → `IPRED`, `IPRED_2`) and a warning is shown in the Data card label.
+
 ### v2.7.8
 
 - **Sim Plot — PI band row redesign** — each band is now a single-line card (rounded, bordered) instead of a two-line layout; Alpha moved onto the same row as Lo/Hi; colour picker is now a circular 22×22 swatch; remove button is a round ghost pill that turns red on hover; "Add band" and "Add filter" buttons use a dashed-border style to communicate additive intent; band card spacing increased for breathing room; preset dropdown gains a tooltip warning it resets all bands. Changes are fully cross-platform (macOS/Windows/Linux).
