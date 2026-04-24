@@ -64,6 +64,32 @@ def T(key):
     return THEMES[_active_theme][key]
 
 
+def monospace_font(size: int = 11):
+    """Return a consistent modern monospace QFont for all code/text editors.
+
+    Uses setFamilies() so Qt picks the first installed font from the list.
+    Priority order: modern dev fonts first, then platform built-ins, then the
+    generic TypeWriter hint as ultimate fallback.
+    """
+    from PyQt6.QtGui import QFont
+    font = QFont()
+    font.setFamilies([
+        'JetBrains Mono',
+        'Cascadia Code',
+        'Cascadia Mono',
+        'Fira Code',
+        'Consolas',
+        'Menlo',
+        'DejaVu Sans Mono',
+        'Liberation Mono',
+        'Ubuntu Mono',
+        'Courier New',
+    ])
+    font.setPointSize(size)
+    font.setStyleHint(QFont.StyleHint.TypeWriter)
+    return font
+
+
 class _ThemeColors:
     """Mutable singleton — attributes update live on theme change."""
     def _apply(self, theme_name):

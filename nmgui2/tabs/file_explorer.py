@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QPalette, QTextCharFormat, QTextCursor
+from PyQt6.QtGui import QColor, QPalette, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
@@ -12,8 +12,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..app.config import load_settings, save_settings
-from ..app.constants import IS_MAC, IS_WIN
-from ..app.theme import T
+from ..app.theme import T, monospace_font
 from ..widgets.highlighter import NMHighlighter
 
 _log = logging.getLogger(__name__)
@@ -235,14 +234,7 @@ class FileExplorerTab(QWidget):
 
         self._text_view = QPlainTextEdit()
         self._text_view.setReadOnly(True)
-        if IS_WIN:
-            font = QFont('Consolas', 10)
-        elif IS_MAC:
-            font = QFont('Menlo', 11)
-        else:
-            font = QFont('Monospace', 10)
-        font.setStyleHint(QFont.StyleHint.TypeWriter)
-        self._text_view.setFont(font)
+        self._text_view.setFont(monospace_font(11))
         pal = QPalette()
         pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
         pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))

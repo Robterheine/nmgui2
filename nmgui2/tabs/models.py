@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSortFilterProxyModel, QModelIndex, QAbstractTableModel, QTimer
 from PyQt6.QtGui import QBrush, QColor, QKeySequence, QFont, QAction, QPalette
-from ..app.theme import C, T, THEMES, _active_theme
+from ..app.theme import C, T, THEMES, _active_theme, monospace_font
 from ..app.constants import IS_WIN, IS_MAC, HOME
 from ..app.config import load_meta, save_meta, get_meta_entry, load_settings, save_settings, load_bookmarks, save_bookmarks, get_all_tags
 from ..app.format import fmt_ofv, fmt_num, fmt_rse
@@ -350,7 +350,7 @@ class ModelsTab(QWidget):
         self.lst_btn  = QPushButton('View .lst'); self.lst_btn.clicked.connect(self._view_lst)
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
         self.editor = QPlainTextEdit()
-        self.editor.setFont(QFont('Menlo' if IS_MAC else 'Consolas',12))
+        self.editor.setFont(monospace_font(11))
         _ep = QPalette(); _ep.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _ep.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.editor.setPalette(_ep)
         self._hl = NMHighlighter(self.editor.document())
         ed_v.addLayout(ed_top); ed_v.addWidget(self.editor)
