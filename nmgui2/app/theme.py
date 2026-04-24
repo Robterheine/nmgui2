@@ -74,12 +74,12 @@ def monospace_font(size: int = 11):
     from PyQt6.QtGui import QFont
     font = QFont()
     font.setFamilies([
-        'JetBrains Mono',   # cross-platform, very popular in dev tools
         'SF Mono',          # macOS 10.12+ (Xcode, Terminal)
-        'Cascadia Code',    # Windows Terminal
-        'Cascadia Mono',    # same, without ligatures
         'Consolas',         # Windows built-in, clean and modern
         'DejaVu Sans Mono', # Linux standard, also on macOS/Windows
+        'JetBrains Mono',   # cross-platform, popular in dev tools
+        'Cascadia Code',    # Windows Terminal
+        'Cascadia Mono',    # same, without ligatures
         'Liberation Mono',  # Fedora/RHEL Linux
         'Menlo',            # macOS pre-SF Mono
         'Ubuntu Mono',      # Ubuntu Linux
