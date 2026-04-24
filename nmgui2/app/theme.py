@@ -607,4 +607,42 @@ QWidget#cardBody {{
     border-bottom-left-radius: 6px;
     border-bottom-right-radius: 6px;
 }}
+/* ── Band item card ────────── */
+QFrame#bandCard {{
+    background: {t['bg3']};
+    border: 1px solid {t['border']};
+    border-radius: 6px;
+}}
+/* ── Remove row button ──────── */
+QPushButton#removeRowBtn {{
+    background: transparent;
+    border: 1px solid {t['border']};
+    border-radius: 10px;
+    color: {t['fg3']};
+    font-size: 13px;
+    font-weight: 600;
+    min-width: 0;
+    padding: 0;
+}}
+QPushButton#removeRowBtn:hover {{
+    background: {t['red']};
+    border-color: {t['red']};
+    color: #ffffff;
+}}
+/* ── Add row button (dashed) ── */
+QPushButton#addRowBtn {{
+    background: transparent;
+    border: 1px dashed {t['border']};
+    border-radius: 5px;
+    color: {t['fg3']};
+    font-size: 12px;
+    min-width: 0;
+    padding: 4px 8px;
+}}
+QPushButton#addRowBtn:hover {{
+    background: {t['bg3']};
+    border-style: solid;
+    border-color: {t['fg2']};
+    color: {t['fg']};
+}}
 """
