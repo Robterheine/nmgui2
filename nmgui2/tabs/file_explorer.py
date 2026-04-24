@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 from ..app.config import load_settings, save_settings
 from ..app.theme import T, monospace_font
 from ..widgets.highlighter import NMHighlighter
+from ..widgets.data_explorer import DataExplorerWidget
 
 _log = logging.getLogger(__name__)
 
@@ -284,6 +285,22 @@ class FileExplorerTab(QWidget):
         self._find_edit.setVisible(False)
         tl.addWidget(self._find_edit)
 
+        self._table_pill = QPushButton('Table')
+        self._table_pill.setObjectName('innerPillBtn')
+        self._table_pill.setCheckable(True)
+        self._table_pill.setFixedHeight(22)
+        self._table_pill.setVisible(False)
+        self._table_pill.clicked.connect(self._switch_to_table_view)
+        tl.addWidget(self._table_pill)
+
+        self._plot_pill = QPushButton('Plot')
+        self._plot_pill.setObjectName('innerPillBtn')
+        self._plot_pill.setCheckable(True)
+        self._plot_pill.setFixedHeight(22)
+        self._plot_pill.setVisible(False)
+        self._plot_pill.clicked.connect(self._switch_to_plot_view)
+        tl.addWidget(self._plot_pill)
+
         self._edit_btn = QPushButton('Edit')
         self._edit_btn.setCheckable(True)
         self._edit_btn.setFixedHeight(22)
@@ -338,11 +355,30 @@ class FileExplorerTab(QWidget):
         self._table_view.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive)
 
-        self._content_stack.addWidget(self._text_view)   # 0
-        self._content_stack.addWidget(self._table_view)  # 1
+        self.data_explorer = DataExplorerWidget(show_browser=False)
+        self._content_stack.addWidget(self._text_view)    # 0
+        self._content_stack.addWidget(self._table_view)   # 1
+        self._content_stack.addWidget(self.data_explorer) # 2
         v.addWidget(self._content_stack, 1)
 
         return w
+
+    # ── View switching (table files) ──────────────────────────────────────────
+
+    def _switch_to_table_view(self):
+        self._content_stack.setCurrentIndex(1)
+        self._table_pill.setChecked(True)
+        self._plot_pill.setChecked(False)
+        self._edit_btn.setVisible(True)
+
+    def _switch_to_plot_view(self):
+        self._content_stack.setCurrentIndex(2)
+        self._plot_pill.setChecked(True)
+        self._table_pill.setChecked(False)
+        self._edit_btn.setChecked(False)
+        self._edit_btn.setVisible(False)
+        self._save_btn.setVisible(False)
+        self._discard_btn.setVisible(False)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -358,7 +394,17 @@ class FileExplorerTab(QWidget):
         self._save_btn.setVisible(False)
         self._discard_btn.setVisible(False)
         self._find_edit.setVisible(False)
+        self._table_pill.setVisible(False)
+        self._plot_pill.setVisible(False)
         self._rebuild_file_list()
+
+    def select_file(self, path: str):
+        """Select and load a file by full path, if it appears in the current list."""
+        for row in range(self._file_table.rowCount()):
+            item = self._file_table.item(row, 0)
+            if item and item.data(Qt.ItemDataRole.UserRole) == path:
+                self._file_table.setCurrentCell(row, 0)
+                return
 
     # ── Extension filter ──────────────────────────────────────────────────────
 
@@ -510,6 +556,12 @@ class FileExplorerTab(QWidget):
 
         self._find_edit.setVisible(True)
         self._find_edit.clear()
+        self._table_pill.setVisible(False)
+        self._table_pill.setChecked(False)
+        self._plot_pill.setVisible(False)
+        self._plot_pill.setChecked(False)
+        if self._content_stack.currentIndex() == 2:
+            self._content_stack.setCurrentIndex(0)
         self._edit_btn.setVisible(True)
         self._save_btn.setVisible(False)
         self._discard_btn.setVisible(False)
@@ -528,14 +580,33 @@ class FileExplorerTab(QWidget):
             self._edit_btn.setVisible(False)
             self._save_btn.setVisible(False)
             self._discard_btn.setVisible(False)
+            self._table_pill.setVisible(False)
+            self._plot_pill.setVisible(False)
             return
+
+        seen: dict = {}
+        deduped: list = []
+        for c in headers:
+            cu = c.upper()
+            if cu in seen:
+                seen[cu] += 1
+                deduped.append(f'{c}_{seen[cu]}')
+            else:
+                seen[cu] = 1
+                deduped.append(c)
+        headers = deduped
 
         self._table_model = _TableModel(headers, rows)
         self._table_view.setModel(self._table_model)
         self._table_view.resizeColumnsToContents()
-        self._content_stack.setCurrentIndex(1)
+        self.data_explorer.load(headers, rows)
 
+        self._content_stack.setCurrentIndex(1)
         self._find_edit.setVisible(False)
+        self._table_pill.setVisible(True)
+        self._table_pill.setChecked(True)
+        self._plot_pill.setVisible(True)
+        self._plot_pill.setChecked(False)
         self._edit_btn.setVisible(True)
         self._save_btn.setVisible(False)
         self._discard_btn.setVisible(False)
@@ -543,9 +614,10 @@ class FileExplorerTab(QWidget):
     # ── Edit / save / discard ─────────────────────────────────────────────────
 
     def _toggle_edit_mode(self, checked: bool):
-        if self._content_stack.currentIndex() == 0:
+        idx = self._content_stack.currentIndex()
+        if idx == 0:
             self._text_view.setReadOnly(not checked)
-        else:
+        elif idx == 1:
             if self._table_model:
                 self._table_model.set_editable(checked)
             trigger = (QAbstractItemView.EditTrigger.DoubleClicked

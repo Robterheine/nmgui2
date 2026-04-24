@@ -101,27 +101,28 @@ class DataExplorerWidget(QWidget):
     """Merged Data Viewer + Custom Plot — file browser, table, and scatter plot."""
     PAGE_SIZE = 200
 
-    def __init__(self, parent=None):
+    def __init__(self, show_browser=True, parent=None):
         super().__init__(parent)
         self._header = []; self._rows = []; self._filtered_rows = []
         self._page = 0; self._model_dir = None; self._filter_rows = []
-        self._build_ui()
+        self._build_ui(show_browser)
 
-    def _build_ui(self):
+    def _build_ui(self, show_browser=True):
         root = QHBoxLayout(self); root.setContentsMargins(0,0,0,0); root.setSpacing(0)
 
-        # ── Left: file browser ────────────────────────────────────────────────
-        left = QWidget(); left.setFixedWidth(180)
-        lv = QVBoxLayout(left); lv.setContentsMargins(6,6,6,6); lv.setSpacing(4)
-        lv.addWidget(QLabel('Files:'))
-        self.file_list = QListWidget()
-        self.file_list.currentItemChanged.connect(self._on_file_select)
-        lv.addWidget(self.file_list, 1)
-        root.addWidget(left)
-
-        sep = QWidget(); sep.setFixedWidth(1)
-        sep.setObjectName('hairlineSep')
-        root.addWidget(sep)
+        if show_browser:
+            left = QWidget(); left.setFixedWidth(180)
+            lv = QVBoxLayout(left); lv.setContentsMargins(6,6,6,6); lv.setSpacing(4)
+            lv.addWidget(QLabel('Files:'))
+            self.file_list = QListWidget()
+            self.file_list.currentItemChanged.connect(self._on_file_select)
+            lv.addWidget(self.file_list, 1)
+            root.addWidget(left)
+            sep = QWidget(); sep.setFixedWidth(1)
+            sep.setObjectName('hairlineSep')
+            root.addWidget(sep)
+        else:
+            self.file_list = QListWidget()  # not shown; guards load_model / _refresh_file_list
 
         # ── Right: pill strip + stacked ──────────────────────────────────────
         right = QWidget(); rv = QVBoxLayout(right); rv.setContentsMargins(0,0,0,0); rv.setSpacing(0)

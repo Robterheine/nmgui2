@@ -14,7 +14,6 @@ from ..widgets.plots.cwres_hist import CWRESHistWidget
 from ..widgets.plots.qq import QQPlotWidget
 from ..widgets.plots.eta_cov import ETACovWidget
 from ..widgets.plots.npde_dist import NPDEDistWidget
-from ..widgets.data_explorer import DataExplorerWidget
 
 import logging
 _log = logging.getLogger(__name__)
@@ -57,7 +56,6 @@ class EvaluationTab(QWidget):
     SEC_INDF  = 1
     SEC_WFALL = 2
     SEC_CONV  = 3
-    SEC_DATA  = 4
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,7 +99,7 @@ class EvaluationTab(QWidget):
         pl = QHBoxLayout(pill_bar); pl.setContentsMargins(12, 6, 12, 6); pl.setSpacing(4)
 
         self._pill_btns = []
-        pill_labels = ['GOF', 'Individual Fits', 'OFV Waterfall', 'Convergence', 'Data Explorer']
+        pill_labels = ['GOF', 'Individual Fits', 'OFV Waterfall', 'Convergence']
         for i, lbl in enumerate(pill_labels):
             btn = QPushButton(lbl)
             btn.setObjectName('pillBtn')
@@ -159,10 +157,6 @@ class EvaluationTab(QWidget):
         # 3 — Convergence
         self.conv = ConvergenceWidget()
         self._stack.addWidget(self.conv)
-
-        # 4 — Data Explorer
-        self.data_explorer = DataExplorerWidget()
-        self._stack.addWidget(self.data_explorer)
 
         v.addWidget(self._stack, 1)
 
@@ -235,7 +229,6 @@ class EvaluationTab(QWidget):
         self.qq_plot.load(self._header, self._rows, mdv)
         self.eta_cov.load(self._header, self._rows, mdv)
         self.npde_dist.load(self._header, self._rows, mdv)
-        self.data_explorer.load(self._header, self._rows)
         # Show NPDE Dist button only when NPDE column is present
         has_npde = 'NPDE' in [h.upper() for h in self._header]
         self._gof_btns[4].setVisible(has_npde)
@@ -282,7 +275,6 @@ class EvaluationTab(QWidget):
             self._load()
         self._try_phi(model)
         self._try_ext(model)
-        self.data_explorer.load_model(model)
 
     def _try_phi(self, model):
         if not HAS_PARSER: return

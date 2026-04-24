@@ -663,6 +663,12 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.8.0
+
+- **Files tab now supports plotting** — selecting a `.tab` or `.csv` file shows a `[ Table | Plot ]` pill pair in the toolbar. Plot view is the full DataExplorer (scatter, LOESS, colour-by column, filters) that previously lived in the Evaluation tab. Column deduplication (from v2.7.9) now also applies in the Files tab viewer.
+- **Evaluation tab simplified** — "Data Explorer" pill removed; the tab is now a clean 4-pill diagnostics panel: GOF | Individual Fits | OFV Waterfall | Convergence.
+- **Auto-select sdtab in Files tab** — navigating to the Files tab with a model selected automatically highlights the model's sdtab in the file list.
+
 ### v2.7.9
 
 - **Sim Plot — fix crash on duplicate column names** — NONMEM sdtab files that list the same column twice (e.g. `IPRED` appearing as both column 3 and 18) caused `pd.to_numeric` to raise `arg must be a list, tuple, 1-d array, or Series` because selecting a duplicate column returns a DataFrame instead of a Series. Duplicates are now renamed at load time (`IPRED` → `IPRED`, `IPRED_2`) and a warning is shown in the Data card label.

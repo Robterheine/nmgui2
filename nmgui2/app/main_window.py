@@ -309,6 +309,9 @@ class MainWindow(QMainWindow):
                 self.sim_plot_tab.load_model(self._selected_model)
         if index == 1:
             self.file_explorer_tab.load_directory(self.models_tab.current_directory())
+            sdtab = self.eval_tab.file_edit.text().strip()
+            if sdtab:
+                self.file_explorer_tab.select_file(sdtab)
         elif index == 2:
             self._refresh_tree()
         elif index == 7:
@@ -366,7 +369,8 @@ class MainWindow(QMainWindow):
             self.eval_tab.gof, self.eval_tab.indfit,
             self.eval_tab.waterfall, self.eval_tab.conv,
             self.eval_tab.cwres_hist, self.eval_tab.qq_plot,
-            self.eval_tab.eta_cov, self.eval_tab.data_explorer,
+            self.eval_tab.eta_cov,
+            self.file_explorer_tab.data_explorer,
             self.sim_plot_tab,
             self.tree_tab,
         ):
