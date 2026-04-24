@@ -94,7 +94,7 @@ class FileExplorerTab(QWidget):
         splitter.addWidget(self._build_filter_panel())
         splitter.addWidget(self._build_file_list_panel())
         splitter.addWidget(self._build_content_panel())
-        splitter.setSizes([160, 240, 600])
+        splitter.setSizes([160, 320, 520])
         splitter.setStretchFactor(2, 1)
         root.addWidget(splitter)
 
