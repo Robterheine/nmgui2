@@ -12,6 +12,7 @@ from .config import load_settings, save_settings
 from .tools import launch_rstudio, _find_rscript
 from ..widgets._icons import _make_logo_pixmap, _make_nav_icon
 from ..tabs.models import ModelsTab
+from ..tabs.file_explorer import FileExplorerTab
 from ..tabs.tree import AncestryTreeWidget
 from ..tabs.evaluation import EvaluationTab
 from ..tabs.vpc import VPCTab
@@ -129,7 +130,7 @@ class MainWindow(QMainWindow):
         theme_shortcut.triggered.connect(self._toggle_theme)
         self.addAction(theme_shortcut)
 
-        for i in range(8):
+        for i in range(9):
             act = QAction(self)
             act.setShortcut(QKeySequence(f'Ctrl+{i+1}'))
             act.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -203,14 +204,15 @@ class MainWindow(QMainWindow):
         self._nav_items = []
         self._nav_icon_lbls = []
         nav_defs = [
-            ('Models',      'models',      'Ctrl+1'),
-            ('Tree',        'tree',        'Ctrl+2'),
-            ('Evaluation',  'evaluation',  'Ctrl+3'),
-            ('VPC',         'vpc',         'Ctrl+4'),
-            ('Uncertainty', 'uncertainty', 'Ctrl+5'),
-            ('Sim Plot',    'simplot',     'Ctrl+6'),
-            ('History',     'history',     'Ctrl+7'),
-            ('Settings',    'settings',    'Ctrl+8'),
+            ('Models',      'models',        'Ctrl+1'),
+            ('Files',       'fileexplorer',  'Ctrl+2'),
+            ('Tree',        'tree',          'Ctrl+3'),
+            ('Evaluation',  'evaluation',    'Ctrl+4'),
+            ('VPC',         'vpc',           'Ctrl+5'),
+            ('Uncertainty', 'uncertainty',   'Ctrl+6'),
+            ('Sim Plot',    'simplot',       'Ctrl+7'),
+            ('History',     'history',       'Ctrl+8'),
+            ('Settings',    'settings',      'Ctrl+9'),
         ]
         for i, (label, icon_name, shortcut) in enumerate(nav_defs):
             btn = QPushButton()
@@ -252,22 +254,24 @@ class MainWindow(QMainWindow):
         body.addWidget(ssep)
 
         self._stack = QStackedWidget()
-        self.models_tab      = ModelsTab()
-        self.tree_tab        = AncestryTreeWidget()
-        self.eval_tab        = EvaluationTab()
-        self.vpc_tab         = VPCTab()
-        self.uncertainty_tab = ParameterUncertaintyTab()
-        self.sim_plot_tab    = SimulationPlotTab()
-        self.history_tab     = RunHistoryTab()
-        self.settings_tab    = SettingsTab()
-        self._stack.addWidget(self.models_tab)       # 0
-        self._stack.addWidget(self.tree_tab)          # 1
-        self._stack.addWidget(self.eval_tab)          # 2
-        self._stack.addWidget(self.vpc_tab)           # 3
-        self._stack.addWidget(self.uncertainty_tab)   # 4
-        self._stack.addWidget(self.sim_plot_tab)      # 5
-        self._stack.addWidget(self.history_tab)       # 6
-        self._stack.addWidget(self.settings_tab)      # 7
+        self.models_tab         = ModelsTab()
+        self.file_explorer_tab  = FileExplorerTab()
+        self.tree_tab           = AncestryTreeWidget()
+        self.eval_tab           = EvaluationTab()
+        self.vpc_tab            = VPCTab()
+        self.uncertainty_tab    = ParameterUncertaintyTab()
+        self.sim_plot_tab       = SimulationPlotTab()
+        self.history_tab        = RunHistoryTab()
+        self.settings_tab       = SettingsTab()
+        self._stack.addWidget(self.models_tab)          # 0
+        self._stack.addWidget(self.file_explorer_tab)   # 1
+        self._stack.addWidget(self.tree_tab)            # 2
+        self._stack.addWidget(self.eval_tab)            # 3
+        self._stack.addWidget(self.vpc_tab)             # 4
+        self._stack.addWidget(self.uncertainty_tab)     # 5
+        self._stack.addWidget(self.sim_plot_tab)        # 6
+        self._stack.addWidget(self.history_tab)         # 7
+        self._stack.addWidget(self.settings_tab)        # 8
         body.addWidget(self._stack, 1)
 
         body_w = QWidget()
@@ -275,12 +279,14 @@ class MainWindow(QMainWindow):
         root.addWidget(body_w, 1)
 
         self.models_tab.status_msg.connect(self.statusBar().showMessage)
+        self.file_explorer_tab.status_msg.connect(self.statusBar().showMessage)
         self.eval_tab.status_msg.connect(self.statusBar().showMessage)
         self.vpc_tab.status_msg.connect(self.statusBar().showMessage)
         self.uncertainty_tab.status_msg.connect(self.statusBar().showMessage)
         self.sim_plot_tab.status_msg.connect(self.statusBar().showMessage)
         self.models_tab.model_selected.connect(self._on_model_selected)
         self.models_tab.model_selected.connect(self._on_model_selected_for_tree)
+        self.models_tab.directory_changed.connect(self.file_explorer_tab.load_directory)
         self.tree_tab.model_clicked.connect(self._tree_model_clicked)
         self.settings_tab.theme_changed.connect(self._apply_theme)
 
@@ -293,17 +299,19 @@ class MainWindow(QMainWindow):
         for i, btn in enumerate(self._nav_items):
             btn.setChecked(i == index)
         if self._selected_model:
-            if index == 2 and self.eval_tab._model is not self._selected_model:
+            if index == 3 and self.eval_tab._model is not self._selected_model:
                 self.eval_tab.load_model(self._selected_model)
-            elif index == 3 and self.vpc_tab._model is not self._selected_model:
+            elif index == 4 and self.vpc_tab._model is not self._selected_model:
                 self.vpc_tab.load_model(self._selected_model)
-            elif index == 4 and self.uncertainty_tab._model is not self._selected_model:
+            elif index == 5 and self.uncertainty_tab._model is not self._selected_model:
                 self.uncertainty_tab.load_model(self._selected_model)
-            elif index == 5 and self.sim_plot_tab._model is not self._selected_model:
+            elif index == 6 and self.sim_plot_tab._model is not self._selected_model:
                 self.sim_plot_tab.load_model(self._selected_model)
         if index == 1:
+            self.file_explorer_tab.load_directory(self.models_tab.current_directory())
+        elif index == 2:
             self._refresh_tree()
-        elif index == 6:
+        elif index == 7:
             self.history_tab.load()
 
     def _refresh_tree(self):

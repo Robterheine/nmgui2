@@ -252,6 +252,30 @@ def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap
         med.cubicTo(s*0.4, s - m - s*0.26, s*0.6, s - m - s*0.20, s - m*0.9, s - m - s*0.52)
         p.drawPath(med)
 
+    elif name == 'fileexplorer':
+        # Document with folded corner and text lines — file browser
+        sw = max(1.5, s * 0.07); pen.setWidthF(sw); p.setPen(pen)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        m = s * 0.12; fold = s * 0.22
+        path = QPainterPath()
+        path.moveTo(m, m)
+        path.lineTo(s - m - fold, m)
+        path.lineTo(s - m, m + fold)
+        path.lineTo(s - m, s - m)
+        path.lineTo(m, s - m)
+        path.closeSubpath()
+        p.drawPath(path)
+        fold_path = QPainterPath()
+        fold_path.moveTo(s - m - fold, m)
+        fold_path.lineTo(s - m - fold, m + fold)
+        fold_path.lineTo(s - m, m + fold)
+        p.drawPath(fold_path)
+        pen2 = QPen(c); pen2.setWidthF(sw * 0.8); pen2.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen2)
+        for frac in [0.46, 0.60, 0.74]:
+            y = s * frac
+            p.drawLine(QPointF(s * 0.25, y), QPointF(s * 0.78, y))
+
     p.end()
     return px
 

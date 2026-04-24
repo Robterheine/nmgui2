@@ -192,8 +192,9 @@ class _ModelsTable(QTableWidget):
 
 
 class ModelsTab(QWidget):
-    model_selected = pyqtSignal(dict)
-    status_msg     = pyqtSignal(str)
+    model_selected     = pyqtSignal(dict)
+    status_msg         = pyqtSignal(str)
+    directory_changed  = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -552,6 +553,7 @@ class ModelsTab(QWidget):
         if d != self._directory:
             self._ref_model_path = None
         self._directory = d; s = load_settings(); s['working_directory'] = d; save_settings(s)
+        self.directory_changed.emit(d)
         self._run_records_cache = load_run_records(d)[:30]
         # Reconcile detached runs from previous sessions; reload live descriptors
         if not IS_WIN:
@@ -847,6 +849,8 @@ class ModelsTab(QWidget):
         m = self._current_model
         if not m: return
         menu = QMenu(self)
+        menu.addAction('Run', self._run_model)
+        menu.addSeparator()
         menu.addAction('* Toggle star', self._toggle_star)
         menu.addAction('Duplicate…', self._duplicate)
         menu.addSeparator()
@@ -864,8 +868,11 @@ class ModelsTab(QWidget):
         menu.addSeparator()
         menu.addAction('Copy .mod path', self._copy_mod_path)
         menu.addAction('Copy folder path', self._copy_folder_path)
+        menu.addAction('Open folder', self._open_folder)
         menu.addSeparator()
         menu.addAction('View .lst', self._view_lst)
+        if m.get('has_run'):
+            menu.addAction('View .ext', self._view_ext)
         menu.addAction('View run record…', self._view_run_record)
         menu.addAction('NMTRAN messages…', self._show_nmtran)
         menu.addSeparator()
@@ -875,6 +882,8 @@ class ModelsTab(QWidget):
         if len([x for x in self._all_models if x.get('has_run')]) > 1:
             menu.addSeparator()
             menu.addAction('Workbench…', self._open_workbench)
+        menu.addSeparator()
+        menu.addAction('Delete…', self._delete_model)
         menu.exec(QCursor.pos())
 
     def _copy_mod_path(self):
@@ -889,6 +898,20 @@ class ModelsTab(QWidget):
         folder = str(Path(m['path']).parent)
         QApplication.clipboard().setText(folder)
         self.status_msg.emit(f'Copied: {folder}')
+
+    def _open_folder(self):
+        m = self._current_model
+        if not m or not m.get('path'): return
+        folder = str(Path(m['path']).parent)
+        try:
+            if IS_WIN:
+                import os; os.startfile(folder)
+            elif IS_MAC:
+                subprocess.Popen(['open', folder])
+            else:
+                subprocess.Popen(['xdg-open', folder])
+        except Exception as e:
+            QMessageBox.warning(self, 'Open folder', str(e))
 
     def _set_reference(self):
         m = self._current_model
@@ -975,6 +998,24 @@ class ModelsTab(QWidget):
         dlg = LstViewerDialog(m['stem'], text, self)
         dlg.show()  # non-modal so user can keep working
 
+    def _view_ext(self):
+        m = self._current_model
+        if not m: return
+        ext_path = Path(m['path']).with_suffix('.ext')
+        if not ext_path.is_file():
+            sub = Path(m['path']).parent / m['stem'] / (m['stem'] + '.ext')
+            if sub.is_file():
+                ext_path = sub
+            else:
+                QMessageBox.information(self, 'View .ext', f'No .ext file found for {m["stem"]}.')
+                return
+        try:
+            text = ext_path.read_text('utf-8', errors='replace')
+        except Exception as e:
+            QMessageBox.warning(self, 'Error', str(e)); return
+        dlg = LstViewerDialog(f'{m["stem"]}.ext', text, self)
+        dlg.show()
+
     def _view_run_record(self):
         m = self._current_model
         if not m: return
@@ -999,6 +1040,66 @@ class ModelsTab(QWidget):
         m = self._current_model
         if not m: return
         dlg = NMTRANPanel(m, self); dlg.exec()
+
+    def _delete_model(self):
+        import shutil
+        m = self._current_model
+        if not m: return
+        stem = m['stem']
+        mod_path = Path(m['path'])
+        folder = mod_path.parent
+
+        # Parse $DATA to identify the dataset — never delete it
+        dataset_path = None
+        try:
+            content = mod_path.read_text('utf-8', errors='replace')
+            ds_match = re.search(r'^\s*\$DATA\s+(\S+)', content, re.MULTILINE | re.IGNORECASE)
+            if ds_match:
+                raw = ds_match.group(1)
+                dp = Path(raw) if Path(raw).is_absolute() else (folder / raw).resolve()
+                if dp.is_file():
+                    dataset_path = dp.resolve()
+        except Exception:
+            pass
+
+        to_delete = [
+            f for f in folder.iterdir()
+            if f.is_file() and f.stem == stem
+            and (dataset_path is None or f.resolve() != dataset_path)
+        ]
+        sub_dir = folder / stem
+
+        names = sorted(f.name for f in to_delete)
+        if sub_dir.is_dir():
+            names.append(f'{stem}/ (directory)')
+        if not names:
+            QMessageBox.information(self, 'Delete', 'No files found to delete.')
+            return
+
+        detail = '\n'.join(names)
+        if dataset_path:
+            detail += '\n\n(Dataset file excluded)'
+        reply = QMessageBox.question(
+            self, 'Confirm Delete',
+            f'Delete {stem} and all associated files?\n\n{detail}',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes: return
+
+        errors = []
+        for f in to_delete:
+            try: f.unlink()
+            except Exception as e: errors.append(f'{f.name}: {e}')
+        if sub_dir.is_dir():
+            try: shutil.rmtree(sub_dir)
+            except Exception as e: errors.append(f'{stem}/: {e}')
+
+        if errors:
+            QMessageBox.warning(self, 'Delete', 'Some files could not be deleted:\n' + '\n'.join(errors))
+        else:
+            self.status_msg.emit(f'Deleted {stem}')
+        self._current_model = None
+        self._scan()
 
     # ── Save / duplicate ──────────────────────────────────────────────────────
     def _save_model(self):
