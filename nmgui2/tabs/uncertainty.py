@@ -187,115 +187,144 @@ class BootstrapParser:
         }
 
     def _assess(self) -> dict:
+        """Diagnostic assessment for a bootstrap run.
+
+        Philosophy: bootstrap diagnostics are *informative*, not pass/fail
+        gates.  An imperfect diagnostic doesn't invalidate the resampled
+        distribution — it tells the user what to inspect.  Status 'fail'
+        is reserved for genuinely catastrophic outcomes (e.g. <30 % runs
+        completed); everything else is at most 'warning' (= "note worth
+        reading") or 'pass'.
+        """
         checks = []
 
-        # 1. Completion rate
+        # ── 1. Completion rate ───────────────────────────────────────────
         rate = self.n_successful / max(1, self.n_requested)
-        if rate >= BOOT_COMPLETION_PASS:
+        if rate >= BOOT_COMPLETION_PASS:           # ≥90 %
             status = 'pass'
-            interp = 'Excellent completion rate.'
-        elif rate >= BOOT_COMPLETION_WARN:
+            interp = ('Strong completion — bootstrap distribution well '
+                      'supported.')
+        elif rate >= BOOT_COMPLETION_WARN:         # ≥80 %
             status = 'pass'
-            interp = 'Good completion rate.'
-        elif rate >= BOOT_COMPLETION_FAIL:
+            interp = 'Healthy completion rate.'
+        elif rate >= BOOT_COMPLETION_FAIL:         # ≥70 %
             status = 'warning'
-            interp = 'Borderline completion. Results usable but precision may be affected.'
+            interp = ('Moderate completion. Inspect the failed runs '
+                      '(usually boundary or covariance-step issues); '
+                      'CIs remain informative.')
+        elif rate >= 0.30:
+            status = 'warning'
+            interp = ('Many runs failed to minimize. Review failure modes '
+                      'and consider increasing sample count, but the '
+                      'resampled distribution is still usable for CI '
+                      'estimation.')
         else:
             status = 'fail'
-            interp = 'Too many failures. Results unreliable.'
+            interp = ('Most runs failed. Insufficient distribution for '
+                      'reliable CIs — review original-model stability '
+                      'and re-run with more samples.')
 
         checks.append({
             'name': 'Completion rate',
             'status': status,
             'value': f'{rate*100:.1f}% ({self.n_successful}/{self.n_requested})',
-            'interpretation': interp
+            'interpretation': interp,
         })
 
         if not self.samples_df:
-            return {'overall': 'FAILED', 'checks': checks}
+            return {
+                'overall': 'ATTENTION',
+                'overall_summary': 'No usable bootstrap samples to assess.',
+                'checks': checks,
+            }
 
-        # 2. Bias assessment
+        # ── 2. Bias (median vs original estimate) ───────────────────────
         biases = {}
-        max_bias = 0
-        flagged_params = []
+        max_bias = 0.0
+        flagged: list = []
         for col in self.param_cols:
             orig_val = self.original.get(col, 0)
             sample_vals = [s[col] for s in self.samples_df if col in s]
             if not sample_vals:
                 continue
-            sample_vals.sort()
             median_val = statistics.median(sample_vals)
-
-            if abs(orig_val) > 1e-6:
-                bias = abs(median_val - orig_val) / abs(orig_val)
-            else:
-                bias = abs(median_val - orig_val)
+            bias = (abs(median_val - orig_val) / abs(orig_val)
+                    if abs(orig_val) > 1e-6
+                    else abs(median_val - orig_val))
             biases[col] = bias
             if bias > max_bias:
                 max_bias = bias
-            if bias >= BOOT_BIAS_WARN:
-                flagged_params.append(col)
+            if bias >= BOOT_BIAS_WARN:             # ≥20 %
+                flagged.append(col)
 
-        if max_bias < BOOT_BIAS_PASS:
+        if max_bias < BOOT_BIAS_PASS:              # <10 %
             status = 'pass'
-            value = 'All parameters < 10% deviation'
-            interp = 'No evidence of bias.'
-        elif max_bias < BOOT_BIAS_WARN:
+            value  = 'All parameter medians within 10% of original'
+            interp = 'No notable bias.'
+        elif max_bias < BOOT_BIAS_WARN:            # <20 %
             status = 'pass'
-            value = f'{len(flagged_params)} parameter(s) with 10-20% deviation'
-            interp = 'Minor deviation, likely sampling noise.'
-        elif max_bias < BOOT_BIAS_FAIL:
+            value  = f'Max bias {max_bias*100:.0f}%'
+            interp = 'Small deviations consistent with sampling noise.'
+        elif max_bias < BOOT_BIAS_FAIL:            # <50 %
             status = 'warning'
-            value = f'{len(flagged_params)} parameter(s) > 20% deviation: {", ".join(flagged_params[:3])}'
-            interp = 'Moderate bias detected. May indicate model instability.'
-        else:
-            status = 'fail'
-            value = f'{len(flagged_params)} parameter(s) > 50% deviation'
-            interp = 'Severe bias. Original estimates likely unreliable.'
+            value  = f'{len(flagged)} parameter(s) >20%: {", ".join(flagged[:3])}'
+            interp = ('Notable median-vs-estimate bias for some parameters. '
+                      'Often reflects boundary effects or weak '
+                      'identifiability — bootstrap median is often a '
+                      'better central value to report.')
+        else:                                       # ≥50 %
+            status = 'warning'
+            value  = f'{len(flagged)} parameter(s) >50%: {", ".join(flagged[:3])}'
+            interp = ('Large bias on some parameters. The bootstrap is '
+                      'surfacing instability or boundary effects — '
+                      'parameter CIs still describe the uncertainty range '
+                      'but consider whether those parameters are '
+                      'identifiable as specified.')
 
         checks.append({
             'name': 'Bias assessment',
             'status': status,
             'value': value,
             'interpretation': interp,
-            'details': biases
+            'details': biases,
         })
 
-        # 3. Correlation check
+        # ── 3. Parameter correlations ───────────────────────────────────
         if HAS_NP and len(self.samples_df) >= 10:
-            # Build matrix
-            data_matrix = []
-            for s in self.samples_df:
-                row = [s.get(col, float('nan')) for col in self.param_cols]
-                data_matrix.append(row)
-            data_matrix = np.array(data_matrix)
-
-            # Compute correlation
+            data_matrix = np.array([
+                [s.get(col, float('nan')) for col in self.param_cols]
+                for s in self.samples_df
+            ])
             try:
                 corr_matrix = np.corrcoef(data_matrix, rowvar=False)
                 np.fill_diagonal(corr_matrix, 0)
-                max_corr = np.nanmax(np.abs(corr_matrix))
-
-                if max_corr < BOOT_CORR_WARN:
+                max_corr = float(np.nanmax(np.abs(corr_matrix)))
+                if max_corr < BOOT_CORR_WARN:              # <0.90
                     status = 'pass'
                     interp = 'Parameters adequately distinguished.'
-                elif max_corr < BOOT_CORR_FAIL:
+                elif max_corr < BOOT_CORR_FAIL:            # <0.99
                     status = 'warning'
-                    interp = 'High correlation may indicate overparameterization.'
+                    interp = ('Strong correlation between some parameters. '
+                              'Suggests overparameterization — model '
+                              'reduction (fixing or merging parameters) '
+                              'may improve identifiability.')
                 else:
-                    status = 'fail'
-                    interp = 'Near-perfect correlation. Parameters not independently identifiable.'
-
+                    status = 'warning'
+                    interp = ('Near-perfect correlations detected — '
+                              'genuine identifiability issue. Bootstrap is '
+                              'doing its job by surfacing this; consider '
+                              'simplifying the model before final '
+                              'reporting.')
                 checks.append({
                     'name': 'Parameter correlations',
                     'status': status,
                     'value': f'Max |r| = {max_corr:.2f}',
-                    'interpretation': interp
+                    'interpretation': interp,
                 })
             except Exception:
-                pass  # skip correlation check if numpy fails
+                pass
 
-        # 4. Confidence interval validity
+        # ── 4. CI validity (does CI cover the original?) ────────────────
         ci_issues = []
         for col in self.param_cols:
             orig_val = self.original.get(col, 0)
@@ -309,72 +338,97 @@ class BootstrapParser:
 
         if not ci_issues:
             status = 'pass'
-            value = 'All CIs include point estimate'
-            interp = 'Expected behavior.'
+            value  = 'All 95% CIs include the point estimate'
+            interp = 'Expected behavior — original estimates within CIs.'
         elif len(ci_issues) <= 2:
             status = 'warning'
-            value = f'{len(ci_issues)} CI(s) exclude estimate: {", ".join(ci_issues)}'
-            interp = 'Unusual but not necessarily wrong. Suggests skewed distribution.'
+            value  = f'{len(ci_issues)} CI(s) exclude estimate: {", ".join(ci_issues)}'
+            interp = ('Usually indicates a skewed bootstrap distribution '
+                      'for those parameters. CIs are still informative; '
+                      'consider log-transforming or inspecting the '
+                      'parameter histogram.')
         else:
             status = 'warning'
-            value = f'{len(ci_issues)} CIs exclude point estimate'
-            interp = 'Multiple CIs exclude estimate. Check for bias or instability.'
+            value  = f'{len(ci_issues)} CIs exclude the point estimate'
+            interp = ('Several CIs do not contain their original estimate. '
+                      'Often points to boundary effects or strong skew — '
+                      'review the affected parameters individually.')
 
         checks.append({
             'name': 'CI validity',
             'status': status,
             'value': value,
-            'interpretation': interp
+            'interpretation': interp,
         })
 
-        # 5. Boundary proximity check (OMEGA parameters near zero)
+        # ── 5. Boundary proximity (variance parameters near zero) ───────
+        # Identify candidate variance parameters: non-OFV, all samples
+        # non-negative, and at least some samples below 1.0.
         boundary_issues = []
         for col in self.param_cols:
-            if not col.startswith('OMEGA'):
+            if col.lower().strip() == 'ofv':
                 continue
             sample_vals = [s[col] for s in self.samples_df if col in s]
             if not sample_vals:
                 continue
-            # Count samples near zero (< 0.001 or within 1% of zero)
+            if any(v < 0 for v in sample_vals):     # likely THETA, skip
+                continue
+            if min(sample_vals) >= 1.0:             # not near zero anywhere
+                continue
             n_near_zero = sum(1 for v in sample_vals if abs(v) < 0.001)
-            frac_at_zero = n_near_zero / len(sample_vals)
-            if frac_at_zero > 0.15:  # More than 15% near boundary
-                boundary_issues.append(f'{col} ({frac_at_zero*100:.0f}% near zero)')
+            frac = n_near_zero / len(sample_vals)
+            if frac > 0.15:
+                boundary_issues.append(f'{col} ({frac*100:.0f}%)')
 
         if not boundary_issues:
             status = 'pass'
-            value = 'No boundary issues'
-            interp = 'OMEGA parameters well away from zero boundary.'
-        elif len(boundary_issues) <= 2:
-            status = 'warning'
-            value = f'{len(boundary_issues)} OMEGA(s) cluster near zero: {", ".join(boundary_issues[:2])}'
-            interp = 'Percentile CIs may be biased upward. Consider log-transform or different parameterization.'
+            value  = 'No pile-up at zero boundary'
+            interp = 'Variance parameters well away from zero.'
         else:
             status = 'warning'
-            value = f'{len(boundary_issues)} OMEGAs near zero boundary'
-            interp = 'Multiple variance parameters hitting zero. CIs unreliable for these parameters.'
+            shown  = ', '.join(boundary_issues[:3])
+            value  = f'{len(boundary_issues)} variance param(s) near zero: {shown}'
+            interp = ('Some variance parameters cluster near zero. '
+                      'Percentile CIs for those parameters may be biased '
+                      'upward — log-transformation, fixing, or removing '
+                      'them often resolves this.')
 
         checks.append({
             'name': 'Boundary proximity',
             'status': status,
             'value': value,
-            'interpretation': interp
+            'interpretation': interp,
         })
 
-        # Overall assessment
+        # ── Overall verdict (3-tier) ─────────────────────────────────────
         n_fail = sum(1 for c in checks if c['status'] == 'fail')
         n_warn = sum(1 for c in checks if c['status'] == 'warning')
 
         if n_fail > 0:
-            overall = 'FAILED'
-        elif n_warn > 2:
-            overall = 'WARNING'
-        elif n_warn > 0:
-            overall = 'ACCEPTABLE'
+            overall = 'ATTENTION'
+            summary = ('Critical issue detected (see notes below). '
+                       'Re-running with adjusted settings is recommended '
+                       'before relying on these CIs.')
+        elif n_warn >= 3:
+            overall = 'REVIEW'
+            summary = ('Several diagnostics flagged. Read each note to '
+                       'decide what to refine; results are typically '
+                       'usable with the caveats described.')
+        elif n_warn >= 1:
+            overall = 'REVIEW'
+            summary = ('Some diagnostics worth reviewing — see notes. '
+                       'Results are typically usable for reporting.')
         else:
-            overall = 'PASSED'
+            overall = 'OK'
+            summary = ('All diagnostics in typical ranges. Bootstrap CIs '
+                       'ready for reporting.')
 
-        return {'overall': overall, 'checks': checks, 'biases': biases}
+        return {
+            'overall': overall,
+            'overall_summary': summary,
+            'checks': checks,
+            'biases': biases,
+        }
 
     def _parse_bootstrap_results(self) -> dict:
         """Parse bootstrap_results.csv multi-section format.
@@ -700,184 +754,248 @@ class SIRParser:
             return float('nan')
 
     def _assess(self) -> dict:
+        """Diagnostic assessment for a SIR run.
+
+        Philosophy: SIR's dOFV diagnostics test whether the proposal
+        matches the theoretical χ² target.  In real PK/PD models the K-S
+        test almost always rejects equality — that's a calibration note,
+        not a verdict on the resamples.  What actually determines whether
+        the CIs are usable is *resample diversity* (ESS), parameter
+        centering, and absence of boundary pile-up.  Status 'fail' is
+        therefore reserved for true catastrophes (very low absolute ESS);
+        every other check is at most 'warning'.
+        """
         checks = []
 
-        # 1. dOFV K-S test
+        # ── 1. ESS — most important indicator of CI reliability ─────────
+        if self.samples:
+            n_unique  = len(set(tuple(sorted(s.items())) for s in self.samples))
+            ess_ratio = n_unique / max(1, self.n_resamples)
+
+            if ess_ratio > SIR_ESS_PASS and n_unique >= SIR_ESS_ABS_WARN:
+                status = 'pass'
+                interp = ('Diverse resampling — CIs supported by a wide '
+                          'range of unique vectors.')
+            elif ess_ratio > SIR_ESS_WARN and n_unique >= SIR_ESS_ABS_WARN:
+                status = 'pass'
+                interp = ('Good resample diversity. CIs reliable.')
+            elif ess_ratio > SIR_ESS_FAIL and n_unique >= SIR_ESS_ABS_FAIL:
+                status = 'warning'
+                interp = ('Moderate diversity. Central CI quantiles '
+                          'reliable; tail estimates depend on relatively '
+                          'few unique points. More samples or refined '
+                          'proposal could tighten estimates.')
+            elif n_unique >= 50:
+                status = 'warning'
+                interp = ('Low resample diversity. CIs convey direction '
+                          'and rough magnitude but consider increasing '
+                          'samples or refining the proposal before '
+                          'reporting precise quantiles.')
+            else:
+                status = 'fail'
+                interp = ('Very few unique resamples — CIs dominated by '
+                          'a small number of points. Re-run with more '
+                          'samples or refine the proposal before '
+                          'reporting.')
+
+            checks.append({
+                'name':           'Effective sample size',
+                'status':         status,
+                'value':          f'~{n_unique} unique / {self.n_resamples} '
+                                  f'({ess_ratio*100:.0f}%)',
+                'interpretation': interp,
+            })
+
+        # ── 2. Parameter shift (resample median vs original estimate) ───
+        if self.samples and self.original:
+            shifts = {}
+            max_shift = 0.0
+            flagged: list = []
+            for col in self.param_cols:
+                orig_val = self.original.get(col, 0)
+                sample_vals = [s[col] for s in self.samples
+                               if col in s and not math.isnan(s[col])]
+                if not sample_vals:
+                    continue
+                median_val = statistics.median(sample_vals)
+                shift = (abs(median_val - orig_val) / abs(orig_val)
+                         if abs(orig_val) > 1e-6
+                         else abs(median_val - orig_val))
+                shifts[col] = shift
+                if shift > max_shift:
+                    max_shift = shift
+                if shift >= 0.25:
+                    flagged.append(col)
+
+            if max_shift < 0.10:
+                status = 'pass'
+                value  = 'All medians within 10% of original'
+                interp = 'Well-centered resampling distributions.'
+            elif max_shift < 0.25:
+                status = 'pass'
+                value  = f'Max shift {max_shift*100:.0f}%'
+                interp = ('Modest shifts — original estimate remains a '
+                          'plausible centre.')
+            else:
+                status = 'warning'
+                value  = (f'{len(flagged)} parameter(s) shifted >25%: '
+                          f'{", ".join(flagged[:3])}')
+                interp = ('Resample median differs notably from the '
+                          'original estimate for some parameters. The '
+                          'resample median is generally the better '
+                          'central value to report; check whether those '
+                          'parameters are at boundaries or weakly '
+                          'identifiable.')
+
+            checks.append({
+                'name':           'Parameter shift',
+                'status':         status,
+                'value':          value,
+                'interpretation': interp,
+            })
+
+        # ── 3. Boundary pile-up (variance parameters near zero) ─────────
+        boundary_issues = []
+        for col in self.param_cols:
+            if col.lower().strip() == 'ofv':
+                continue
+            sample_vals = [s[col] for s in self.samples
+                           if col in s and not math.isnan(s[col])]
+            if not sample_vals:
+                continue
+            if any(v < 0 for v in sample_vals):
+                continue
+            if min(sample_vals) >= 1.0:
+                continue
+            n_at_zero = sum(1 for v in sample_vals if abs(v) < 1e-6)
+            frac      = n_at_zero / len(sample_vals)
+            if frac > 0.10:
+                boundary_issues.append(f'{col} ({frac*100:.0f}%)')
+
+        if not boundary_issues:
+            status = 'pass'
+            value  = 'No pile-up at zero boundary'
+            interp = 'Variance parameters well away from zero.'
+        else:
+            status = 'warning'
+            value  = (f'{len(boundary_issues)} variance param(s) cluster '
+                      f'near zero: {", ".join(boundary_issues[:3])}')
+            interp = ('Some variance-parameter samples sit at the lower '
+                      'bound. CIs for those parameters may be biased '
+                      'upward; log-transformation or fixing the '
+                      'parameter often helps.')
+
+        checks.append({
+            'name':           'Boundary check',
+            'status':         status,
+            'value':          value,
+            'interpretation': interp,
+        })
+
+        # ── 4. dOFV χ² goodness of fit (calibration note) ───────────────
+        # K-S is overpowered with N ≥ 1000; treated as informational only.
         if HAS_SCIPY and len(self.dofv) >= 50:
             try:
-                stat, pval = scipy_kstest(self.dofv, 'chi2', args=(self.df,))
-                if pval > SIR_KS_PASS:
+                _stat, pval = scipy_kstest(self.dofv, 'chi2', args=(self.df,))
+                if pval > SIR_KS_PASS:                  # >0.05
                     status = 'pass'
-                    interp = f'dOFV distribution consistent with χ²({self.df}).'
-                elif pval > SIR_KS_WARN:
+                    interp = (f'Empirical dOFV closely tracks theoretical '
+                              f'χ²(df={self.df}) — proposal well calibrated.')
+                elif pval > SIR_KS_WARN:                # >0.01
                     status = 'pass'
-                    interp = 'Marginally consistent with theoretical distribution.'
+                    interp = ('Mild deviation from theoretical χ². Common '
+                              'with non-linear models; CIs reliable.')
                 else:
-                    status = 'fail'
-                    interp = 'Significant deviation from χ². SIR proposal may be inappropriate.'
-
+                    status = 'warning'
+                    interp = ('Empirical dOFV departs from theoretical '
+                              'χ². This is frequent in real PK/PD models '
+                              'and reflects proposal imperfection rather '
+                              'than broken results — resample CIs are '
+                              'still informative when ESS and parameter '
+                              'shifts are healthy. Adding SIR iterations '
+                              'or expanding the proposal often improves '
+                              'the fit.')
                 checks.append({
-                    'name': 'dOFV K-S test',
-                    'status': status,
-                    'value': f'p = {pval:.3f} (χ² df={self.df})',
-                    'interpretation': interp
+                    'name':           'dOFV χ² goodness of fit',
+                    'status':         status,
+                    'value':          f'p = {pval:.3f}  (χ² df={self.df})',
+                    'interpretation': interp,
                 })
             except Exception:
                 pass
 
-        # 2. dOFV median check
+        # ── 5. dOFV median (calibration of central tendency) ────────────
         if self.dofv:
             observed_median = statistics.median(self.dofv)
-            # Theoretical median of chi-square ≈ df * (1 - 2/(9*df))^3
-            if self.df > 0:
-                theoretical_median = self.df * (1 - 2/(9*self.df))**3
-            else:
-                theoretical_median = self.df
+            theoretical_median = (self.df * (1 - 2/(9*self.df))**3
+                                  if self.df > 0 else 0.0)
+            deviation = (abs(observed_median - theoretical_median) / theoretical_median
+                         if theoretical_median > 0 else 0.0)
 
-            if theoretical_median > 0:
-                deviation = abs(observed_median - theoretical_median) / theoretical_median
-            else:
-                deviation = 0
-
-            if deviation < SIR_MEDIAN_PASS:
+            if deviation < SIR_MEDIAN_PASS:                  # <15 %
                 status = 'pass'
-                interp = 'Median close to expected value.'
-            elif deviation < SIR_MEDIAN_WARN:
-                status = 'warning'
-                interp = 'Some shift from expected. May indicate proposal mismatch.'
+                interp = ('Empirical median ≈ theoretical χ² median — '
+                          'proposal centre well calibrated.')
+            elif deviation < SIR_MEDIAN_WARN:                # <30 %
+                status = 'pass'
+                interp = ('Mild off-centering of the proposal. Central '
+                          'CI quantiles likely reliable.')
             else:
-                status = 'fail'
-                interp = 'Substantial shift. Proposal distribution problematic.'
+                status = 'warning'
+                interp = ('Empirical median sits notably away from the '
+                          'theoretical χ² median, so the proposal is '
+                          'biased relative to the target. Resample CIs '
+                          'still describe actual posterior uncertainty '
+                          'and are usable; consider running additional '
+                          'SIR iterations to tighten tail quantiles.')
 
             checks.append({
-                'name': 'dOFV median',
-                'status': status,
-                'value': f'{observed_median:.1f} vs expected {theoretical_median:.1f} ({deviation*100:+.0f}%)',
-                'interpretation': interp
+                'name':           'dOFV median calibration',
+                'status':         status,
+                'value':          f'{observed_median:.1f} vs expected '
+                                  f'{theoretical_median:.1f} '
+                                  f'({deviation*100:+.0f}%)',
+                'interpretation': interp,
             })
 
-        # 3. Effective sample size (approximation)
-        if self.samples:
-            # Simple approximation: count unique resampled vectors
-            n_unique = len(set(tuple(sorted(s.items())) for s in self.samples))
-            ess_ratio = n_unique / max(1, self.n_resamples)
-
-            if ess_ratio > SIR_ESS_PASS:
-                status = 'pass'
-                interp = 'Excellent resampling efficiency.'
-            elif ess_ratio > SIR_ESS_WARN:
-                status = 'pass'
-                interp = 'Good efficiency.'
-            elif ess_ratio > SIR_ESS_FAIL:
-                status = 'warning'
-                interp = 'Moderate efficiency. Consider increasing samples.'
-            else:
-                status = 'fail'
-                interp = 'Poor efficiency. Results may be dominated by few samples.'
-
-            # Also check absolute ESS
-            if n_unique < SIR_ESS_ABS_FAIL:
-                status = 'fail'
-                interp = f'ESS below minimum threshold ({SIR_ESS_ABS_FAIL}).'
-            elif n_unique < SIR_ESS_ABS_WARN and status == 'pass':
-                status = 'warning'
-                interp = 'ESS somewhat low. Results usable but consider more samples.'
-
-            checks.append({
-                'name': 'Effective sample size',
-                'status': status,
-                'value': f'~{n_unique} unique / {self.n_resamples} ({ess_ratio*100:.0f}%)',
-                'interpretation': interp
-            })
-
-        # 4. Parameter shift check
-        if self.samples and self.original:
-            shifts = {}
-            max_shift = 0
-            for col in self.param_cols:
-                orig_val = self.original.get(col, 0)
-                sample_vals = [s[col] for s in self.samples if col in s and not math.isnan(s[col])]
-                if not sample_vals:
-                    continue
-                sample_vals.sort()
-                median_val = statistics.median(sample_vals)
-                if abs(orig_val) > 1e-6:
-                    shift = abs(median_val - orig_val) / abs(orig_val)
-                else:
-                    shift = abs(median_val - orig_val)
-                shifts[col] = shift
-                if shift > max_shift:
-                    max_shift = shift
-
-            if max_shift < 0.10:
-                status = 'pass'
-                value = 'All parameters < 10% shift'
-                interp = 'Well-centered distributions.'
-            elif max_shift < 0.25:
-                status = 'warning'
-                value = f'Max shift {max_shift*100:.0f}%'
-                interp = 'Moderate shift. Original estimate may be at edge of uncertainty region.'
-            else:
-                status = 'warning'
-                value = f'Max shift {max_shift*100:.0f}%'
-                interp = 'Substantial shift from point estimate.'
-
-            checks.append({
-                'name': 'Parameter shift',
-                'status': status,
-                'value': value,
-                'interpretation': interp
-            })
-
-        # 5. Boundary pile-up (check if many samples at lower bound 0 for omegas)
-        boundary_issues = []
-        for col in self.param_cols:
-            if not col.startswith('OMEGA'):
-                continue
-            sample_vals = [s[col] for s in self.samples if col in s and not math.isnan(s[col])]
-            if not sample_vals:
-                continue
-            n_at_zero = sum(1 for v in sample_vals if abs(v) < 1e-8)
-            frac_at_zero = n_at_zero / len(sample_vals)
-            if frac_at_zero > 0.15:
-                boundary_issues.append(f'{col} ({frac_at_zero*100:.0f}%)')
-            elif frac_at_zero > 0.05:
-                boundary_issues.append(f'{col} ({frac_at_zero*100:.0f}%)')
-
-        if not boundary_issues:
-            status = 'pass'
-            value = 'No pile-up detected'
-            interp = 'No boundary issues.'
-        elif any('(' in b and int(b.split('(')[1].rstrip('%)')) > 15 for b in boundary_issues):
-            status = 'fail'
-            value = f'Pile-up: {", ".join(boundary_issues[:3])}'
-            interp = 'Substantial pile-up at bounds. CI may be artificially narrow.'
-        else:
-            status = 'warning'
-            value = f'Minor: {", ".join(boundary_issues[:3])}'
-            interp = 'Some truncation at bounds.'
-
-        checks.append({
-            'name': 'Boundary check',
-            'status': status,
-            'value': value,
-            'interpretation': interp
-        })
-
-        # Overall assessment
+        # ── Overall verdict (3-tier) ─────────────────────────────────────
         n_fail = sum(1 for c in checks if c['status'] == 'fail')
         n_warn = sum(1 for c in checks if c['status'] == 'warning')
 
-        if n_fail > 0:
-            overall = 'FAILED'
-        elif n_warn > 2:
-            overall = 'WARNING'
-        elif n_warn > 0:
-            overall = 'ACCEPTABLE'
-        else:
-            overall = 'PASSED'
+        # Were the only warnings the dOFV calibration ones?  In SIR these
+        # frequently fire without invalidating the resamples.
+        ess_warn = any(c['name'].startswith('Effective')
+                       and c['status'] == 'warning' for c in checks)
+        shift_warn = any(c['name'].startswith('Parameter shift')
+                         and c['status'] == 'warning' for c in checks)
+        boundary_warn = any(c['name'].startswith('Boundary')
+                            and c['status'] == 'warning' for c in checks)
 
-        return {'overall': overall, 'checks': checks}
+        if n_fail > 0:
+            overall = 'ATTENTION'
+            summary = ('A core diagnostic indicates results are not yet '
+                       'stable. Re-run with more samples or a refined '
+                       'proposal before reporting.')
+        elif ess_warn or shift_warn or boundary_warn:
+            overall = 'REVIEW'
+            summary = ('Some resample-side diagnostics flagged below — '
+                       'these affect CI usability, so read each note.')
+        elif n_warn >= 1:
+            overall = 'REVIEW'
+            summary = ('Proposal-calibration notes only (resample-side '
+                       'diagnostics are healthy). CIs are typically '
+                       'usable for reporting; running more SIR '
+                       'iterations would tighten tail quantiles.')
+        else:
+            overall = 'OK'
+            summary = ('All diagnostics in typical ranges. SIR CIs ready '
+                       'for reporting.')
+
+        return {
+            'overall': overall,
+            'overall_summary': summary,
+            'checks': checks,
+        }
 
     def get_parameter_table(self, sir_sections: dict | None = None) -> list:
         """Return list of dicts with parameter estimates, CIs and RSE.
@@ -1669,54 +1787,57 @@ class ParameterUncertaintyTab(QWidget):
         if not self._results:
             return
 
-        method = self._results['method'].upper()
-        diag = self._results['diagnostics']
-        overall = diag['overall']
+        method  = self._results['method'].upper()
+        diag    = self._results['diagnostics']
+        overall = diag.get('overall', 'OK')
+        summary = diag.get('overall_summary', '')
 
-        # Color-code overall status
-        if overall == 'PASSED':
-            color = T('green')
-            icon = '●'
-        elif overall == 'ACCEPTABLE':
-            color = T('accent')
-            icon = '●'
-        elif overall == 'WARNING':
-            color = T('orange')
-            icon = '●'
-        else:
-            color = T('red')
-            icon = '●'
+        # Three-tier verdict colour scheme (OK / REVIEW / ATTENTION).
+        # Legacy labels (PASSED / ACCEPTABLE / WARNING / FAILED) are
+        # mapped for back-compat, in case any cached state is read.
+        VERDICT = {
+            'OK':         (T('green'),  '●'),
+            'PASSED':     (T('green'),  '●'),
+            'ACCEPTABLE': (T('green'),  '●'),
+            'REVIEW':     (T('orange'), '●'),
+            'WARNING':    (T('orange'), '●'),
+            'ATTENTION':  (T('red'),    '●'),
+            'FAILED':     (T('red'),    '●'),
+        }
+        color, icon = VERDICT.get(overall, (T('orange'), '●'))
 
         html = f'''
         <div style="font-family: system-ui; color: {T('fg')};">
-            <h3 style="margin: 0 0 12px 0;">{method} Assessment</h3>
-            <p style="font-size: 16px; margin: 0 0 16px 0;">
+            <h3 style="margin: 0 0 8px 0;">{method} Assessment</h3>
+            <p style="font-size: 16px; margin: 0 0 6px 0;">
                 Overall: <span style="color: {color}; font-weight: bold;">{icon} {overall}</span>
             </p>
-            <table style="border-collapse: collapse; width: 100%;">
         '''
+        if summary:
+            html += (f'<p style="margin: 0 0 16px 0; color: {T("fg2")}; '
+                     f'font-size: 12px; line-height: 1.4;">{summary}</p>')
+        html += '<table style="border-collapse: collapse; width: 100%;">'
 
         for check in diag['checks']:
             status = check['status']
             if status == 'pass':
-                s_icon = '✓'
-                s_color = T('green')
+                s_icon, s_color = '✓', T('green')
             elif status == 'warning':
-                s_icon = '⚠'
-                s_color = T('orange')
-            else:
-                s_icon = '✗'
-                s_color = T('red')
+                # Information note — not an error.  Use 'i' icon so users
+                # don't read bootstrap / SIR diagnostics as failures.
+                s_icon, s_color = 'ℹ', T('orange')
+            else:                                 # 'fail' (rare)
+                s_icon, s_color = '⚠', T('red')
 
             html += f'''
                 <tr style="border-bottom: 1px solid {T('border')};">
-                    <td style="padding: 8px 4px; color: {s_color}; width: 24px;">{s_icon}</td>
+                    <td style="padding: 8px 4px; color: {s_color}; width: 24px; font-weight: bold;">{s_icon}</td>
                     <td style="padding: 8px 4px; font-weight: 500;">{check['name']}</td>
                     <td style="padding: 8px 4px; color: {T('fg2')};">{check['value']}</td>
                 </tr>
                 <tr>
                     <td></td>
-                    <td colspan="2" style="padding: 4px 4px 12px 4px; color: {T('fg2')}; font-size: 12px;">
+                    <td colspan="2" style="padding: 4px 4px 12px 4px; color: {T('fg2')}; font-size: 12px; line-height: 1.45;">
                         {check.get('interpretation', '')}
                     </td>
                 </tr>
