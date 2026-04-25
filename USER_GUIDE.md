@@ -117,34 +117,45 @@ PsN `bootstrap` and `sir` commands. Loading *existing* results folders works wit
 Click **New model…** or press ⌘N / Ctrl+N to open the New Model dialog:
 
 - **Model name** — stem (no extension). Must start with a letter; letters, digits, `_` and `-` allowed. The destination path is shown live below the field.
-- **Template** — choose from 17 built-in NONMEM templates (see below).
+- **Template** — choose from 26 built-in NONMEM templates (see below).
 - **$DATA path** — type or **Browse…** to pick a dataset file. Stored as a relative path when inside the working directory.
 - **Preview…** — renders the full control file text before writing.
 - **OK** — writes `<stem>.mod`, rescans the directory, and auto-selects the new model with the Editor tab open.
 
 #### Available templates
 
-| Category | Template |
-|---|---|
-| Analytical | \$PRED subroutine blank |
-| Analytical | 1-CMT oral (ADVAN2 TRANS2) |
-| Analytical | 1-CMT IV bolus (ADVAN1 TRANS2) |
-| Analytical | 2-CMT oral (ADVAN4 TRANS4) |
-| Analytical | 2-CMT IV bolus (ADVAN3 TRANS4) |
-| ODE — Tier 1 | 1-CMT Michaelis-Menten IV (ADVAN6) |
-| ODE — Tier 1 | 1-CMT Michaelis-Menten oral (ADVAN6) |
-| ODE — Tier 1 | 2-CMT time-varying CL oral — sigmoid Imax (ADVAN6) |
-| ODE — Tier 1 | QE-TMDD 1-CMT IV (ADVAN6) |
-| ODE — Tier 1 | Wagner 1-CMT IV — TMDD Rtot constant (ADVAN6) |
-| ODE — Tier 1 | Dual first-order absorption 1-CMT (ADVAN6) |
-| ODE — Tier 1 | Parallel first-order absorption + lag 1-CMT (ADVAN6) |
-| ODE — Tier 2 | QE-TMDD 1-CMT oral (ADVAN6) |
-| ODE — Tier 2 | QE-TMDD 2-CMT IV (ADVAN6) |
-| ODE — Tier 2 | Zero-order absorption + MM elimination (ADVAN6) |
-| ODE — Tier 2 | Simultaneous first+zero order absorption 1-CMT (ADVAN6) |
-| ODE — Tier 2 | 2-CMT IV + urine compartment (ADVAN6) |
+| Category | Template | Notes |
+|---|---|---|
+| Analytical | \$PRED subroutine blank | Minimal $PRED scaffold |
+| Analytical | 1-CMT oral (ADVAN2 TRANS2) | KA, CL, V with IIV |
+| Analytical | 1-CMT IV bolus (ADVAN1 TRANS2) | CL, V with IIV |
+| Analytical | 2-CMT oral (ADVAN4 TRANS4) | KA, CL, Q, V2, V3 |
+| Analytical | 2-CMT IV bolus (ADVAN3 TRANS4) | CL, Q, V1, V2 |
+| Analytical | 3-CMT IV bolus (ADVAN11 TRANS4) | CL, Q2, Q3, V1, V2, V3 |
+| Analytical | 3-CMT oral (ADVAN12 TRANS4) | KA, CL, Q3, Q4, V2, V3, V4 |
+| ODE — Tier 1 | 1-CMT Michaelis-Menten IV (ADVAN6) | Non-linear (Vmax/Km) elimination |
+| ODE — Tier 1 | 1-CMT Michaelis-Menten oral (ADVAN6) | MM elimination + oral absorption |
+| ODE — Tier 1 | 2-CMT time-varying CL oral — sigmoid Imax (ADVAN6) | Auto-induction / inhibition |
+| ODE — Tier 1 | QE-TMDD 1-CMT IV (ADVAN6) | Quasi-equilibrium TMDD |
+| ODE — Tier 1 | Wagner 1-CMT IV — TMDD Rtot constant (ADVAN6) | Simplified TMDD (fixed Rtot) |
+| ODE — Tier 1 | Dual first-order absorption 1-CMT (ADVAN6) | Two parallel absorption depots |
+| ODE — Tier 1 | Parallel first-order absorption + lag 1-CMT (ADVAN6) | Two depots, lag on one |
+| ODE — Tier 1 | Transit compartment absorption 1-CMT (ADVAN6) | N=3 transit CMTs, Savic 2007 |
+| ODE — Tier 2 | QE-TMDD 1-CMT oral (ADVAN6) | SC/oral TMDD |
+| ODE — Tier 2 | QE-TMDD 2-CMT IV (ADVAN6) | 2-CMT TMDD with peripheral |
+| ODE — Tier 2 | Zero-order absorption + MM elimination (ADVAN6) | Extended-release + non-linear |
+| ODE — Tier 2 | Simultaneous first+zero order absorption 1-CMT (ADVAN6) | Mixed-release |
+| ODE — Tier 2 | 2-CMT IV + urine compartment (ADVAN6) | Dual DVID: plasma + urine |
+| PK/PD | Direct Emax PK/PD (ADVAN1) | E = E0 + EMAX·C/(EC50+C); dual DVID |
+| PK/PD | Sigmoid Emax PK/PD (ADVAN1) | Hill equation; GAM estimated; dual DVID |
+| PK/PD | IDR Type I — inhibit Kin (ADVAN6) | Drug inhibits response production |
+| PK/PD | IDR Type II — inhibit Kout (ADVAN6) | Drug inhibits response elimination |
+| PK/PD | IDR Type III — stimulate Kin (ADVAN6) | Drug stimulates response production |
+| PK/PD | IDR Type IV — stimulate Kout (ADVAN6) | Drug stimulates response elimination |
 
 All ODE templates use `ADVAN6 TOL=6`, TV-parameterisation, combined proportional+additive residual error, and diagonal OMEGA. Dataset notes are embedded as comments where the template requires special columns (RATE, DVID).
+
+**PK/PD templates** require a `DVID` column (1 = PK concentration, 2 = PD response). Two separate EPS terms with the same W-scaling trick are used, one per endpoint. The IDR templates initialise the response compartment at steady state (`A_0(2) = KIN/KOUT`) so that a pre-dose equilibration period is not needed.
 
 ### Table columns
 
@@ -643,7 +654,7 @@ Delete `~/.nmgui/` to reset global settings. Per-project run records are not aff
 | Annotation, star, status tag | **Info sub-tab → Annotation**, Space to star |
 | File browser | **Files tab** (⌘2) — with subfolder navigation and content preview |
 | Simulation plot / PI ribbons | **Sim Plot tab** (⌘7) |
-| Create new model file | **New model…** button / ⌘N — 17 built-in templates |
+| Create new model file | **New model…** button / ⌘N — 26 built-in templates |
 | SSH / nohup workflow | **Run detached** checkbox in the Run sub-tab |
 
 ---

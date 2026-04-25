@@ -58,6 +58,16 @@ $DATA     {data_path} IGNORE=@
 
 """
 
+_HEADER_DVID_PKPD = """\
+$PROBLEM  {problem}
+
+; NOTE: dataset must include a DVID column (1=PK concentration, 2=PD response)
+$INPUT    ID TIME DV AMT MDV EVID CMT DVID
+
+$DATA     {data_path} IGNORE=@
+
+"""
+
 
 def _tail(*eta_names: str) -> str:
     """
@@ -70,6 +80,20 @@ def _tail(*eta_names: str) -> str:
         '$ESTIMATION METHOD=COND INTER MAXEVAL=9999 PRINT=5\n\n'
         '$COVARIANCE UNCOND PRINT=E MATRIX=R\n\n'
         '$TABLE    ID TIME DV IPRED CWRES ' + etas + '\\\n'
+        '          NOPRINT NOAPPEND ONEHEADER FILE={stem}.tab\n'
+    )
+
+
+def _tail_pkpd(*eta_names: str) -> str:
+    """
+    Return the estimation/covariance/table tail for PK/PD models.
+    Adds DVID to $TABLE so that the observation type is carried through.
+    """
+    etas = ' '.join(eta_names) + (' ' if eta_names else '')
+    return (
+        '$ESTIMATION METHOD=COND INTER MAXEVAL=9999 PRINT=5\n\n'
+        '$COVARIANCE UNCOND PRINT=E MATRIX=R\n\n'
+        '$TABLE    ID TIME DV DVID IPRED CWRES ' + etas + '\\\n'
         '          NOPRINT NOAPPEND ONEHEADER FILE={stem}.tab\n'
     )
 
@@ -261,6 +285,95 @@ $SIGMA
 
 """
     + _tail('ETA1', 'ETA2')
+)
+
+# ---------- 3-CMT IV bolus ------------------------------------------------------
+TEMPLATES['3-CMT IV bolus (ADVAN11 TRANS4)'] = (
+    _HEADER
+    + """\
+$SUBROUTINES ADVAN11 TRANS4
+
+$PK
+  CL  = THETA(1) * EXP(ETA(1))  ; Clearance (L/h)
+  Q2  = THETA(2)                 ; Inter-compartmental clearance — peripheral 1 (L/h)
+  Q3  = THETA(3)                 ; Inter-compartmental clearance — peripheral 2 (L/h)
+  V1  = THETA(4) * EXP(ETA(2))  ; Central volume (L)
+  V2  = THETA(5)                 ; Peripheral volume 1 (L)
+  V3  = THETA(6)                 ; Peripheral volume 2 (L)
+  S1  = V1 / 1000               ; Scaling (AMT in mg, DV in ng/mL)
+
+$ERROR
+  IPRED = F
+  W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+  Y     = IPRED + W * EPS(1)
+
+$THETA
+  (0,  10)     ; 1 CL  (L/h)
+  (0,   5)     ; 2 Q2  (L/h)
+  (0,   3)     ; 3 Q3  (L/h)
+  (0,  50)     ; 4 V1  (L)
+  (0, 100)     ; 5 V2  (L)
+  (0, 150)     ; 6 V3  (L)
+  (0,   0.2)   ; 7 Proportional error coefficient
+  (0,   1)     ; 8 Additive error (ng/mL)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V1
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary (scaled by W in $ERROR)
+
+"""
+    + _tail('ETA1', 'ETA2')
+)
+
+# ---------- 3-CMT oral ----------------------------------------------------------
+TEMPLATES['3-CMT oral (ADVAN12 TRANS4)'] = (
+    _HEADER
+    + """\
+$SUBROUTINES ADVAN12 TRANS4
+
+$PK
+  KA  = THETA(1) * EXP(ETA(1))  ; Absorption rate constant (1/h)
+  CL  = THETA(2) * EXP(ETA(2))  ; Clearance (L/h)
+  Q3  = THETA(3)                 ; Inter-compartmental clearance — peripheral 1 (L/h)
+  Q4  = THETA(4)                 ; Inter-compartmental clearance — peripheral 2 (L/h)
+  V2  = THETA(5) * EXP(ETA(3))  ; Central volume (L)
+  V3  = THETA(6)                 ; Peripheral volume 1 (L)
+  V4  = THETA(7)                 ; Peripheral volume 2 (L)
+  S2  = V2 / 1000               ; Scaling (AMT in mg, DV in ng/mL)
+
+$ERROR
+  IPRED = F
+  W     = SQRT((THETA(8)*IPRED)**2 + THETA(9)**2)
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+  Y     = IPRED + W * EPS(1)
+
+$THETA
+  (0,   1)     ; 1 KA  (1/h)
+  (0,  10)     ; 2 CL  (L/h)
+  (0,   5)     ; 3 Q3  (L/h)
+  (0,   3)     ; 4 Q4  (L/h)
+  (0,  50)     ; 5 V2  (L)
+  (0, 100)     ; 6 V3  (L)
+  (0, 150)     ; 7 V4  (L)
+  (0,   0.2)   ; 8 Proportional error coefficient
+  (0,   1)     ; 9 Additive error (ng/mL)
+
+$OMEGA
+  0.1          ; 1 IIV KA
+  0.1          ; 2 IIV CL
+  0.1          ; 3 IIV V2
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary (scaled by W in $ERROR)
+
+"""
+    + _tail('ETA1', 'ETA2', 'ETA3')
 )
 
 
@@ -743,6 +856,68 @@ $SIGMA
     + _tail('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
 )
 
+# ---------- Transit compartment absorption (Savic 2007) -------------------------
+TEMPLATES['Transit compartment absorption 1-CMT (ADVAN6)'] = (
+    _HEADER
+    + """\
+; Transit compartment absorption model (Savic et al., 2007)
+; N = 3 transit compartments precede the central compartment.
+; Use when absorption shows a lag/shoulder shape not captured by a simple lag time.
+; KTR = (N+1)/MTT where N = number of transit compartments, MTT = mean transit time.
+$SUBROUTINES ADVAN6 TOL=6
+
+$MODEL
+  NCOMP = 5
+  COMP  = (DEPOT)     ; Dose input compartment
+  COMP  = (TRANSIT1)
+  COMP  = (TRANSIT2)
+  COMP  = (TRANSIT3)
+  COMP  = (CENTRAL)
+
+$PK
+  TVV   = THETA(1)
+  V     = TVV   * EXP(ETA(1))  ; Volume of distribution (L)
+  TVCL  = THETA(2)
+  CL    = TVCL  * EXP(ETA(2))  ; Clearance (L/h)
+  TVMTT = THETA(3)
+  MTT   = TVMTT * EXP(ETA(3))  ; Mean transit time (h)
+  N     = 3                     ; Number of transit compartments (fixed)
+  KTR   = (N + 1) / MTT        ; Transit rate constant (1/h)
+  S5    = V / 1000              ; Scaling: CMT5=CENTRAL (AMT in mg, DV in ng/mL)
+
+$DES
+  DADT(1) = -KTR * A(1)
+  DADT(2) =  KTR * A(1) - KTR * A(2)
+  DADT(3) =  KTR * A(2) - KTR * A(3)
+  DADT(4) =  KTR * A(3) - KTR * A(4)
+  DADT(5) =  KTR * A(4) - CL / V * A(5)
+
+$ERROR
+  IPRED = A(5) / V
+  W     = SQRT((THETA(4)*IPRED)**2 + THETA(5)**2)
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+  Y     = IPRED + W * EPS(1)
+
+$THETA
+  (0,  50)     ; 1 TVV   (L)
+  (0,   5)     ; 2 TVCL  (L/h)
+  (0,   2)     ; 3 TVMTT (h) — mean transit time
+  (0,   0.2)   ; 4 Proportional error coefficient
+  (0,   1)     ; 5 Additive error (ng/mL)
+
+$OMEGA
+  0.1          ; 1 IIV V
+  0.1          ; 2 IIV CL
+  0.1          ; 3 IIV MTT
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary (scaled by W in $ERROR)
+
+"""
+    + _tail('ETA1', 'ETA2', 'ETA3')
+)
+
 
 # ==============================================================================
 # ODE-BASED TEMPLATES — TIER 2  (specialist / context-specific)
@@ -1124,6 +1299,457 @@ $COVARIANCE UNCOND PRINT=E MATRIX=R
 $TABLE    ID TIME DV DVID IPRED CWRES ETA1 ETA2 ETA3 ETA4 \\
           NOPRINT NOAPPEND ONEHEADER FILE={stem}.tab
 """
+)
+
+
+# ==============================================================================
+# PK/PD TEMPLATES  (combined pharmacokinetic/pharmacodynamic models)
+# ==============================================================================
+# All PK/PD templates require a DVID column in the dataset:
+#   DVID=1 → PK observation (plasma drug concentration, ng/mL)
+#   DVID=2 → PD observation (pharmacodynamic response)
+# Two separate residual-error terms (EPS(1)/EPS(2)) are used, one per endpoint.
+# ==============================================================================
+
+# ---------- Direct Emax PK/PD (ADVAN1) ------------------------------------------
+TEMPLATES['Direct Emax PK/PD (ADVAN1)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Direct-effect Emax model (Hill coefficient = 1)
+; PK: 1-CMT IV bolus (ADVAN1 TRANS2)
+; PD: E = E0 + EMAX * C / (EC50 + C)
+; Use as starting point when you expect saturable drug effect at high concentrations.
+$SUBROUTINES ADVAN1 TRANS2
+
+$PK
+  CL   = THETA(1) * EXP(ETA(1))  ; Clearance (L/h)
+  V    = THETA(2) * EXP(ETA(2))  ; Volume of distribution (L)
+  E0   = THETA(3) * EXP(ETA(3))  ; Baseline PD response (response units)
+  EMAX = THETA(4) * EXP(ETA(4))  ; Maximum drug effect (response units)
+  EC50 = THETA(5) * EXP(ETA(5))  ; Concentration at 50% EMAX (ng/mL)
+  S1   = V / 1000                ; Scaling (AMT in mg, DV in ng/mL)
+
+$ERROR
+  CONC = F                        ; Predicted plasma concentration (ng/mL)
+  IF (DVID .EQ. 1) THEN
+    IPRED = CONC
+    W     = SQRT((THETA(6)*IPRED)**2 + THETA(7)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = E0 + EMAX * CONC / (EC50 + CONC)
+    W     = SQRT((THETA(8)*IPRED)**2 + THETA(9)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1 CL   (L/h)
+  (0,  50)     ; 2 V    (L)
+  (0,   1)     ; 3 E0   (response units)
+  (0,   2)     ; 4 EMAX (response units)
+  (0,  10)     ; 5 EC50 (ng/mL)
+  (0,   0.2)   ; 6 Proportional error — PK
+  (0,   1)     ; 7 Additive error — PK (ng/mL)
+  (0,   0.2)   ; 8 Proportional error — PD
+  (0,   0.1)   ; 9 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV E0
+  0.1          ; 4 IIV EMAX
+  0.1          ; 5 IIV EC50
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
+)
+
+# ---------- Sigmoid Emax PK/PD (ADVAN1) -----------------------------------------
+TEMPLATES['Sigmoid Emax PK/PD (ADVAN1)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Sigmoid Emax (Hill) model
+; PK: 1-CMT IV bolus (ADVAN1 TRANS2)
+; PD: E = E0 + EMAX * C^GAM / (EC50^GAM + C^GAM)
+; Use when the concentration-response relationship shows a steep sigmoidal shape.
+$SUBROUTINES ADVAN1 TRANS2
+
+$PK
+  CL   = THETA(1) * EXP(ETA(1))  ; Clearance (L/h)
+  V    = THETA(2) * EXP(ETA(2))  ; Volume of distribution (L)
+  E0   = THETA(3) * EXP(ETA(3))  ; Baseline PD response (response units)
+  EMAX = THETA(4) * EXP(ETA(4))  ; Maximum drug effect (response units)
+  EC50 = THETA(5) * EXP(ETA(5))  ; Concentration at 50% EMAX (ng/mL)
+  GAM  = THETA(6) * EXP(ETA(6))  ; Hill coefficient (dimensionless; 1 = Emax shape)
+  S1   = V / 1000                ; Scaling (AMT in mg, DV in ng/mL)
+
+$ERROR
+  CONC = F                        ; Predicted plasma concentration (ng/mL)
+  IF (DVID .EQ. 1) THEN
+    IPRED = CONC
+    W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = E0 + EMAX * CONC**GAM / (EC50**GAM + CONC**GAM)
+    W     = SQRT((THETA(9)*IPRED)**2 + THETA(10)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1  CL   (L/h)
+  (0,  50)     ; 2  V    (L)
+  (0,   1)     ; 3  E0   (response units)
+  (0,   2)     ; 4  EMAX (response units)
+  (0,  10)     ; 5  EC50 (ng/mL)
+  (0,   1)     ; 6  GAM  (Hill coefficient; start=1)
+  (0,   0.2)   ; 7  Proportional error — PK
+  (0,   1)     ; 8  Additive error — PK (ng/mL)
+  (0,   0.2)   ; 9  Proportional error — PD
+  (0,   0.1)   ; 10 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV E0
+  0.1          ; 4 IIV EMAX
+  0.1          ; 5 IIV EC50
+  0.1          ; 6 IIV GAM
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5', 'ETA6')
+)
+
+# ---------- IDR Type I — inhibition of Kin (ADVAN6) -----------------------------
+TEMPLATES['IDR Type I — inhibit Kin (ADVAN6)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Indirect Response model — Type I: drug inhibits response production rate (Kin)
+; PK: 1-CMT IV bolus (ODE)
+; PD: dR/dt = Kin*(1 - IMAX*C/(IC50+C)) - Kout*R
+; R0 = Kin/Kout (baseline SS response), initialised via A_0(2).
+; Use for responses that decrease with drug effect (e.g. cortisol suppression).
+; Ref: Dayneka et al., J Pharmacokinet Biopharm 1993; 21:457-478.
+$SUBROUTINES ADVAN6 TOL=6
+
+$MODEL
+  NCOMP = 2
+  COMP  = (CENTRAL)   ; Drug amount (mg)
+  COMP  = (RESPONSE)  ; Pharmacodynamic response
+
+$PK
+  TVCL   = THETA(1)
+  CL     = TVCL   * EXP(ETA(1))  ; Clearance (L/h)
+  TVV    = THETA(2)
+  V      = TVV    * EXP(ETA(2))  ; Volume of distribution (L)
+  TVKIN  = THETA(3)
+  KIN    = TVKIN  * EXP(ETA(3))  ; Zero-order response production rate (response/h)
+  TVKOUT = THETA(4)
+  KOUT   = TVKOUT * EXP(ETA(4))  ; First-order response elimination rate (1/h)
+  IMAX   = THETA(5)              ; Maximum inhibition fraction (bounded 0–1)
+  TVIC50 = THETA(6)
+  IC50   = TVIC50 * EXP(ETA(5))  ; Concentration at 50% IMAX (ng/mL)
+  R0     = KIN / KOUT            ; Baseline response at steady state
+  S1     = V / 1000              ; Scaling (AMT in mg, DV in ng/mL)
+  A_0(2) = R0                    ; Initialise response compartment at baseline
+
+$DES
+  C       = A(1) / V
+  INHIB   = IMAX * C / (IC50 + C)
+  DADT(1) = -CL / V * A(1)
+  DADT(2) =  KIN * (1 - INHIB) - KOUT * A(2)
+
+$ERROR
+  IF (DVID .EQ. 1) THEN
+    IPRED = A(1) / V
+    W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = A(2)
+    W     = SQRT((THETA(9)*IPRED)**2 + THETA(10)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1  TVCL   (L/h)
+  (0,  50)     ; 2  TVV    (L)
+  (0,   1)     ; 3  TVKIN  (response/h)
+  (0,   0.1)   ; 4  TVKOUT (1/h)
+  (0, 0.8, 1)  ; 5  IMAX   (fraction; bounded 0–1)
+  (0,  10)     ; 6  TVIC50 (ng/mL)
+  (0,   0.2)   ; 7  Proportional error — PK
+  (0,   1)     ; 8  Additive error — PK (ng/mL)
+  (0,   0.2)   ; 9  Proportional error — PD
+  (0,   0.1)   ; 10 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV KIN
+  0.1          ; 4 IIV KOUT
+  0.1          ; 5 IIV IC50
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
+)
+
+# ---------- IDR Type II — inhibition of Kout (ADVAN6) ---------------------------
+TEMPLATES['IDR Type II — inhibit Kout (ADVAN6)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Indirect Response model — Type II: drug inhibits response elimination rate (Kout)
+; PK: 1-CMT IV bolus (ODE)
+; PD: dR/dt = Kin - Kout*(1 - IMAX*C/(IC50+C))*R
+; R0 = Kin/Kout; response rises above baseline when drug is present.
+; Use for responses that increase with drug (e.g. QTc prolongation, platelet counts).
+; Ref: Dayneka et al., J Pharmacokinet Biopharm 1993; 21:457-478.
+$SUBROUTINES ADVAN6 TOL=6
+
+$MODEL
+  NCOMP = 2
+  COMP  = (CENTRAL)
+  COMP  = (RESPONSE)
+
+$PK
+  TVCL   = THETA(1)
+  CL     = TVCL   * EXP(ETA(1))
+  TVV    = THETA(2)
+  V      = TVV    * EXP(ETA(2))
+  TVKIN  = THETA(3)
+  KIN    = TVKIN  * EXP(ETA(3))
+  TVKOUT = THETA(4)
+  KOUT   = TVKOUT * EXP(ETA(4))
+  IMAX   = THETA(5)
+  TVIC50 = THETA(6)
+  IC50   = TVIC50 * EXP(ETA(5))
+  R0     = KIN / KOUT
+  S1     = V / 1000
+  A_0(2) = R0
+
+$DES
+  C       = A(1) / V
+  INHIB   = IMAX * C / (IC50 + C)
+  DADT(1) = -CL / V * A(1)
+  DADT(2) =  KIN - KOUT * (1 - INHIB) * A(2)
+
+$ERROR
+  IF (DVID .EQ. 1) THEN
+    IPRED = A(1) / V
+    W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = A(2)
+    W     = SQRT((THETA(9)*IPRED)**2 + THETA(10)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1  TVCL   (L/h)
+  (0,  50)     ; 2  TVV    (L)
+  (0,   1)     ; 3  TVKIN  (response/h)
+  (0,   0.1)   ; 4  TVKOUT (1/h)
+  (0, 0.8, 1)  ; 5  IMAX   (fraction; bounded 0–1)
+  (0,  10)     ; 6  TVIC50 (ng/mL)
+  (0,   0.2)   ; 7  Proportional error — PK
+  (0,   1)     ; 8  Additive error — PK (ng/mL)
+  (0,   0.2)   ; 9  Proportional error — PD
+  (0,   0.1)   ; 10 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV KIN
+  0.1          ; 4 IIV KOUT
+  0.1          ; 5 IIV IC50
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
+)
+
+# ---------- IDR Type III — stimulation of Kin (ADVAN6) --------------------------
+TEMPLATES['IDR Type III — stimulate Kin (ADVAN6)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Indirect Response model — Type III: drug stimulates response production rate (Kin)
+; PK: 1-CMT IV bolus (ODE)
+; PD: dR/dt = Kin*(1 + SMAX*C/(SC50+C)) - Kout*R
+; R0 = Kin/Kout; response rises above baseline when drug is present.
+; Use for responses that increase with stimulatory drug effect (e.g. EPO, G-CSF).
+; Ref: Dayneka et al., J Pharmacokinet Biopharm 1993; 21:457-478.
+$SUBROUTINES ADVAN6 TOL=6
+
+$MODEL
+  NCOMP = 2
+  COMP  = (CENTRAL)
+  COMP  = (RESPONSE)
+
+$PK
+  TVCL   = THETA(1)
+  CL     = TVCL   * EXP(ETA(1))
+  TVV    = THETA(2)
+  V      = TVV    * EXP(ETA(2))
+  TVKIN  = THETA(3)
+  KIN    = TVKIN  * EXP(ETA(3))
+  TVKOUT = THETA(4)
+  KOUT   = TVKOUT * EXP(ETA(4))
+  SMAX   = THETA(5)              ; Maximum stimulation factor (> 0; e.g. 1 = doubles Kin)
+  TVSC50 = THETA(6)
+  SC50   = TVSC50 * EXP(ETA(5))  ; Concentration at 50% SMAX (ng/mL)
+  R0     = KIN / KOUT
+  S1     = V / 1000
+  A_0(2) = R0
+
+$DES
+  C       = A(1) / V
+  STIM    = SMAX * C / (SC50 + C)
+  DADT(1) = -CL / V * A(1)
+  DADT(2) =  KIN * (1 + STIM) - KOUT * A(2)
+
+$ERROR
+  IF (DVID .EQ. 1) THEN
+    IPRED = A(1) / V
+    W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = A(2)
+    W     = SQRT((THETA(9)*IPRED)**2 + THETA(10)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1  TVCL   (L/h)
+  (0,  50)     ; 2  TVV    (L)
+  (0,   1)     ; 3  TVKIN  (response/h)
+  (0,   0.1)   ; 4  TVKOUT (1/h)
+  (0,   1)     ; 5  SMAX   (stimulation factor)
+  (0,  10)     ; 6  TVSC50 (ng/mL)
+  (0,   0.2)   ; 7  Proportional error — PK
+  (0,   1)     ; 8  Additive error — PK (ng/mL)
+  (0,   0.2)   ; 9  Proportional error — PD
+  (0,   0.1)   ; 10 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV KIN
+  0.1          ; 4 IIV KOUT
+  0.1          ; 5 IIV SC50
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
+)
+
+# ---------- IDR Type IV — stimulation of Kout (ADVAN6) --------------------------
+TEMPLATES['IDR Type IV — stimulate Kout (ADVAN6)'] = (
+    _HEADER_DVID_PKPD
+    + """\
+; Indirect Response model — Type IV: drug stimulates response elimination rate (Kout)
+; PK: 1-CMT IV bolus (ODE)
+; PD: dR/dt = Kin - Kout*(1 + SMAX*C/(SC50+C))*R
+; R0 = Kin/Kout; response falls below baseline when drug is present.
+; Use for responses that decrease with stimulatory drug effect (e.g. tumour regression).
+; Ref: Dayneka et al., J Pharmacokinet Biopharm 1993; 21:457-478.
+$SUBROUTINES ADVAN6 TOL=6
+
+$MODEL
+  NCOMP = 2
+  COMP  = (CENTRAL)
+  COMP  = (RESPONSE)
+
+$PK
+  TVCL   = THETA(1)
+  CL     = TVCL   * EXP(ETA(1))
+  TVV    = THETA(2)
+  V      = TVV    * EXP(ETA(2))
+  TVKIN  = THETA(3)
+  KIN    = TVKIN  * EXP(ETA(3))
+  TVKOUT = THETA(4)
+  KOUT   = TVKOUT * EXP(ETA(4))
+  SMAX   = THETA(5)
+  TVSC50 = THETA(6)
+  SC50   = TVSC50 * EXP(ETA(5))
+  R0     = KIN / KOUT
+  S1     = V / 1000
+  A_0(2) = R0
+
+$DES
+  C       = A(1) / V
+  STIM    = SMAX * C / (SC50 + C)
+  DADT(1) = -CL / V * A(1)
+  DADT(2) =  KIN - KOUT * (1 + STIM) * A(2)
+
+$ERROR
+  IF (DVID .EQ. 1) THEN
+    IPRED = A(1) / V
+    W     = SQRT((THETA(7)*IPRED)**2 + THETA(8)**2)
+    Y     = IPRED + W * EPS(1)
+  ENDIF
+  IF (DVID .EQ. 2) THEN
+    IPRED = A(2)
+    W     = SQRT((THETA(9)*IPRED)**2 + THETA(10)**2)
+    Y     = IPRED + W * EPS(2)
+  ENDIF
+  IRES  = DV - IPRED
+  IWRES = IRES / W
+
+$THETA
+  (0,   5)     ; 1  TVCL   (L/h)
+  (0,  50)     ; 2  TVV    (L)
+  (0,   1)     ; 3  TVKIN  (response/h)
+  (0,   0.1)   ; 4  TVKOUT (1/h)
+  (0,   1)     ; 5  SMAX   (stimulation factor)
+  (0,  10)     ; 6  TVSC50 (ng/mL)
+  (0,   0.2)   ; 7  Proportional error — PK
+  (0,   1)     ; 8  Additive error — PK (ng/mL)
+  (0,   0.2)   ; 9  Proportional error — PD
+  (0,   0.1)   ; 10 Additive error — PD (response units)
+
+$OMEGA
+  0.1          ; 1 IIV CL
+  0.1          ; 2 IIV V
+  0.1          ; 3 IIV KIN
+  0.1          ; 4 IIV KOUT
+  0.1          ; 5 IIV SC50
+
+$SIGMA
+  1 FIX        ; 1 Auxiliary — PK (scaled by W in $ERROR)
+  1 FIX        ; 2 Auxiliary — PD (scaled by W in $ERROR)
+
+"""
+    + _tail_pkpd('ETA1', 'ETA2', 'ETA3', 'ETA4', 'ETA5')
 )
 
 
