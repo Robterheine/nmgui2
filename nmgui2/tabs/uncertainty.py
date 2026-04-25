@@ -1,4 +1,4 @@
-import os, re, subprocess, logging, csv, math, statistics
+import os, re, subprocess, logging, csv, math, statistics, shlex
 from pathlib import Path
 from datetime import datetime
 
@@ -19,6 +19,7 @@ from ..app.constants import (IS_WIN, IS_MAC, BOOT_COMPLETION_PASS, BOOT_COMPLETI
                               SIR_ESS_PASS, SIR_ESS_WARN, SIR_ESS_FAIL,
                               SIR_ESS_ABS_WARN, SIR_ESS_ABS_FAIL)
 from ..app.tools import _check_psn_tools, get_login_env
+from ..app import detached_runs as _dr
 from ..app.format import fmt_num
 
 _log = logging.getLogger(__name__)
@@ -777,6 +778,8 @@ class ParameterUncertaintyTab(QWidget):
         self._worker = None
         self._results = None
         self._psn_available = {}
+        self._is_ssh = bool(os.environ.get('SSH_CONNECTION') or
+                            os.environ.get('SSH_CLIENT'))
         self._build_ui()
         QTimer.singleShot(500, self._check_psn)
 
@@ -887,6 +890,29 @@ class ParameterUncertaintyTab(QWidget):
         self._config_stack.addWidget(self._load_config)
 
         right_v.addWidget(self._config_stack)
+
+        # Run detached checkbox (non-Windows only) — shared for Bootstrap and SIR
+        if not IS_WIN:
+            self.detach_cb = QCheckBox('Run detached  (survives SSH disconnect / NMGUI2 close)')
+            self.detach_cb.setToolTip(
+                'Runs nohup in a new session so the job keeps going if you\n'
+                'close the terminal, disconnect SSH, or quit NMGUI2.\n'
+                'Output is written to a .nmgui.log file next to the model.\n'
+                'Recommended for long runs (bootstrap, SIR) over SSH.'
+            )
+            self.detach_cb.setChecked(self._is_ssh)  # auto-check when on SSH
+            right_v.addWidget(self.detach_cb)
+
+            if self._is_ssh:
+                ssh_strip = QLabel(
+                    'ℹ  SSH session detected — "Run detached" enabled automatically.'
+                )
+                ssh_strip.setWordWrap(True)
+                ssh_strip.setObjectName('muted')
+                ssh_strip.setContentsMargins(0, 0, 0, 4)
+                right_v.addWidget(ssh_strip)
+        else:
+            self.detach_cb = None
 
         # Run/Load buttons
         btn_row = QHBoxLayout()
@@ -1010,31 +1036,6 @@ class ParameterUncertaintyTab(QWidget):
         dir_row.addWidget(dir_browse)
         form.addRow('Output dir:', dir_row)
 
-        # Cluster options - collapsible
-        self.boot_cluster_cb = QCheckBox('Submit to cluster')
-        self.boot_cluster_cb.setChecked(False)
-        form.addRow('', self.boot_cluster_cb)
-
-        # Cluster options container (hidden by default)
-        self._boot_cluster_container = QWidget()
-        cluster_layout = QFormLayout(self._boot_cluster_container)
-        cluster_layout.setContentsMargins(20, 0, 0, 0)
-        cluster_layout.setSpacing(6)
-
-        self.boot_cluster_type = QComboBox()
-        self.boot_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
-        cluster_layout.addRow('Scheduler:', self.boot_cluster_type)
-
-        self.boot_cluster_opts = QLineEdit()
-        self.boot_cluster_opts.setPlaceholderText('e.g., -p short --mem=4G')
-        cluster_layout.addRow('Options:', self.boot_cluster_opts)
-
-        self._boot_cluster_container.hide()
-        form.addRow('', self._boot_cluster_container)
-
-        # Connect checkbox to show/hide cluster options
-        self.boot_cluster_cb.toggled.connect(self._boot_cluster_container.setVisible)
-
         return w
 
     def _build_sir_config(self) -> QWidget:
@@ -1071,31 +1072,6 @@ class ParameterUncertaintyTab(QWidget):
         dir_browse.clicked.connect(lambda: self._browse_output_dir(self.sir_dir_edit))
         dir_row.addWidget(dir_browse)
         form.addRow('Output dir:', dir_row)
-
-        # Cluster options - collapsible
-        self.sir_cluster_cb = QCheckBox('Submit to cluster')
-        self.sir_cluster_cb.setChecked(False)
-        form.addRow('', self.sir_cluster_cb)
-
-        # Cluster options container (hidden by default)
-        self._sir_cluster_container = QWidget()
-        cluster_layout = QFormLayout(self._sir_cluster_container)
-        cluster_layout.setContentsMargins(20, 0, 0, 0)
-        cluster_layout.setSpacing(6)
-
-        self.sir_cluster_type = QComboBox()
-        self.sir_cluster_type.addItems(['slurm', 'sge', 'torque', 'lsf'])
-        cluster_layout.addRow('Scheduler:', self.sir_cluster_type)
-
-        self.sir_cluster_opts = QLineEdit()
-        self.sir_cluster_opts.setPlaceholderText('e.g., -p short --mem=4G')
-        cluster_layout.addRow('Options:', self.sir_cluster_opts)
-
-        self._sir_cluster_container.hide()
-        form.addRow('', self._sir_cluster_container)
-
-        # Connect checkbox to show/hide cluster options
-        self.sir_cluster_cb.toggled.connect(self._sir_cluster_container.setVisible)
 
         return w
 
@@ -1239,13 +1215,6 @@ class ParameterUncertaintyTab(QWidget):
         if self.boot_skip_cov_cb.isChecked():
             cmd.append('-skip_covariance_step')
 
-        if self.boot_cluster_cb.isChecked():
-            cluster_type = self.boot_cluster_type.currentText()
-            cmd.append(f'-run_on_{cluster_type}')
-            opts = self.boot_cluster_opts.text().strip()
-            if opts:
-                cmd.append(f'-{cluster_type}_options={opts}')
-
         out_dir = self.boot_dir_edit.text().strip()
         if out_dir:
             cmd.append(f'-directory={out_dir}')
@@ -1260,13 +1229,6 @@ class ParameterUncertaintyTab(QWidget):
         cmd.append(f'-samples={int(self.sir_samples_spin.value())}')
         cmd.append(f'-resamples={int(self.sir_resamples_spin.value())}')
         cmd.append(f'-threads={int(self.sir_threads_spin.value())}')
-
-        if self.sir_cluster_cb.isChecked():
-            cluster_type = self.sir_cluster_type.currentText()
-            cmd.append(f'-run_on_{cluster_type}')
-            opts = self.sir_cluster_opts.text().strip()
-            if opts:
-                cmd.append(f'-{cluster_type}_options={opts}')
 
         out_dir = self.sir_dir_edit.text().strip()
         if out_dir:
@@ -1301,13 +1263,37 @@ class ParameterUncertaintyTab(QWidget):
         self.console.appendPlainText(f'Starting {method}…\n')
         self._switch_results_tab(0)
 
-        self.run_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
+        if self.detach_cb is not None and self.detach_cb.isChecked():
+            # ── Detached path (nohup) ─────────────────────────────────────────
+            model_path = self._model.get('path', '')
+            cwd = str(Path(model_path).parent) if model_path else out_dir
+            cmd_str = shlex.join(cmd)
+            self.console.appendPlainText(f'> {cmd_str}\n')
+            try:
+                desc = _dr.start_detached(cmd_str, cwd,
+                                          self._model.get('stem', method),
+                                          method, model_path)
+            except Exception as e:
+                self.console.appendPlainText(f'[Launch failed] {e}\n')
+                QMessageBox.critical(self, 'Launch failed', str(e))
+                return
+            log_name = Path(desc['log_file']).name
+            self.console.appendPlainText(
+                f'[Detached] PID {desc["pid"]} started.\n'
+                f'Log: {desc["log_file"]}\n\n'
+                f'Results will appear in: {out_dir}\n'
+                f'Use "Load existing" once the run finishes.'
+            )
+            self.status_msg.emit(f'{method}: detached run started  ·  log: {log_name}')
+        else:
+            # ── Live path (streaming to console) ─────────────────────────────
+            self.run_btn.setEnabled(False)
+            self.stop_btn.setEnabled(True)
 
-        self._worker = PsNWorker(cmd, out_dir, get_login_env())
-        self._worker.line_out.connect(self._on_line)
-        self._worker.finished.connect(self._on_run_done)
-        self._worker.start()
+            self._worker = PsNWorker(cmd, out_dir, get_login_env())
+            self._worker.line_out.connect(self._on_line)
+            self._worker.finished.connect(self._on_run_done)
+            self._worker.start()
 
     def _stop(self):
         if self._worker:
