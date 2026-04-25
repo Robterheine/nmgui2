@@ -48,9 +48,9 @@ _log = logging.getLogger(__name__)
 # Model table
 # ══════════════════════════════════════════════════════════════════════════════
 
-COLS = ['*', 'Name', 'Description', 'OFV', 'COV', 'dOFV', 'AIC', 'CN', 'Method', 'Ind/Obs']
-(COL_STAR, COL_NAME, COL_DESC, COL_OFV, COL_COV,
- COL_DOFV, COL_AIC, COL_CN, COL_METHOD, COL_INDOBS) = range(10)
+COLS = ['*', 'Name', 'Description', 'OFV', 'dOFV', 'COV', 'AIC', 'CN', 'Method', 'Ind/Obs']
+(COL_STAR, COL_NAME, COL_DESC, COL_OFV, COL_DOFV, COL_COV,
+ COL_AIC, COL_CN, COL_METHOD, COL_INDOBS) = range(10)
 
 
 class ModelTableModel(QAbstractTableModel):
@@ -625,8 +625,11 @@ class ModelsTab(QWidget):
                 if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
                 self.table.setItem(row, col, item)
         self.table.setSortingEnabled(True); self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(COL_DESC, QHeaderView.ResizeMode.Stretch)
+        hh = self.table.horizontalHeader()
+        for c in range(len(COLS)):
+            hh.setSectionResizeMode(c, QHeaderView.ResizeMode.Interactive)
+        if self.table.columnWidth(COL_DESC) < 120:
+            self.table.setColumnWidth(COL_DESC, 120)
         n = len(models); nr = sum(1 for m in models if m['has_run'])
         elapsed = time.time() - t0
         self.status_msg.emit(
