@@ -3,7 +3,7 @@ File-browser tab — two-pane layout with subfolder navigation.
 
 Layout
 ------
-[←]  ABIRATERON / run104        [All] [.mod] [.lst] [.tab] [.csv] [.ext] [+]
+[←]  ABIRATERON / run104        [All] [.mod] [.lst] … [ext…]
 ──────────────────────────────────────────────────────────────────────────────
 [   file list (folders first)  ] | [          content preview              ]
 
@@ -16,7 +16,8 @@ Behaviour
 - Double-click folder → navigate into it (push to back-stack).
 - Double-click file   → open with the OS default application.
 - ← back button       → return to the previous directory.
-- Custom extensions via the [+] pill.
+- Inline ext field: typing an extension (with or without leading dot) overrides
+  the pill selection for a quick temporary filter; clears when leaving the tab.
 """
 
 import csv
@@ -29,7 +30,7 @@ from PyQt6.QtGui import (
     QColor, QDesktopServices, QPalette, QTextCharFormat, QTextCursor,
 )
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
+    QAbstractItemView, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
     QStackedWidget, QTableWidget, QTableWidgetItem, QTableView,
     QVBoxLayout, QWidget,
@@ -42,7 +43,9 @@ from ..widgets.data_explorer import DataExplorerWidget
 
 _log = logging.getLogger(__name__)
 
-_PRESET_EXTS    = ['mod', 'ctl', 'lst', 'tab', 'csv', 'ext', 'cov', 'cor', 'phi']
+_PRESET_EXTS    = ['mod', 'ctl', 'lst', 'tab', 'csv', 'ext', 'cov', 'cor', 'phi',
+                   'txt', 'pdf', 'png', 'r']
+_PILL_LABELS    = {'r': '.R'}   # override default ".{ext}" display label
 _TABLE_EXTS     = {'csv', 'tab'}
 _HIGHLIGHT_EXTS = {'mod', 'ctl'}
 
@@ -190,10 +193,8 @@ class FileExplorerTab(QWidget):
         self._highlighter:  NMHighlighter | None = None
         self._table_model:  _TableModel  | None  = None
         self._active_exts:  set[str]     = set() # empty = All
-        self._custom_exts:  list[str]    = []
         self._filter_btns:  dict[str, QPushButton] = {}  # ext → pill
         self._pills_layout: QHBoxLayout | None = None    # ref for dynamic insert
-        self._add_btn:      QPushButton | None = None    # the [+] pill
         self._build_ui()
         self._load_filter_state()
 
@@ -266,27 +267,28 @@ class FileExplorerTab(QWidget):
         for ext in _PRESET_EXTS:
             self._make_pill(ext, pills_layout)
 
-        # [+] pill — always last
-        add_btn = QPushButton('+')
-        add_btn.setObjectName('innerPillBtn')
-        add_btn.setFixedWidth(26)
-        add_btn.setFixedHeight(22)
-        add_btn.setToolTip('Add a custom extension filter')
-        add_btn.clicked.connect(self._prompt_add_custom_ext)
-        self._add_btn = add_btn
-        pills_layout.addWidget(add_btn)
+        # Inline free-text extension filter
+        self._ext_field = QLineEdit()
+        self._ext_field.setPlaceholderText('ext…')
+        self._ext_field.setFixedHeight(22)
+        self._ext_field.setFixedWidth(64)
+        self._ext_field.setToolTip('Type an extension to filter (e.g. r or .py); '
+                                   'clears when you switch tabs')
+        self._ext_field.textChanged.connect(self._on_ext_text_changed)
+        pills_layout.addWidget(self._ext_field)
 
         layout.addWidget(pills)
         return bar
 
     def _make_pill(self, ext: str, layout: QHBoxLayout | None = None) -> QPushButton:
         """Create and register a filter pill for *ext*; append to layout if given."""
-        btn = QPushButton(f'.{ext}')
+        label = _PILL_LABELS.get(ext, f'.{ext}')
+        btn = QPushButton(label)
         btn.setObjectName('innerPillBtn')
         btn.setCheckable(True)
         btn.setChecked(False)
         btn.setFixedHeight(22)
-        btn.setToolTip(f'Show only .{ext} files (folders always visible)')
+        btn.setToolTip(f'Show only {label} files (folders always visible)')
         btn.clicked.connect(lambda _, e=ext: self._on_filter_pill_clicked(e))
         self._filter_btns[ext] = btn
         if layout is not None:
@@ -564,41 +566,8 @@ class FileExplorerTab(QWidget):
             else:
                 btn.setChecked(key in self._active_exts)
 
-    def _prompt_add_custom_ext(self):
-        text, ok = QInputDialog.getText(
-            self, 'Add extension filter',
-            'Enter extension without dot (e.g.  r, py, m8p):',
-            QLineEdit.EchoMode.Normal,
-        )
-        if not ok:
-            return
-        raw = text.strip().lstrip('.')
-        if not raw or raw in self._filter_btns:
-            if raw in self._filter_btns:
-                self.status_msg.emit(f'.{raw} is already in the filter list.')
-            return
-        self._add_custom_ext_silent(raw)
-        # Auto-activate the new extension
-        self._active_exts.add(raw)
-        self._sync_pill_states()
-        self._save_filter_state()
+    def _on_ext_text_changed(self, _text: str):
         self._rebuild_file_list()
-
-    def _add_custom_ext_silent(self, ext: str):
-        """Add a custom extension pill without triggering a rebuild."""
-        if ext in self._filter_btns:
-            return
-        self._custom_exts.append(ext)
-        btn = self._make_pill(ext)
-        # Insert before the [+] button in the pills layout
-        if self._pills_layout and self._add_btn:
-            for i in range(self._pills_layout.count()):
-                item = self._pills_layout.itemAt(i)
-                if item and item.widget() is self._add_btn:
-                    self._pills_layout.insertWidget(i, btn)
-                    break
-            else:
-                self._pills_layout.addWidget(btn)
 
     # ── File list ─────────────────────────────────────────────────────────────
 
@@ -616,7 +585,9 @@ class FileExplorerTab(QWidget):
             self._update_breadcrumb()
             return
 
-        active = self._active_exts  # set; empty = show all
+        # Free-text field overrides pills when non-empty; otherwise use active pills
+        typed = self._ext_field.text().strip().lstrip('.')
+        active = {typed.lower()} if typed else self._active_exts  # set; empty = show all
 
         folders = sorted(
             [e for e in entries if e.is_dir() and not e.name.startswith('.')],
@@ -880,23 +851,21 @@ class FileExplorerTab(QWidget):
     def _save_filter_state(self):
         s = load_settings()
         s['file_explorer_active_exts'] = sorted(self._active_exts)
-        s['file_explorer_custom_exts'] = self._custom_exts[:]
         save_settings(s)
 
     def _load_filter_state(self):
         s = load_settings()
-        # Restore custom extension pills first
-        for ext in s.get('file_explorer_custom_exts', []):
-            self._add_custom_ext_silent(ext)
-        # Restore active filter set
         active = s.get('file_explorer_active_exts')
         if active is None:
-            # Migrate from old checkbox format: if a specific subset was checked,
-            # treat those as the active filter; if all preset exts were checked → All
+            # Migrate from old checkbox format
             checked = s.get('file_explorer_checked_exts', list(_PRESET_EXTS))
-            if set(checked) != set(_PRESET_EXTS):
-                active = [e for e in checked if e in self._filter_btns]
-            else:
-                active = []   # All
+            active = [] if set(checked) == set(_PRESET_EXTS) else [
+                e for e in checked if e in self._filter_btns]
         self._active_exts = set(active) & set(self._filter_btns.keys()) - {'__all__'}
         self._sync_pill_states()
+
+    def hideEvent(self, event):
+        """Clear the free-text ext field when the tab is hidden (non-persistent)."""
+        if hasattr(self, '_ext_field'):
+            self._ext_field.clear()
+        super().hideEvent(event)
