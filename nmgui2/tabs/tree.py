@@ -18,6 +18,73 @@ except ImportError:
 _log = logging.getLogger(__name__)
 
 
+def _build_node_tooltip(m: dict) -> str:
+    """Build an Info-tab style tooltip for a tree node from the model dict."""
+    lines = []
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    header = m.get('stem', '?')
+    if m.get('status_tag'):  header += f"  [{m['status_tag']}]"
+    if m.get('star'):        header += '  ★'
+    lines.append(header)
+
+    if m.get('comment'):
+        lines.append(m['comment'])
+
+    lines.append('─' * 32)
+
+    # ── Dataset ───────────────────────────────────────────────────────────────
+    if m.get('data_file'):
+        lines.append(f"File:     {m['data_file']}")
+    ni  = m.get('n_individuals')
+    no  = m.get('n_observations')
+    npa = m.get('n_estimated_params')
+    if ni or no:
+        seg = f"Ind: {ni}  Obs: {no}" if ni and no else (f"Ind: {ni}" if ni else f"Obs: {no}")
+        if npa: seg += f"  Params: {npa}"
+        lines.append(seg)
+    elif npa:
+        lines.append(f"Params:   {npa}")
+
+    # ── Run results ───────────────────────────────────────────────────────────
+    ofv = m.get('ofv'); aic = m.get('aic')
+    if ofv is not None:
+        seg = f"OFV:      {ofv:.3f}"
+        if aic is not None: seg += f"   AIC: {aic:.3f}"
+        lines.append(seg)
+
+    meth = m.get('estimation_method')
+    cov  = m.get('covariance_step')
+    cn   = m.get('condition_number')
+    run_parts = []
+    if meth:            run_parts.append(f"Method: {meth}")
+    if cov is not None: run_parts.append(f"COV: {'✓' if cov else '✗'}")
+    if cn  is not None: run_parts.append(f"CN: {cn:.0f}")
+    if run_parts:
+        lines.append('  │  '.join(run_parts))
+
+    rt = m.get('runtime')
+    if rt is not None:
+        lines.append(f"Runtime:  {rt:.0f}s" if rt < 3600 else f"Runtime:  {rt/3600:.1f}h")
+
+    # ── Lineage / status ──────────────────────────────────────────────────────
+    if m.get('based_on'):
+        lines.append(f"Based on: {m['based_on']}")
+    msg = (m.get('minimization_message') or '').strip()
+    if msg:
+        lines.append(f"Status:   {msg}")
+
+    # ── Notes ─────────────────────────────────────────────────────────────────
+    notes = (m.get('notes') or '').strip()
+    if notes:
+        lines.append('─' * 32)
+        if len(notes) > 220:
+            notes = notes[:217] + '…'
+        lines.append(notes)
+
+    return '\n'.join(lines)
+
+
 class AncestryTreeWidget(QWidget):
     """Interactive model ancestry/lineage tree using QGraphicsScene."""
     model_clicked = pyqtSignal(str)   # emits model stem
@@ -144,6 +211,8 @@ class AncestryTreeWidget(QWidget):
             is_ok      = m.get('minimization_successful') is True
             is_fail    = m.get('minimization_successful') is False
 
+            tooltip = _build_node_tooltip(m)
+
             # Background colour
             if is_current:
                 fill = QColor(C.blue)
@@ -163,6 +232,7 @@ class AncestryTreeWidget(QWidget):
             rect.setData(0, stem)
             rect.setAcceptHoverEvents(True)
             rect.setFlag(rect.GraphicsItemFlag.ItemIsSelectable, True)
+            rect.setToolTip(tooltip)
             self._scene.addItem(rect)
 
             # Star
@@ -171,6 +241,7 @@ class AncestryTreeWidget(QWidget):
                 star.setDefaultTextColor(QColor('#f5c518'))
                 star.setPos(x + 4, y + 2)
                 f = star.font(); f.setPointSize(9); star.setFont(f)
+                star.setToolTip(tooltip)
                 sx = 16
             else:
                 sx = 4
@@ -179,6 +250,7 @@ class AncestryTreeWidget(QWidget):
             dot_col = QColor(C.green if is_ok else C.red if is_fail else C.fg2)
             dot = QGraphicsEllipseItem(x + w - 12, y + h/2 - 4, 8, 8)
             dot.setBrush(QBrush(dot_col)); dot.setPen(QPen(Qt.PenStyle.NoPen))
+            dot.setToolTip(tooltip)
             self._scene.addItem(dot)
 
             # Stem label
@@ -187,6 +259,7 @@ class AncestryTreeWidget(QWidget):
             lbl.setPos(x + sx, y + 2)
             f = lbl.font(); f.setPointSize(10); f.setBold(is_current); lbl.setFont(f)
             lbl.setTextWidth(w - sx - 16)
+            lbl.setToolTip(tooltip)
 
             # OFV
             ofv = m.get('ofv')
@@ -195,6 +268,7 @@ class AncestryTreeWidget(QWidget):
                 olbl.setDefaultTextColor(QColor('#aaaacc' if is_current else C.fg2))
                 f2 = olbl.font(); f2.setPointSize(8); olbl.setFont(f2)
                 olbl.setPos(x + sx, y + h - 18)
+                olbl.setToolTip(tooltip)
 
         # Wire click via scene
         self._view.setScene(self._scene)  # ensure view tracks scene after clear
