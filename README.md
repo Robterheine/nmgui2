@@ -36,141 +36,97 @@ It runs entirely offline on macOS, Windows and Linux. No browser. No server. No 
 
 ### Models tab
 - Scans a directory for `.mod` / `.ctl` files and displays all models in a sortable, filterable table
-- Columns: OFV, ΔOFV (relative to best or user-selected reference), minimisation status, covariance step, condition number, estimation method, individuals, observations, parameters, AIC, runtime
-- Colour-coded rows: green = successful, red = failed/terminated, orange = boundary/stale
+- Columns: OFV, ΔOFV (relative to user-selected reference), minimisation status, covariance step, condition number, estimation method, individuals, observations, parameters, AIC, runtime
+- Colour-coded rows: green = converged, red = failed/terminated, orange = stale or boundary warning
 - Filter buttons: All, Completed, Failed — plus free-text search
-- **Right-click context menu** on any model: run, toggle star, duplicate, set reference model, compare with another model, copy paths, open folder, view `.lst`, view `.ext`, open QC report, open run report, view run record, show NM-TRAN messages, workbench, delete (excludes dataset)
-- Keyboard navigation: ↑↓ move rows, Space toggles star, Enter jumps to Output
+- **New model…** (Ctrl+N / ⌘N) — create a blank NONMEM control file from one of 17 built-in templates (analytical ADVAN1/2/3/4 and ODE-based ADVAN6 including Michaelis-Menten, QE-TMDD, time-varying CL, dual/mixed absorption, urine compartment); preview before writing; auto-selects the new file after creation
+- **Right-click context menu**: run, toggle star, duplicate, set/clear reference, compare, copy paths, open folder, view `.lst`, view `.ext`, QC report, run report, view run record, NM-TRAN messages, workbench, delete
+- Keyboard: ↑↓ move rows, Space toggles star, Enter jumps to Output
 
 ### Model detail panel
 
-**Parameters** — full THETA/OMEGA/SIGMA table with names (parsed from control stream comments), estimates, SE, RSE%, 95% CI, SD for variance parameters. Handles `BLOCK(n)` and `BLOCK(n) SAME` designs correctly. Export to CSV and HTML report.
+**Parameters** — full THETA/OMEGA/SIGMA table with names (parsed from control stream comments), estimates, SE, RSE%, 95% CI, SD for variance parameters. Handles `BLOCK(n)` and `BLOCK(n) SAME`. Export to CSV and HTML.
 
 **Editor** — syntax-highlighted `.mod` editor with save functionality.
 
-**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`) with custom arguments. Each run opens its own floating popup window with a live console, iteration/OFV progress indicator, elapsed timer, and Stop button (gentle SIGTERM or force SIGKILL). Multiple models run simultaneously. A **"Run detached"** checkbox (Linux/macOS) launches the job under `nohup` so it survives SSH disconnection or NMGUI2 closure — automatically pre-checked when running over SSH. The **Active & Recent Runs** table shows live, detached, and historical runs; history persists per project folder across restarts.
+**Run** — launch any PsN tool (`execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse`). Each run opens its own floating popup with a live console, iteration/OFV progress, elapsed timer, and Stop button (SIGTERM or SIGKILL). Multiple models run simultaneously. **Run detached** (Linux/macOS) launches under `nohup` so the job survives SSH disconnection or app closure — auto-checked when running over SSH. The **Active & Recent Runs** table shows live, detached, and historical runs; history persists per project across restarts.
 
-**Info** — comment, status tag (base/candidate/final/reject), notes — all persisted in project metadata.
+**Info** — status tag (base/candidate/final/reject), comment, free-form notes, and a dataset integrity card (missing file, non-monotonic TIME, duplicate doses, extreme DV, high BLQ).
 
-**Output** — structured HTML rendering of the `.lst` file in-app:
-- Summary card with key results
-- **Estimation steps table** for chained `$EST` runs (e.g. FO → FOCE-I → IMP), showing per-step OFV, ΔOFV, runtime, significant digits and termination status
-- NM-TRAN warnings section
-- Convergence table (iteration history)
-- Parameter estimates with SEs and names
-- ETABAR statistics with p-values
-- Shrinkage (ETA and EPS)
-- Correlation and covariance matrices
-- Eigenvalues and condition number
-- "Open in browser" exports full HTML
+**Output** — structured HTML rendering of the `.lst` in-panel: summary card, estimation steps table (per-step OFV/ΔOFV/runtime for chained `$EST`), NM-TRAN warnings, convergence table, parameter estimates with SEs, ETABAR p-values, shrinkage, correlation/covariance matrices, eigenvalues, condition number. "Open in browser" exports full HTML.
 
-### Files tab
-A three-pane file browser built into NMGUI, positioned directly below the Models tab (Ctrl+2).
+### Files tab (Ctrl+2)
+A built-in file browser with subfolder navigation and a content viewer — no external app needed.
 
-- **Left panel** — extension filter checkboxes pre-populated with `.mod`, `.ctl`, `.lst`, `.tab`, `.csv`, `.ext`, `.cov`, `.cor`, `.phi`. Custom extensions can be added and removed. Filter state persists across sessions.
-- **Middle panel** — sortable file list showing name, size and last-modified date for all files in the current project directory matching the active filters.
-- **Right panel** — content viewer:
-  - Text files: monospace editor with syntax highlighting for `.mod` / `.ctl` (reuses the NMHighlighter). Inline find bar (Ctrl+F equivalent).
-  - `.csv` and `.tab` files: spreadsheet table. NONMEM `TABLE NO.` header lines are automatically detected and skipped. Large files are capped at 5 000 rows.
-  - **Edit / Save / Discard** for text files and `.csv` files. `.tab` files remain read-only.
+- **Navigation bar** — ← back button, breadcrumb path, and extension filter pills (All · .mod · .ctl · .lst · .tab · .csv · .ext · .cov · .cor · .phi · [+]). All files shown by default; selecting pills filters files while keeping folders always visible.
+- **File list** — folders appear first (bold, 📁 prefix); files below. Sortable by name, size, or date.
+- **Double-click folder** → navigate into it; breadcrumb and back button update.
+- **Double-click file** → open with the OS default application.
+- **Content viewer** — syntax-highlighted text for `.mod`/`.ctl`; inline find bar; virtualised spreadsheet view for `.csv`/`.tab` (no row cap); **Table / Plot** toggle showing the full Data Explorer (scatter, LOESS, colour-by, filters); Edit / Save / Discard for text and CSV files.
 
-### Ancestry tree (Tree tab)
-Interactive node graph of model lineage based on `";; 1. Based on:"` PsN metadata or manually set parent. Zoom, pan, double-click any node to select that model in the Models tab. Visual indicators for starred and final models.
+### Tree tab (Ctrl+3)
+Interactive force-directed node graph of model lineage based on PsN metadata or manually set parent. Zoom, pan, double-click any node to jump to that model. Gold border = starred; green border = final.
 
-### Model Evaluation (Evaluation tab)
-Comprehensive diagnostic plots and data exploration:
+### Evaluation tab (Ctrl+4)
+Native diagnostic plots — no R required:
 
-- **GOF 2×2** — DV vs PRED, DV vs IPRED, CWRES vs TIME, CWRES vs PRED with unity/zero reference lines
-- **Individual fits** — paginated DV/IPRED/PRED vs TIME per subject, customisable columns per page
-- **CWRES histogram** — with normal distribution overlay
-- **QQ plot** — CWRES vs theoretical quantiles with Shapiro-Wilk test and 95% confidence band
-- **ETA vs covariate** — scatter plots of ETAs against continuous covariates
-- **OFV waterfall** — ranked ΔOFV bar chart across all models
-- **Convergence traces** — parameter trajectories from `.ext` file
-- **Data explorer** — interactive scatter plot with multi-filter capability, grouping/colouring by any column, paginated data table view
+- **GOF 2×2** — DV vs PRED, DV vs IPRED, CWRES vs TIME, CWRES vs PRED with reference lines
+- **CWRES histogram** — normal overlay, Save PNG
+- **QQ plot** — with Shapiro-Wilk test and 95% confidence band, Save PNG
+- **NPDE distribution** — shown when NPDE column is present, Save PNG
+- **ETA vs covariate** — scatter with LOESS overlay; recognises truncated NONMEM ETA column names (ET12, ET13 …)
+- **Individual fits** — paginated DV/IPRED/PRED vs TIME per subject
+- **OFV waterfall** — ranked ΔOFV across all completed models
+- **Convergence traces** — parameter trajectories from `.ext`
 
-Auto-loads `sdtab` files when a model is selected. Shows truncation warning if data exceeds 15,000 rows.
+Auto-loads `sdtab` on model selection.
 
-### VPC tab
-Generate Visual Predictive Checks via two R backends:
-- **vpc** (R package by Ronny Keizer)
-- **xpose** (tidyverse-based)
+### VPC tab (Ctrl+5)
+Generate Visual Predictive Checks via R:
+- **vpc** (Ronny Keizer) and **xpose** (tidyverse) backends — availability shown with ✓/✗ at startup
+- "Use PsN settings" mode inherits binning, stratification and pred-corr from the PsN output folder
+- Configurable PI/CI percentiles, LLOQ, bins, log Y, pcVPC
+- Editable R script — modify before running
+- Live console, inline PNG preview, Save high-res PNG, Save PDF
 
-Features:
-- Prediction-corrected VPC (pcVPC) option
-- Stratification by any column with validation (checks column exists, warns if >20 levels)
-- Configurable prediction intervals, confidence intervals, LLOQ, number of bins
-- Log Y axis option
-- Editable R script with syntax highlighting — modify before running
-- Live console output during R execution
-- PNG output displayed in-app
-- R package availability detection on startup
+### Uncertainty tab (Ctrl+6)
+**Bootstrap** — run via PsN or load existing results; parameter table with 95% CI from percentiles, forest plot, diagnostic checks (completion rate, bias, correlations, CI validity, boundary proximity), overall PASSED/ACCEPTABLE/WARNING/FAILED verdict.
 
-### Uncertainty tab
-Analyse parameter uncertainty via Bootstrap or SIR:
+**SIR** — same layout; ESS, resampling efficiency, degeneracy detection, weighted percentile CIs, overall assessment.
 
-**Bootstrap analysis**
-- Run new bootstrap via PsN or load existing results folder
-- Configurable samples, threads, stratification
-- Automated parsing of `raw_results.csv`
-- **Diagnostic checks**:
-  - Completion rate (% successful runs)
-  - Bias assessment (median vs original estimate)
-  - Parameter correlations
-  - CI validity (does CI include point estimate?)
-  - Boundary proximity warning (OMEGAs clustering near zero)
-- Parameter table with 95% CI from percentiles
-- Forest plot visualisation
-- Overall assessment: PASSED / ACCEPTABLE / WARNING / FAILED
+### Sim Plot tab (Ctrl+7)
+Prediction interval visualisation from NONMEM Monte Carlo simulation output:
+- Load any NONMEM table file or CSV — no row cap
+- Auto-detects replicate column (REP, IREP, SIM, SIMNO, …)
+- Up to 4 configurable PI band ribbons (percentile pair, colour, alpha, visibility), 4 presets
+- Median line, log/linear Y axis, LOESS smoothing
+- Up to 6 column filters (AND), MDV=1 exclusion
+- Optional observed data overlay
+- Background quantile computation — UI stays responsive
+- Save 300 DPI PNG
 
-**SIR analysis**
-- Run new SIR via PsN or load existing results folder
-- Configurable samples, resamples, auto-detected degrees of freedom
-- Parsing of `raw_results.csv` with resample weighting
-- **Diagnostic checks**:
-  - Effective sample size (ESS)
-  - Resampling efficiency
-  - Degeneracy detection
-  - Resample distribution analysis
-- Parameter table with weighted percentile CIs
-- Overall assessment with interpretation
-
-### Run History (History tab)
-Full history of PsN runs with:
-- Status (running/completed/failed)
-- Duration
-- Command preview
-- Timestamp
-- Click to view full run record
+### History tab (Ctrl+8)
+Chronological log of all PsN runs (last 200 entries). Columns: status, model, tool, command, timestamps. Double-click any row to view the full run record.
 
 ### Run Records (audit trail)
-Every model run creates an immutable run record containing:
-- Unique run ID (UUID)
-- Model file SHA-256 hash (integrity verification)
-- Data file SHA-256 hash
-- NONMEM version, PsN version, NMGUI version
-- Start/end timestamps, duration
-- Final OFV, minimisation status, covariance status
-- Number of individuals, observations, parameters
-- Full command used
+Every run creates an immutable record: UUID, SHA-256 hashes of control stream and dataset, NONMEM/PsN/NMGUI versions, timestamps, OFV, minimisation/covariance status, full command. Accessible from right-click → "View run record". Export JSON.
 
-Access via right-click → "View run record" on any model. Records stored in `~/.nmgui/run_records.json`.
-
-### Settings tab
-- Dark/light theme toggle (follows system or manual override)
-- Path configuration for NONMEM, PsN, RStudio
+### Settings tab (Ctrl+9)
+- Dark / light / follow-system theme toggle
+- Path configuration for NONMEM, PsN, R, RStudio
 - Directory bookmarks management
-- All settings persisted between sessions
+- GitHub update check (numeric version comparison)
+- Debug logging to `~/.nmgui/nmgui_debug.log`
 
 ### Additional features
-- **Bookmarks** — save frequently-used directories for quick access
-- **Model comparison** — side-by-side parameter comparison dialog with aligned rows
-- **Duplicate model** — create copy with incremented run number
-- **NM-TRAN messages** — quick access to compilation warnings/errors
+- **Model comparison** — side-by-side parameter table with ΔOFV, ΔAIC, ΔBIC, LRT p-value
+- **Model workbench** — sortable table of all completed models for quick multi-model review
+- **QC report** — PASS/WARN/FAIL HTML checklist per model
+- **Duplicate model** — copy with incremented run number
+- **NM-TRAN messages** — compilation warnings/errors at a glance
 - **Stale detection** — orange highlight when `.mod` or data file is newer than `.lst`
-- **GitHub update check** — optional notification when new version available
-- **Debug logging** — detailed logs written to `~/.nmgui/nmgui_debug.log` for troubleshooting
-- **Cross-platform** — native look on macOS, Windows, Linux (including X11/MobaXterm)
+- **GitHub update check** — optional notification on new version
+- **Cross-platform** — macOS, Windows, Linux (including X11/MobaXterm over SSH)
 
 ---
 
@@ -537,7 +493,15 @@ pip install -r requirements.txt
 
 ### Previous versions
 
-Snapshot zips of older NMGUI releases are kept in the [`previous releases/`](previous%20releases/) folder at the repository root — useful if you need to reproduce results generated with an earlier version. Each zip contains the full source tree at that tag; unzip into a separate directory and run as usual. Tagged releases from v2.5.0 onward are also available on the [Releases page](https://github.com/Robterheine/nmgui2/releases).
+All tagged releases from v2.5.0 onward are available on the [Releases page](https://github.com/Robterheine/nmgui2/releases). To run an older version, check out the tag into a separate directory:
+
+```bash
+git clone https://github.com/robterheine/nmgui2.git nmgui2-old
+cd nmgui2-old
+git checkout v2.8.0
+pip install -r requirements.txt
+python3 nmgui2.py
+```
 
 ---
 
@@ -566,6 +530,7 @@ Snapshot zips of older NMGUI releases are kept in the [`previous releases/`](pre
 | Settings tab | ⌘9 | Ctrl+9 |
 | Open directory | ⌘O | Ctrl+O |
 | Rescan directory | ⌘R | Ctrl+R |
+| New model | ⌘N | Ctrl+N |
 | Navigate model table | ↑ / ↓ | ↑ / ↓ |
 | Jump to Output panel | Enter | Enter |
 | Toggle star | Space | Space |

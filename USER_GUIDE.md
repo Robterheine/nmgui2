@@ -1,6 +1,6 @@
-# NMGUI2 v2.5 — User Guide
+# NMGUI2 v2.9 — User Guide
 
-A complete feature reference for experienced pharmacometricians. If you are coming from **Pirana** or **PopED**, the structure below is written to let you locate the equivalent workflow quickly: each section states *where* the feature lives in the UI and *how* to use it.
+A complete feature reference for pharmacometricians. Each section states *where* the feature lives and *how* to use it. If you are coming from **Pirana**, see the quick-mapping table at the end.
 
 ---
 
@@ -9,32 +9,32 @@ A complete feature reference for experienced pharmacometricians. If you are comi
 1. [Required and optional software](#1-required-and-optional-software)
 2. [Orientation — window layout](#2-orientation--window-layout)
 3. [Models tab](#3-models-tab)
-4. [Model detail panel (right-hand pane)](#4-model-detail-panel-right-hand-pane)
-5. [Tree tab](#5-tree-tab--model-lineage)
-6. [Evaluation tab](#6-evaluation-tab--gof-and-diagnostics)
-7. [VPC tab](#7-vpc-tab)
-8. [Uncertainty tab](#8-uncertainty-tab--bootstrap--sir)
-9. [History tab](#9-history-tab)
-10. [Settings tab](#10-settings-tab)
-11. [Dialogs invoked from the model table](#11-dialogs-invoked-from-the-model-table)
-12. [Global keyboard shortcuts](#12-global-keyboard-shortcuts)
-13. [Files written by NMGUI2](#13-files-written-by-nmgui2)
-14. [Mapping: Pirana / PopED → NMGUI2](#14-mapping-pirana--poped--nmgui2)
+4. [Files tab](#4-files-tab)
+5. [Model detail panel](#5-model-detail-panel-right-hand-pane)
+6. [Tree tab](#6-tree-tab--model-lineage)
+7. [Evaluation tab](#7-evaluation-tab--gof-and-diagnostics)
+8. [VPC tab](#8-vpc-tab)
+9. [Uncertainty tab](#9-uncertainty-tab--bootstrap--sir)
+10. [Sim Plot tab](#10-sim-plot-tab)
+11. [History tab](#11-history-tab)
+12. [Settings tab](#12-settings-tab)
+13. [Dialogs](#13-dialogs)
+14. [Global keyboard shortcuts](#14-global-keyboard-shortcuts)
+15. [Files written by NMGUI2](#15-files-written-by-nmgui2)
+16. [Mapping: Pirana → NMGUI2](#16-mapping-pirana--nmgui2)
 
 ---
 
 ## 1. Required and optional software
 
-NMGUI2 is a pure Python/PyQt6 desktop app. It never spawns a browser and never contacts a server (other than an optional GitHub update check). To get the **full feature surface**, the following external tools should be on `PATH`.
+NMGUI2 is a pure Python/PyQt6 desktop app. It never spawns a browser and never contacts a server (other than an optional GitHub update check). The app launches and can browse, compare and evaluate models even with nothing else installed.
 
 ### Required for the core app
 
-| Tool | Minimum | Why | Check |
-|---|---|---|---|
-| Python | 3.10 | Runtime | `python3 --version` |
-| PyQt6, pyqtgraph, numpy, matplotlib, scipy | — | `pip install -r requirements.txt` | `pip list` |
-
-The app launches and can browse/compare models even with nothing else installed.
+| Tool | Minimum | Install |
+|---|---|---|
+| Python | 3.10 | python.org / brew / apt |
+| PyQt6, pyqtgraph, numpy, matplotlib, scipy | — | `pip install -r requirements.txt` |
 
 ### Required to *run* NONMEM models from inside NMGUI2
 
@@ -42,211 +42,287 @@ The app launches and can browse/compare models even with nothing else installed.
 |---|---|---|
 | NONMEM | 7.4 | Licensed install from ICON |
 | PsN | 5.0 | `execute`, `vpc`, `bootstrap`, `scm`, `sir`, `cdd`, `npc`, `sse` must be on PATH |
-| Perl | 5.16 | Required by PsN. macOS/Linux: system Perl. Windows: Strawberry Perl |
+| Perl | 5.16 | macOS/Linux: system Perl. Windows: Strawberry Perl |
 
-NMGUI2 autodetects these; paths can be overridden in **Settings**.
+Paths can be overridden in **Settings** if autodetection fails.
 
 ### Required for VPC generation
 
-| Tool | Minimum | Install |
-|---|---|---|
-| R | 4.0 | `Rscript` on PATH |
-| R package `vpc` | — | `install.packages("vpc")` |
-| R package `xpose` | — | `install.packages("xpose")` |
-| R package `xpose4` | — | classic xpose |
-| R package `tidyverse` | — | required by `xpose` |
-| R package `ggplot2` | — | required by `vpc`/`xpose` |
-| RStudio Desktop | — | optional; "Open RStudio" button in VPC tab |
+| Tool | Install |
+|---|---|
+| R ≥ 4.0 (`Rscript` on PATH) | `brew install r` / `apt install r-base` / cran.r-project.org |
+| R package `vpc` | `install.packages("vpc")` |
+| R package `xpose` | `install.packages("xpose")` |
+| R package `tidyverse` | required by `xpose` |
+| R package `ggplot2` | required by `vpc`/`xpose` |
 
 One-liner:
 ```bash
-Rscript -e 'install.packages(c("vpc","xpose","xpose4","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
+Rscript -e 'install.packages(c("vpc","xpose","tidyverse","ggplot2"), repos="https://cran.r-project.org")'
 ```
 
-The VPC tab displays a green ✓ / red ✗ per package at the top of the panel on startup so you can see at a glance what is installed.
+The VPC tab shows a green ✓ / red ✗ per package at startup.
 
 ### Required for Uncertainty tab
 
-Bootstrap and SIR runs use PsN's `bootstrap` and `sir` commands — so PsN + NONMEM suffice; no additional R packages are needed. Loading *existing* bootstrap/SIR results also works without PsN installed.
-
-### Not required but recommended
-
-| Tool | Benefit |
-|---|---|
-| Git | Pull updates (`git pull`) |
-| RStudio | Click-through editing of the generated VPC R script |
+PsN `bootstrap` and `sir` commands. Loading *existing* results folders works without PsN.
 
 ---
 
 ## 2. Orientation — window layout
 
 ```
-┌───────────────────────────────────────────────────────┐
-│  NMGUI  v2.5.0                    [? About] [RStudio] │  ← toolbar
-├─────┬─────────────────────────────────────────────────┤
-│Tabs │   tab content (Models / Tree / Evaluation / …)  │
-│ M   │                                                 │
-│ T   │                                                 │
-│ E   │                                                 │
-│ V   │                                                 │
-│ U   │                                                 │
-│ H   │                                                 │
-│ S   │                                                 │
-└─────┴─────────────────────────────────────────────────┘
-│  <n> models, <n> with results · <DIR> · scanned in 0.1s │ ← status bar
-└───────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  NMGUI  v2.9.0           PROJECTDIR / run12   [?About] [RS] │
+├─────┬───────────────────────────────────────────────────────┤
+│  M  │                                                       │
+│  F  │           tab content                                 │
+│  T  │                                                       │
+│  E  │                                                       │
+│  V  │                                                       │
+│  U  │                                                       │
+│  ~  │                                                       │
+│  H  │                                                       │
+│  ⚙  │                                                       │
+├─────┴───────────────────────────────────────────────────────┤
+│  status bar                                                 │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-- **Left sidebar**: seven tabs (Models / Tree / Evaluation / VPC / Uncertainty / History / Settings). Keyboard ⌘1–⌘7 (macOS) or Ctrl+1–Ctrl+7 (Win/Linux).
-- **About button**: opens the About dialog (version, environment, credits).
-- **Open RStudio button**: launches RStudio if installed.
-- **Status bar**: model count, active directory, last scan duration, and transient messages from actions.
-- **Dark / light theme**: toggled from Settings; persisted in `~/.nmgui/settings.json`.
+- **Left sidebar** — nine tabs: Models (M) / Files (F) / Tree (T) / Evaluation (E) / VPC (V) / Uncertainty (U) / Sim Plot (~) / History (H) / Settings (⚙).  
+  Keyboard: ⌘1–⌘9 (macOS) / Ctrl+1–Ctrl+9 (Win/Linux).
+- **Top bar** — app name, version, current directory / model breadcrumb, About button, Open RStudio button.
+- **Status bar** — model count, active directory, last scan time, transient action messages.
+- **Theme** — dark / light / follow system, toggled in Settings.
 
 ---
 
 ## 3. Models tab
 
-**Where:** left sidebar → *Models* (⌘1 / Ctrl+1). This is the home view.
-
-**Purpose:** pick a directory, see every `.mod` / `.ctl` inside it with their outcomes, act on any model.
+**Shortcut:** ⌘1 / Ctrl+1. This is the home view.
 
 ### Directory controls (top row)
-- **Browse…** — pick a folder; `.mod` and `.ctl` files are scanned recursively one level.
-- **⭮ Rescan** (⌘R / Ctrl+R) — rerun the scan after you added/modified models on disk.
-- **+ Bookmark** / **Bookmarks ▾** — save the current directory for one-click recall. Stored in `~/.nmgui/bookmarks.json`.
-- **Filter ▾** — *All / Completed / Failed / Starred*.
-- **Search box** — free-text filter on stem, comment, notes, status tag.
+
+| Control | Action |
+|---|---|
+| **Browse…** | Pick a folder; scans for `.mod` / `.ctl` files |
+| **⭮ Rescan** (⌘R / Ctrl+R) | Re-scan after external changes |
+| **+ Bookmark** / **Bookmarks ▾** | Save / recall directories |
+| **All / Completed / Failed** | Status filter buttons |
+| **Search box** | Free-text filter on stem, comment, notes, tag |
+| **New model…** (⌘N / Ctrl+N) | Create a new NONMEM control file from a template |
+
+### New model
+
+Click **New model…** or press ⌘N / Ctrl+N to open the New Model dialog:
+
+- **Model name** — stem (no extension). Must start with a letter; letters, digits, `_` and `-` allowed. The destination path is shown live below the field.
+- **Template** — choose from 17 built-in NONMEM templates (see below).
+- **$DATA path** — type or **Browse…** to pick a dataset file. Stored as a relative path when inside the working directory.
+- **Preview…** — renders the full control file text before writing.
+- **OK** — writes `<stem>.mod`, rescans the directory, and auto-selects the new model with the Editor tab open.
+
+#### Available templates
+
+| Category | Template |
+|---|---|
+| Analytical | \$PRED subroutine blank |
+| Analytical | 1-CMT oral (ADVAN2 TRANS2) |
+| Analytical | 1-CMT IV bolus (ADVAN1 TRANS2) |
+| Analytical | 2-CMT oral (ADVAN4 TRANS4) |
+| Analytical | 2-CMT IV bolus (ADVAN3 TRANS4) |
+| ODE — Tier 1 | 1-CMT Michaelis-Menten IV (ADVAN6) |
+| ODE — Tier 1 | 1-CMT Michaelis-Menten oral (ADVAN6) |
+| ODE — Tier 1 | 2-CMT time-varying CL oral — sigmoid Imax (ADVAN6) |
+| ODE — Tier 1 | QE-TMDD 1-CMT IV (ADVAN6) |
+| ODE — Tier 1 | Wagner 1-CMT IV — TMDD Rtot constant (ADVAN6) |
+| ODE — Tier 1 | Dual first-order absorption 1-CMT (ADVAN6) |
+| ODE — Tier 1 | Parallel first-order absorption + lag 1-CMT (ADVAN6) |
+| ODE — Tier 2 | QE-TMDD 1-CMT oral (ADVAN6) |
+| ODE — Tier 2 | QE-TMDD 2-CMT IV (ADVAN6) |
+| ODE — Tier 2 | Zero-order absorption + MM elimination (ADVAN6) |
+| ODE — Tier 2 | Simultaneous first+zero order absorption 1-CMT (ADVAN6) |
+| ODE — Tier 2 | 2-CMT IV + urine compartment (ADVAN6) |
+
+All ODE templates use `ADVAN6 TOL=6`, TV-parameterisation, combined proportional+additive residual error, and diagonal OMEGA. Dataset notes are embedded as comments where the template requires special columns (RATE, DVID).
 
 ### Table columns
+
 | Column | Source | Notes |
 |---|---|---|
-| ★ | metadata | Star/unstar with `Space` or right-click |
+| ★ | metadata | Star / unstar with Space or right-click |
 | Stem | file | e.g. `run12` |
-| Status tag | metadata | Base / Candidate / Final / Reject (colored) |
+| Status tag | metadata | Base / Candidate / Final / Reject (coloured) |
 | OFV | `.lst` / `.ext` | Final objective function value |
-| ΔOFV | — | Relative to **reference model** (see below) |
-| Min. | `.lst` | ✓ = successful, ✗ = failed, — = not available |
+| ΔOFV | — | Relative to reference model |
+| Min. | `.lst` | ✓ converged, ✗ failed, — not run |
 | Cov | `.lst` | Covariance step result |
-| Cond# | `.lst` | Condition number (correlation matrix) |
-| Method | `$EST` | FO / FOCE / FOCEI / IMP / SAEM / BAYES |
+| Cond# | `.lst` | Condition number |
+| Method | `$EST` | FO / FOCE / FOCEI / IMP / SAEM / BAYES / SIM |
 | #ID | dataset | Individuals |
 | #obs | dataset | Observations |
 | #par | `.lst` | Estimated parameters |
-| AIC | — | `OFV + 2·#par` |
+| AIC | — | OFV + 2 × #par |
 | Runtime | `.lst` | Reported or measured |
 | Comment | metadata | Editable in Info panel |
 
 Row colours: **green** = converged, **red** = failed / terminated, **orange** = stale (source newer than `.lst`) or boundary warning.
 
-Sort by clicking any header. Filter state persists per directory.
+### Reference model
 
-### Reference model (for ΔOFV)
-Right-click any successful model → **Set as reference**. All ΔOFV values recompute against this model. The reference is marked with a diamond icon in the star column. Clearing is via right-click → **Clear reference**.
+Right-click → **Set as reference model**. All ΔOFV values recompute against it. Clear via right-click → **Clear reference model**.
 
 ### Right-click context menu
-- **Toggle star** — also `Space`.
-- **Set / Clear reference** — see above.
-- **Duplicate…** — opens the duplicate dialog (new run number; copies `.mod`, renames table outputs). See §11.
-- **Compare with…** — opens the two-model comparison dialog.
-- **Open workbench…** — the multi-model table. See §11.
-- **QC report…** — HTML quality-control report with PASS/WARN/FAIL checklist.
-- **Open run report** — the HTML version of the Output tab, saved to a temp file.
-- **View `.lst`** — raw listing in a separate viewer window.
-- **NM-TRAN messages** — shows NM-TRAN compilation warnings/errors.
-- **View run record** — the immutable audit record for this run.
 
-### Keyboard
-- `↑ / ↓` — move row.
-- `Enter` — jump focus to Output sub-tab of detail panel.
-- `Space` — toggle star.
+| Item | Action |
+|---|---|
+| **Run** | Run the model with current Run panel settings |
+| **Toggle star** | Also Space |
+| **Duplicate…** | Clone with incremented run number |
+| **Set / Clear reference model** | |
+| **Compare with…** | Two-model parameter comparison dialog |
+| **Copy .mod path** | Path to clipboard |
+| **Copy folder path** | Folder path to clipboard |
+| **Open folder** | Open in Finder / Explorer / xdg-open |
+| **View .lst** | Raw listing in search-enabled viewer |
+| **View .ext** | Parameter estimates by iteration (if run exists) |
+| **View run record…** | Immutable audit record |
+| **NMTRAN messages…** | NM-TRAN compilation warnings/errors |
+| **QC Report…** | PASS/WARN/FAIL HTML checklist (completed models only) |
+| **Run Report…** | HTML rendering of Output tab (completed models only) |
+| **Workbench…** | Multi-model comparison table |
+| **Delete…** | Remove `.mod` + all paired output files (confirms before deleting; excludes dataset) |
+
+### Keyboard (model table)
+
+| Key | Action |
+|---|---|
+| ↑ / ↓ | Move row |
+| Enter | Jump to Output sub-tab |
+| Space | Toggle star |
 
 ---
 
-## 4. Model detail panel (right-hand pane)
+## 4. Files tab
 
-The panel under the Models table has sub-tabs:
+**Shortcut:** ⌘2 / Ctrl+2.
 
-### 4.1 Parameters
-Full THETA / OMEGA / SIGMA table. Parameter names are parsed from comments in `$THETA`/`$OMEGA`/`$SIGMA` blocks. Columns include estimate, SE, RSE%, 95% CI, and SD for variance parameters. Handles `BLOCK(n)` and `BLOCK(n) SAME` correctly.
+A built-in file browser for the current working directory, with a content viewer for all common NONMEM file types.
 
-- THETA / OMEGA / SIGMA blocks are **collapsible** — click the section header to fold.
-- **Export CSV…** — full table as CSV.
-- **Export HTML…** — self-contained HTML report (for emailing to a collaborator).
+### Navigation bar (top)
 
-### 4.2 Editor
-Syntax-highlighted `.mod` editor.
-- **Save** writes the file back and marks the model stale (so the row turns orange).
-- Never overwrites `.lst`. Re-run the model to regenerate outputs.
+```
+[←]  PROJECTDIR  /  run12        [All] [.mod] [.ctl] [.lst] [.tab] [.csv] [.ext] [.cov] [.cor] [.phi] [+]
+```
 
-### 4.3 Run
+| Element | Action |
+|---|---|
+| **← back button** | Return to previous directory; disabled at root |
+| **Breadcrumb** | Shows current path relative to working directory root |
+| **All** pill | Show all files (default) |
+| **Extension pills** | Click to show only files with that extension; folders always remain visible regardless of filter |
+| **[+] pill** | Add a custom extension filter via a text prompt |
+
+Multiple extension pills can be active simultaneously. Clicking **All** clears all extension selections. Filter state persists across sessions.
+
+### File list
+
+- **Folders appear first** (bold, 📁 prefix), sorted A-Z.
+- Files appear below, sorted by name by default; click column headers (Name / Size / Modified) to resort.
+- Hidden folders (name starts with `.`) are not shown.
+
+| Interaction | Result |
+|---|---|
+| Single-click file | Load preview in right pane |
+| Single-click folder | Highlight only (no preview) |
+| Double-click folder | Navigate into it; breadcrumb and back button update |
+| Double-click file | Open with the OS default application (Finder / Explorer / xdg-open) |
+
+### Content viewer (right pane)
+
+**Toolbar** shows the current filename and context-sensitive controls:
+
+| File type | View | Controls |
+|---|---|---|
+| `.mod`, `.ctl` | Syntax-highlighted text | Find bar, Edit / Save / Discard |
+| `.lst`, `.phi`, other text | Monospace text | Find bar, Edit / Save / Discard |
+| `.csv` | Spreadsheet (sortable, virtualised — no row cap) | Table / Plot pills, Edit / Save / Discard |
+| `.tab` (NONMEM TABLE) | Spreadsheet (sortable, virtualised — no row cap) | Table / Plot pills (read-only) |
+
+**Plot view** (`.csv` / `.tab`) — full Data Explorer:
+- Any column on X and Y.
+- Colour-by any column (categorical or continuous).
+- Multi-filter (AND) — add rows of `column op value`.
+- Paginated data table view.
+
+**Edit mode** — toggle with the **Edit** button:
+- Text files become editable; **Save** writes back, **Discard** reloads.
+- `.csv` cells become editable; saves back with the original delimiter.
+- `.tab` files remain read-only (NONMEM output).
+
+**Find bar** (text files only) — highlights all occurrences; jumps to first match.
+
+---
+
+## 5. Model detail panel (right-hand pane)
+
+Visible when a model is selected in the Models tab. Five sub-tabs:
+
+### 5.1 Parameters
+
+Full THETA / OMEGA / SIGMA table. Parameter names parsed from comments in the control stream. Columns: estimate, SE, RSE%, 95% CI, SD (for variance parameters). Handles `BLOCK(n)` and `BLOCK(n) SAME` correctly.
+
+- THETA / OMEGA / SIGMA blocks are **collapsible** — click the section header.
+- **Export CSV…** — full table.
+- **Export HTML…** — self-contained report for sharing.
+
+### 5.2 Editor
+
+Syntax-highlighted `.mod` editor. **Save** writes the file and marks the model stale (orange row). Never overwrites `.lst`.
+
+### 5.3 Run
+
 Launch any PsN tool on the current model.
 
-- **Tool dropdown** — execute / vpc / bootstrap / scm / sir / cdd / npc / sse.
-- **Extra args** — free-form arguments appended to the command.
-- **Clean previous run dir** — checkbox; deletes the `<stem>/` subdirectory before running.
-- **Run detached** (Linux/macOS only) — launches the job under `nohup` in a new session so it keeps running even if NMGUI2 is closed or the SSH/MobaXterm session disconnects. Automatically pre-checked when NMGUI2 detects it is running over SSH. Recommended for long runs (bootstrap, SCM, SIR). Output goes to a `.nmgui.log` file in the project folder instead of a live popup; see *Detached runs* below.
-- **Run** — spawns PsN. If **Run detached** is unchecked, a floating **Run popup window** opens immediately; see below. If checked, the run starts silently and a row appears in the Active & Recent Runs table.
+- **Tool dropdown** — `execute` / `vpc` / `bootstrap` / `scm` / `sir` / `cdd` / `npc` / `sse`.
+- **Extra args** — free-form arguments appended verbatim.
+- **Run detached** (Linux/macOS) — launch under `nohup` in a new OS session. The job continues even if NMGUI2 closes or the SSH connection drops. Auto-checked when running over SSH. Output written to `<run_id>.nmgui.log` in the project folder.
+- **Run** — opens a floating popup window per model (unchecked), or adds a row to the Active & Recent Runs table (checked).
 
 #### Run popup window
-Each run gets its own independent window (appears as a separate entry in the taskbar/Dock):
 
-- **Header** — model stem, tool name, start time.
-- **Status bar** — pulsing ● while running; shows live iteration number and OFV for `execute` runs (parsed from NONMEM output); shows run N/M progress for PsN multi-run tools. On completion shows ✓ / ✗ with the termination result (e.g. *Minimization Successful*).
-- **Elapsed timer** — counts up from zero.
-- **Console** — live stdout/stderr stream.
-- **Stop button** — opens a menu:
-  - *Gentle stop (SIGTERM)* — asks PsN to finish writing output files before stopping.
-  - *Force kill (SIGKILL)* — immediate termination; no output is written.
-- **Open run dir** — reveals the run directory (`<cwd>/<stem>/`) in the file manager.
-- **Close** — closes the window; if the run is still active you are asked to confirm (the run continues in the background).
+Each run gets its own independent floating window:
 
-Multiple models can run simultaneously — each in its own popup.
+- **Status line** — pulsing ● while running; shows live iteration / OFV for `execute` runs; shows N/M progress for multi-run tools. On completion shows ✓/✗ with termination reason.
+- **Elapsed timer**.
+- **Live console** — stdout/stderr stream.
+- **Stop button** — *Gentle (SIGTERM)* or *Force kill (SIGKILL)*.
+- **Open run dir** — reveals the run subdirectory in the file manager.
 
 #### Active & Recent Runs table
-Below the launch controls, the Run sub-tab shows a table of all runs associated with the current project folder:
 
-| Column | Meaning |
-|---|---|
-| Model | Model stem |
-| Tool | PsN tool used |
-| Status | Live: elapsed time + current OFV (for execute). Finished: ✓ Completed / ✗ Failed / ? Interrupted |
-| Time | Duration |
+Shows all runs for the current project folder:
+- **Live rows** — click to raise the popup window.
+- **Detached rows** — click to open a **Watch Log** window (live tail with elapsed timer and Stop button).
+- **Historical rows** — loaded from `nmgui_run_records.json`; persist across restarts.
+- **Interrupted** — runs that were active when the app closed appear as "? Interrupted".
 
-- **Live rows** (top) — correspond to open popup windows; click to raise the window.
-- **Historical rows** — loaded from `nmgui_run_records.json` in the project folder; persist across app restarts; capped at the 30 most recent entries.
-- **Interrupted** — runs that were active when the app was closed without waiting for completion appear as "? Interrupted".
+#### Detached run reconciliation
 
-#### Detached runs (SSH / MobaXterm workflow)
+On the next NMGUI2 startup or directory rescan, finished detached runs are automatically reconciled — status, timestamps, and OFV are retrieved from the log file. A status bar message reports the outcome.
 
-When **Run detached** is checked:
+### 5.4 Info
 
-1. NMGUI2 launches PsN with `nohup` in a new OS session. The process is fully independent of NMGUI2's lifetime — closing MobaXterm, dropping the SSH connection, or quitting NMGUI2 will not kill the run.
-2. All output is written to `<run_id>.nmgui.log` in the project folder.
-3. A PID file (`<run_id>.nmgui.pid`) is created so NMGUI2 can track liveness.
-4. A row appears immediately in the Active & Recent Runs table showing *◌ Running (detached)* with an elapsed timer.
-5. **Click the row** to open a **Watch Log** window — a live tail of the log file, with an elapsed timer and a Stop button.
-
-When you **reconnect** (restart NMGUI2 or rescan the folder):
-
-- NMGUI2 automatically reconciles all detached runs against their PID files.
-- Runs that finished are marked completed or failed in the run record. The completed timestamp is taken from the log file's modification time for accuracy.
-- A status bar message summarises the outcome: *"Reconciled 2 detached runs: 1 completed, 1 still running."*
-- Still-running jobs appear in the Active & Recent Runs table and can be watched or stopped as above.
-
-> **macOS note:** macOS may put processes to sleep when the lid is closed. If you need a long run to continue while the lid is shut, run `caffeinate -i nmgui2.py` or configure the system to prevent App Nap.
-
-Every run creates an immutable **run record** (see §11).
-
-### 4.4 Info
-- **Dataset card** (collapsible) — path, row count, columns, integrity warnings (missing file, non-monotonic TIME, duplicate doses, extreme DV, high BLQ).
-- **Annotation card** — status tag (Base/Candidate/Final/Reject) and comment line, visible in the table.
+- **Dataset card** — path, row count, columns, integrity warnings (missing file, non-monotonic TIME, duplicate doses, extreme DV, high BLQ proportion).
+- **Annotation card** — status tag (Base / Candidate / Final / Reject) and comment, both visible in the table.
 - **Notes card** — free-form multiline notes; persisted in `~/.nmgui/model_meta.json`.
 
-### 4.5 Output
+### 5.5 Output
+
 Structured HTML rendering of the `.lst` in-panel:
+
 1. **Summary strip** — stem, OFV, minimisation, covariance, method, runtime.
-2. **Estimation steps** (if chained `$EST`) — one row per step with OFV, ΔOFV between steps, runtime, significant digits, termination reason.
+2. **Estimation steps** (chained `$EST`) — one row per step: OFV, ΔOFV between steps, runtime, significant digits, termination reason.
 3. **NM-TRAN warnings**.
 4. **Convergence** — iteration history from `.ext`.
 5. **Parameter estimates** with SEs.
@@ -255,253 +331,282 @@ Structured HTML rendering of the `.lst` in-panel:
 8. **Correlation and covariance matrices**.
 9. **Eigenvalues and condition number**.
 
-Use *Open in browser* to save the full HTML and view it externally.
+**Open in browser** — exports full HTML to a temp file and opens it externally.
 
 ---
 
-## 5. Tree tab — model lineage
+## 6. Tree tab — model lineage
 
-**Where:** ⌘2 / Ctrl+2.
+**Shortcut:** ⌘3 / Ctrl+3.
 
-Interactive force-directed node graph of model genealogy. Parent is taken from the PsN header line `;; 1. Based on: NNN` or from the "parent" field you set manually (Info → Annotation).
+Interactive force-directed node graph of model genealogy. Parent is taken from the PsN metadata line `;; 1. Based on: NNN` or from the manually-set parent in Info → Annotation.
 
 - **Scroll** to zoom, **drag** to pan.
 - **Double-click** a node — selects that model in the Models tab.
-- **Starred** models rendered with a gold border; **final** models with a green border.
-- Dark-/light-theme aware (v2.5.0).
-
-Useful as the top-down equivalent of Pirana's run hierarchy view.
+- **Starred** models: gold border. **Final** models: green border.
 
 ---
 
-## 6. Evaluation tab — GOF and diagnostics
+## 7. Evaluation tab — GOF and diagnostics
 
-**Where:** ⌘3 / Ctrl+3.
+**Shortcut:** ⌘4 / Ctrl+4.
 
-Select a model in the Models tab first. On selection, NMGUI2 auto-loads the first `sdtab*` table file found next to the `.mod` (or inside its run directory). Manual override via **Browse…**. **Exclude MDV=1** is on by default.
+Select a model in the Models tab first. NMGUI2 auto-loads the first `sdtab*` table file found next to the `.mod`. Manual override via **Browse…**. **Exclude MDV=1** is on by default.
 
-Pills across the top switch sections:
+Four pills across the top switch sections:
 
-### 6.1 GOF (2×2)
-DV vs PRED | DV vs IPRED | CWRES vs TIME | CWRES vs PRED — with unity / zero reference lines.
+### 7.1 GOF
+
+2×2 panel: DV vs PRED | DV vs IPRED | CWRES vs TIME | CWRES vs PRED — with unity / zero reference lines.
 
 Inner pill strip also exposes:
-- **CWRES histogram** with normal distribution overlay.
-- **QQ plot** — CWRES vs theoretical quantiles; Shapiro–Wilk test statistic and 95% band.
-- **ETA vs Covariate** — scatter of each ETA against continuous covariates, LOESS overlay.
+- **CWRES histogram** — with normal density overlay and Save PNG.
+- **QQ plot** — CWRES vs theoretical quantiles; Shapiro–Wilk statistic and 95% band; Save PNG.
+- **NPDE distribution** — histogram + normal overlay; shown only when the table contains an NPDE column; Save PNG.
+- **ETA vs Covariate** — scatter of each ETA against continuous covariates with LOESS overlay. Recognises `ETA`, `ET` and `PHI` column prefixes (including NONMEM-truncated `ET12` etc.).
 
-### 6.2 Individual Fits
-Paginated DV/IPRED/PRED vs TIME per subject. Configurable columns per page. Space / arrow keys page through.
+### 7.2 Individual Fits
 
-### 6.3 OFV Waterfall
-Ranked ΔOFV bar chart across **all** completed models in the current directory. Reads `.phi` files. Useful at the end of a model-building sequence.
+Paginated DV / IPRED / PRED vs TIME per subject. Configurable columns per page. Space / arrow keys page through.
 
-### 6.4 Convergence
-Parameter trajectories from the `.ext` file for the selected model — one trace per parameter. Detects divergence patterns (oscillating, flat, runaway).
+### 7.3 OFV Waterfall
 
-### 6.5 Data Explorer
-Interactive scatter of the loaded table file:
-- Any column on X / Y.
-- **Colour by** any column (categorical or continuous).
-- Multi-filter (AND) — add rows of `column op value`.
-- Paginated data table view.
-- Export filtered selection.
+Ranked ΔOFV bar chart across all completed models in the current directory. Useful at the end of a model-building sequence.
 
-Truncation warning if the source table exceeds 15 000 rows — the first 15 000 are plotted.
+### 7.4 Convergence
+
+Parameter trajectories from the `.ext` file for the selected model — one trace per estimated parameter.
 
 ---
 
-## 7. VPC tab
+## 8. VPC tab
 
-**Where:** ⌘4 / Ctrl+4.
+**Shortcut:** ⌘5 / Ctrl+5.
 
-### 7.1 Backend selection
-Three R backends:
-- **vpc** — Ronny Keizer's package; fastest; binned PI / CI.
+### 8.1 Backends
+
+Two R backends:
+- **vpc** — Ronny Keizer's package; binned PI / CI bands.
 - **xpose** — tidyverse-based rendering.
-- **xpose4** — classic Uppsala xpose.
 
-Availability indicator top-right shows ✓ / ✗ per package.
+Availability shown as ✓ / ✗ per package at the top of the panel.
 
-### 7.2 Inputs
+### 8.2 Inputs
+
 | Field | Purpose |
 |---|---|
-| Run no | Used by xpose / xpose4 to locate the run directory |
-| VPC folder | PsN `vpc` output directory (contains `m1/`, `vpc_results.csv`) — used by `vpc` backend |
-| Run directory | For xpose backends; contains `sdtab*`, `.ext`, `.phi` |
-| Stratify | Column name; validated against header before running; warns if >20 levels |
-| PI (low / high) | Prediction interval percentiles, default 0.05–0.95 |
-| CI (low / high) | Confidence interval percentiles, default 0.05–0.95 |
-| LLOQ | Lower limit of quantification; rows below are shaded |
-| Bins | Number of bins for `vpc` backend |
+| VPC folder | PsN `vpc` output directory (contains `m1/`, `vpc_results.csv`) |
+| Run directory | For xpose backend; contains sdtab, `.ext`, `.phi` |
+| **Use PsN settings** (default on) | Inherits binning, stratification, pred-corr, LLOQ from PsN output; override individual fields by unchecking |
+| Stratify | Column name; validated against header before running; warns if > 20 levels |
+| PI (low / high) | Prediction interval percentiles |
+| CI (low / high) | Confidence interval percentiles |
+| LLOQ | Lower limit of quantification |
+| Bins | Bin count (when overriding PsN) |
 | Log Y axis | Toggle |
 | Prediction-corrected (pcVPC) | Toggle |
 
-### 7.3 Run flow
-1. Click **Generate VPC**. R is invoked via `Rscript` on a generated script.
-2. Console panel streams stdout/stderr live.
-3. On success, the PNG is displayed in the viewer panel.
-4. **Open in viewer** — system default image viewer.
-5. **Save high-res PNG…** — re-executes the R script with a 4× resolution.
-6. **Save PDF…** — re-executes with `pdf()` device (vector output).
+### 8.3 Run flow
 
-### 7.4 R Script panel
-A toggle between the **Console** and **R Script** view. You can edit the generated R script before running — for example, to add custom ggplot themes, change colours, or add annotations. Changes are saved for the session. **Reset** restores the template.
+1. Click **Generate VPC**. A script is generated and run via `Rscript`.
+2. Console streams stdout/stderr live.
+3. On success, the PNG is displayed inline.
+4. **Save high-res PNG…** — re-runs at 4× resolution.
+5. **Save PDF…** — re-runs with a `pdf()` device (vector output).
+6. **Stop** — terminates the R process.
 
-### 7.5 Stop
-Click **Stop** to terminate the R process tree.
+### 8.4 R script
+
+Toggle the **R Script** view to edit the generated script before running — add custom ggplot themes, colours, or annotations. **Reset** restores the template.
 
 ---
 
-## 8. Uncertainty tab — Bootstrap & SIR
+## 9. Uncertainty tab — Bootstrap & SIR
 
-**Where:** ⌘5 / Ctrl+5.
+**Shortcut:** ⌘6 / Ctrl+6.
 
-Two sub-sections switched by the top pill: **Bootstrap** / **SIR**.
+Two sub-sections: **Bootstrap** / **SIR** (switched by the top pill).
 
-### 8.1 Bootstrap
-Workflow:
-1. **Model** — select one from the Models tab first (carried over).
-2. Either **Run bootstrap** (spawns PsN `bootstrap`) or **Load results folder…** (an existing `bootstrap_*/raw_results_*.csv`).
-3. **Samples / Threads / Stratify by** are editable pre-run.
+### 9.1 Bootstrap
+
+1. Select a model in the Models tab (carried over).
+2. **Run bootstrap** (spawns PsN `bootstrap`) or **Load results folder…** (existing `raw_results_*.csv`).
+3. Pre-run options: Samples, Threads, Stratify by.
 
 Outputs:
-- **Parameter table** — for each THETA / OMEGA / SIGMA: original estimate, bootstrap median, bias%, 2.5–97.5 percentile CI.
-- **Forest plot** — normalized distributions across parameters.
-- **Diagnostics**:
-  - Completion rate (% of runs that converged).
-  - Bias (median vs point estimate).
-  - Parameter correlations.
-  - CI validity — does the CI contain the original estimate?
-  - Boundary proximity — warns if OMEGAs cluster near zero.
-- **Overall assessment** — PASSED / ACCEPTABLE / WARNING / FAILED banner.
+- **Parameter table** — original estimate, bootstrap median, bias%, 2.5–97.5 percentile CI.
+- **Forest plot** — normalised distributions.
+- **Diagnostics**: completion rate, bias, parameter correlations, CI validity, boundary proximity.
+- **Overall assessment** — PASSED / ACCEPTABLE / WARNING / FAILED.
 
-### 8.2 SIR
-Same layout. Outputs:
-- **ESS** (effective sample size).
-- **Resampling efficiency** (ESS / n_resample).
-- **Degeneracy detection**.
-- **Weighted percentile CIs**.
-- **Overall assessment** with one-line interpretation.
+### 9.2 SIR
 
-### 8.3 Console
-Live PsN output is streamed into the console at the bottom. **Reset** clears.
+Same layout. Uses PsN `sir`. Outputs:
+- Effective sample size (ESS) and resampling efficiency.
+- Degeneracy detection.
+- Weighted percentile CIs.
+- Overall assessment with one-line interpretation.
+
+### 9.3 Console
+
+Live PsN output streamed to the console at the bottom. **Reset** clears.
 
 ---
 
-## 9. History tab
+## 10. Sim Plot tab
 
-**Where:** ⌘6 / Ctrl+6.
+**Shortcut:** ⌘7 / Ctrl+7.
 
-Chronological log of every PsN run started from inside NMGUI2 (last 200 entries).
+Plots prediction intervals from NONMEM Monte Carlo simulation output. Requires a NONMEM table file that contains a replicate column (REP, IREP, SIM, SIMNO, SIM_NUM, etc. — auto-detected).
+
+### 10.1 Data card
+
+- **Browse / Load** — pick any NONMEM table file or CSV (no row-count cap).
+- **X column** and **Y column** selectors.
+- **Replicate column** — auto-detected or manually selected.
+- **Observed data** — optionally load a second file to overlay observed DV points.
+
+### 10.2 Filters card (expanded by default)
+
+Up to 6 independent column filters (`==`, `!=`, `>`, `<`, `>=`, `<=`), ANDed together. Use to subset by compartment, dose group, sex, or any other column. **Exclude MDV=1** checkbox in this card.
+
+### 10.3 PI Bands card
+
+Up to 4 simultaneous prediction interval ribbons, each configured on a single-line card:
+
+| Control | Purpose |
+|---|---|
+| Visibility checkbox | Show / hide the band |
+| Lo% / Hi% spinboxes | Percentile pair (e.g. 5 / 95) |
+| Colour swatch | Click to open colour picker |
+| Alpha spinbox | Transparency (0–1) |
+| Remove (×) button | Delete this band |
+
+**Add band** — adds a new row. **Preset** dropdown restores a named set (4 presets cover common pharmacometric conventions).
+
+### 10.4 Appearance card
+
+- **Median line** — colour and line width; computed as the 50th percentile across replicates.
+- **Log Y axis** — toggle for concentration-time plots.
+- **LOESS smoothing** — smooth all PI boundaries and the median line; **Span** spinbox controls bandwidth (0.05–1.0, default 0.30).
+
+### 10.5 Generate / Save
+
+- **Generate** — runs quantile calculations in a background thread; UI stays responsive.
+- **Save PNG** — 300 DPI PNG via matplotlib.
+
+---
+
+## 11. History tab
+
+**Shortcut:** ⌘8 / Ctrl+8.
+
+Chronological log of every PsN run started from NMGUI2 (last 200 entries, global across all projects).
 
 | Column | Meaning |
 |---|---|
 | Status | Running / Completed / Failed |
 | Stem | Model |
-| Tool | execute / vpc / bootstrap / … |
-| Command | Full command line (click to copy) |
+| Tool | `execute` / `vpc` / `bootstrap` / … |
+| Command | Full command line |
 | Started / Duration | Timestamps |
 
-Double-click any row to open the full **Run Record** (see §11).
+Double-click any row to open the full **Run Record** dialog.
 
 ---
 
-## 10. Settings tab
+## 12. Settings tab
 
-**Where:** ⌘7 / Ctrl+7. All settings persist in `~/.nmgui/settings.json`.
+**Shortcut:** ⌘9 / Ctrl+9. All settings persist in `~/.nmgui/settings.json`.
 
 - **Theme** — Dark / Light / Follow system.
 - **Font size** — base font point size.
-- **Paths** — manual overrides for:
-  - PsN `execute`
-  - NONMEM binary / script
-  - R `Rscript`
-  - RStudio application
+- **Paths** — manual overrides for PsN `execute`, NONMEM binary, R `Rscript`, RStudio.
 - **Directory bookmarks** — add / remove / reorder.
-- **GitHub update check** — on by default; pings `/releases/latest` once per launch. Compares tuple-wise (`2.10.0 > 2.9.0`).
-- **Debug logging** — toggles verbose logging to `~/.nmgui/nmgui_debug.log`.
-- **Open `.nmgui/` folder** — reveals the config directory in the system file manager.
+- **GitHub update check** — optional; pings `/releases/latest` once per launch; compares versions numerically.
+- **Debug logging** — verbose output to `~/.nmgui/nmgui_debug.log`.
+- **Open `.nmgui/` folder** — reveals the config directory in the file manager.
 
 ---
 
-## 11. Dialogs invoked from the model table
+## 13. Dialogs
 
-### 11.1 Compare (`comparison.py`)
-Right-click → **Compare with…**, pick a second model. Modal dialog with:
-- Side-by-side parameter table with aligned rows.
-- Statistics strip: ΔOFV, ΔAIC, ΔBIC, Δ#par, **LRT p-value** (chi² on `|ΔOFV|` with `|Δ#par|` df, sign-aware since v2.5.0), and a verdict string (*nested: significant at α = 0.05* / *ns* / *non-nested: LRT not applicable*).
-- Export CSV / HTML.
+### 13.1 New Model
 
-### 11.2 Workbench (`workbench.py`)
-Right-click → **Open workbench…** (or toolbar button in Models tab). Modal sortable table of all completed models in the current directory: OFV, ΔOFV, AIC, BIC, #par, LRT p-value (against a chosen reference), minimisation status, covariance status. Pick the reference from a dropdown at the top. **Export CSV**.
+Opens from **New model…** button or ⌘N / Ctrl+N in the Models tab. See §3 for full description.
 
-### 11.3 QC report (`app/qc_report.py`)
-Right-click → **QC report…**. Opens a self-contained HTML page with a PASS / WARN / FAIL checklist:
-- Termination status.
-- Covariance step.
-- Condition number (< 100 / 100–1000 / >1000).
-- Maximum %RSE.
-- Parameter correlations (|r| ≥ 0.95).
-- Shrinkage (ETA / EPS).
-- ETABAR p-values.
-- OMEGA near boundary.
+### 13.2 Compare
 
-Saveable from the browser for archival.
+Right-click → **Compare with…**, pick a second model. Side-by-side parameter table with ΔOFV, ΔAIC, ΔBIC, Δ#par, LRT p-value (sign-aware), and a verdict string. Export CSV / HTML.
 
-### 11.4 Duplicate (`duplicate.py`)
-Right-click → **Duplicate…**. Clones the `.mod` with an incremented run number; offers to copy dataset references.
+### 13.3 Workbench
 
-### 11.5 LST viewer (`lst_viewer_dialog.py`)
-Raw `.lst` in a monospaced search-enabled viewer.
+Right-click → **Workbench…** or toolbar button. Sortable table of all completed models: OFV, ΔOFV, AIC, BIC, #par, LRT p-value, minimisation, covariance. Choose the reference from a dropdown. **Export CSV**.
 
-### 11.6 NM-TRAN messages (`nmtran.py`)
-Parsed NM-TRAN compilation output (warnings, errors). Useful to spot `WARNING: DES COMPARTMENT NOT USED` and similar.
+### 13.4 QC Report
 
-### 11.7 Run record (`run_record.py`)
-Immutable record of a single run:
+Right-click → **QC Report…** (completed models only). Self-contained HTML with PASS / WARN / FAIL checklist: termination, covariance, condition number, max %RSE, parameter correlations (|r| ≥ 0.95), shrinkage, ETABAR, OMEGA near boundary.
+
+### 13.5 Duplicate
+
+Right-click → **Duplicate…**. Clones `.mod` with an incremented run number; optionally copies dataset reference.
+
+### 13.6 LST viewer
+
+Right-click → **View .lst**. Raw listing in a monospaced, search-enabled viewer window.
+
+### 13.7 NM-TRAN messages
+
+Right-click → **NMTRAN messages…**. Parsed compilation warnings and errors — useful for catching `WARNING: DES COMPARTMENT NOT USED` and similar.
+
+### 13.8 Run record
+
+Right-click → **View run record…**. Immutable audit record per run:
 - Run UUID.
-- SHA-256 hash of control stream.
-- SHA-256 hash of dataset.
+- SHA-256 hash of the control stream and dataset.
 - NONMEM / PsN / NMGUI versions.
-- Start / end timestamps.
-- Final OFV (including `0.0`), minimisation status, covariance status.
+- Start/end timestamps and duration.
+- Final OFV, minimisation status, covariance status.
 - Full command line.
+- **Export JSON** for archival.
 
-**Export JSON** — save a standalone file for the archive.
+### 13.9 About
 
-### 11.8 Shortcuts (`shortcuts.py`)
-Opens a reference card of all keyboard shortcuts.
+App version, Python / PyQt6 / numpy versions, environment summary, credits.
 
-### 11.9 About (`about.py`)
-App version, author, environment (Python / PyQt6 / pyqtgraph / numpy versions), credits.
+### 13.10 Keyboard shortcuts reference
+
+A floating card of all shortcuts, accessible from the About dialog.
 
 ---
 
-## 12. Global keyboard shortcuts
+## 14. Global keyboard shortcuts
 
-| Action | macOS | Win/Linux |
+| Action | macOS | Win / Linux |
 |---|---|---|
 | Models tab | ⌘1 | Ctrl+1 |
-| Tree tab | ⌘2 | Ctrl+2 |
-| Evaluation tab | ⌘3 | Ctrl+3 |
-| VPC tab | ⌘4 | Ctrl+4 |
-| Uncertainty tab | ⌘5 | Ctrl+5 |
-| History tab | ⌘6 | Ctrl+6 |
-| Settings tab | ⌘7 | Ctrl+7 |
+| Files tab | ⌘2 | Ctrl+2 |
+| Tree tab | ⌘3 | Ctrl+3 |
+| Evaluation tab | ⌘4 | Ctrl+4 |
+| VPC tab | ⌘5 | Ctrl+5 |
+| Uncertainty tab | ⌘6 | Ctrl+6 |
+| Sim Plot tab | ⌘7 | Ctrl+7 |
+| History tab | ⌘8 | Ctrl+8 |
+| Settings tab | ⌘9 | Ctrl+9 |
 | Open directory | ⌘O | Ctrl+O |
-| Rescan | ⌘R | Ctrl+R |
-| Move row | ↑ / ↓ | ↑ / ↓ |
-| Jump to Output | Enter | Enter |
+| Rescan directory | ⌘R | Ctrl+R |
+| New model | ⌘N | Ctrl+N |
+| Navigate model table | ↑ / ↓ | ↑ / ↓ |
+| Jump to Output panel | Enter | Enter |
 | Toggle star | Space | Space |
 
 ---
 
-## 13. Files written by NMGUI2
+## 15. Files written by NMGUI2
 
-Global user state lives in `~/.nmgui/` (created on first launch):
+Global state — `~/.nmgui/` (created on first launch):
 
-| File | Purpose |
+| File | Contents |
 |---|---|
 | `settings.json` | Theme, paths, window geometry, splitter sizes |
 | `model_meta.json` | Stars, status tags, comments, notes, parent overrides |
@@ -509,38 +614,38 @@ Global user state lives in `~/.nmgui/` (created on first launch):
 | `runs.json` | Global run history (last 200 entries across all projects) |
 | `nmgui_debug.log` | Debug log |
 
-These files are written **inside each project folder**:
+Per-project files — written inside each project folder:
 
-| File | Purpose |
+| File | Contents |
 |---|---|
-| `nmgui_run_records.json` | Immutable per-project run audit trail (last 500 entries); drives the Active & Recent Runs table |
+| `nmgui_run_records.json` | Immutable run audit trail (last 500 entries); drives the Active & Recent Runs table |
 | `<run_id>.nmgui.log` | stdout/stderr of a detached run; tailed by the Watch Log window |
-| `<run_id>.nmgui.pid` | PID and metadata of a running detached job; removed automatically on completion |
-
-Temp files: VPC PNG/PDF output lives in the VPC folder itself; arrow glyph PNGs for the theme are cached in `$TMPDIR/nmgui2_arrows/`.
+| `<run_id>.nmgui.pid` | PID and metadata of a running detached job; removed on completion |
 
 Delete `~/.nmgui/` to reset global settings. Per-project run records are not affected.
 
 ---
 
-## 14. Mapping: Pirana / PopED → NMGUI2
+## 16. Mapping: Pirana → NMGUI2
 
-| You are used to (Pirana / PopED) | In NMGUI2 |
+| Pirana feature | NMGUI2 equivalent |
 |---|---|
 | Run overview spreadsheet | **Models tab** |
-| Run comparison | Right-click → **Compare with…** or **Open workbench…** |
-| Model tree / ancestry | **Tree tab** |
+| Run comparison / ΔOFV | Right-click → **Compare with…** or **Workbench…** |
+| Model tree / ancestry | **Tree tab** (⌘3) |
 | Execute / bootstrap / VPC buttons | **Run sub-tab** and **VPC tab** |
-| Xpose diagnostics from inside Pirana | **Evaluation tab** (native, no R required for GOF/CWRES/QQ/ETA plots) |
-| `.lst` reader | **Output sub-tab**, or right-click → **View `.lst`** for raw |
-| NONMEM messages | Right-click → **NM-TRAN messages** |
-| Bootstrap results viewer | **Uncertainty tab → Bootstrap** |
+| Xpose diagnostic plots | **Evaluation tab** — native, no R required for GOF / CWRES / QQ / ETA plots |
+| `.lst` reader | **Output sub-tab**, or right-click → **View .lst** for raw |
+| NONMEM messages | Right-click → **NMTRAN messages…** |
+| Bootstrap results | **Uncertainty tab → Bootstrap** |
 | SIR results | **Uncertainty tab → SIR** |
-| Audit / archival | **Right-click → View run record**, **QC report…** |
-| Annotation, star, status | **Info sub-tab → Annotation**, Space to star |
-| PopED design-evaluation | **Not in NMGUI2** — NMGUI2 is estimation-focused |
-| SSH / nohup / screen | **Run detached** checkbox in the Run sub-tab |
+| Audit / archival | Right-click → **View run record…** and **QC Report…** |
+| Annotation, star, status tag | **Info sub-tab → Annotation**, Space to star |
+| File browser | **Files tab** (⌘2) — with subfolder navigation and content preview |
+| Simulation plot / PI ribbons | **Sim Plot tab** (⌘7) |
+| Create new model file | **New model…** button / ⌘N — 17 built-in templates |
+| SSH / nohup workflow | **Run detached** checkbox in the Run sub-tab |
 
 ---
 
-*Developed with [Anthropic Claude](https://claude.ai). Comments, bug reports and pull requests welcome at https://github.com/Robterheine/nmgui2.*
+*NMGUI2 v2.9 · Developed with [Anthropic Claude](https://claude.ai) · [GitHub](https://github.com/Robterheine/nmgui2)*
