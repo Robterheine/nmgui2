@@ -1054,12 +1054,6 @@ class ParameterUncertaintyTab(QWidget):
         self.sir_resamples_spin.setDecimals(0)
         form.addRow('Resamples:', self.sir_resamples_spin)
 
-        self.sir_iterations_spin = QDoubleSpinBox()
-        self.sir_iterations_spin.setRange(1, 20)
-        self.sir_iterations_spin.setValue(5)
-        self.sir_iterations_spin.setDecimals(0)
-        form.addRow('Iterations:', self.sir_iterations_spin)
-
         self.sir_threads_spin = QDoubleSpinBox()
         self.sir_threads_spin.setRange(1, 64)
         self.sir_threads_spin.setValue(4)
@@ -1264,7 +1258,6 @@ class ParameterUncertaintyTab(QWidget):
         cmd = ['sir', self._model['path']]
         cmd.append(f'-samples={int(self.sir_samples_spin.value())}')
         cmd.append(f'-resamples={int(self.sir_resamples_spin.value())}')
-        cmd.append(f'-iterations={int(self.sir_iterations_spin.value())}')
         cmd.append(f'-threads={int(self.sir_threads_spin.value())}')
 
         if self.sir_cluster_cb.isChecked():

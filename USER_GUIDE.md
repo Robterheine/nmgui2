@@ -452,7 +452,16 @@ Outputs:
 
 ### 9.2 SIR
 
-Same layout. Uses PsN `sir`. Outputs:
+Same layout. Uses PsN `sir`. Fields:
+
+| Field | PsN option | Default |
+|---|---|---|
+| Samples | `-samples` | 1000 |
+| Resamples | `-resamples` | 1000 |
+| Threads | `-threads` | 4 |
+| Output dir | `-directory` | `sir_<stem>` next to model |
+
+Outputs:
 - Effective sample size (ESS) and resampling efficiency.
 - Degeneracy detection.
 - Weighted percentile CIs.
