@@ -1,12 +1,35 @@
+"""
+File-browser tab — two-pane layout with subfolder navigation.
+
+Layout
+------
+[←]  ABIRATERON / run104        [All] [.mod] [.lst] [.tab] [.csv] [.ext] [+]
+──────────────────────────────────────────────────────────────────────────────
+[   file list (folders first)  ] | [          content preview              ]
+
+Behaviour
+---------
+- Default: show ALL files and ALL subfolders in the current directory.
+- Filter pills (All / .mod / .lst / …): selecting one or more extensions
+  shows only matching files; folders are always shown regardless of filter.
+- Single-click file  → load preview in right pane.
+- Double-click folder → navigate into it (push to back-stack).
+- Double-click file   → open with the OS default application.
+- ← back button       → return to the previous directory.
+- Custom extensions via the [+] pill.
+"""
+
 import csv
 import logging
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, pyqtSignal
-from PyQt6.QtGui import QColor, QPalette, QTextCharFormat, QTextCursor
+from PyQt6.QtCore import Qt, QAbstractTableModel, QModelIndex, QUrl, pyqtSignal
+from PyQt6.QtGui import (
+    QColor, QDesktopServices, QPalette, QTextCharFormat, QTextCursor,
+)
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QHBoxLayout, QHeaderView, QLabel,
+    QAbstractItemView, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
     QStackedWidget, QTableWidget, QTableWidgetItem, QTableView,
     QVBoxLayout, QWidget,
@@ -22,6 +45,20 @@ _log = logging.getLogger(__name__)
 _PRESET_EXTS    = ['mod', 'ctl', 'lst', 'tab', 'csv', 'ext', 'cov', 'cor', 'phi']
 _TABLE_EXTS     = {'csv', 'tab'}
 _HIGHLIGHT_EXTS = {'mod', 'ctl'}
+
+# Qt roles stored on column-0 items in the file list
+_ROLE_PATH   = Qt.ItemDataRole.UserRole        # Path object
+_ROLE_IS_DIR = Qt.ItemDataRole.UserRole + 1    # bool — True for folder rows
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _fmt_size(n: int) -> str:
+    if n < 1024:
+        return f'{n} B'
+    if n < 1_048_576:
+        return f'{n / 1024:.1f} KB'
+    return f'{n / 1_048_576:.1f} MB'
 
 
 def _read_nonmem_table(path: Path):
@@ -62,15 +99,7 @@ def _read_csv_file(path: Path):
     return rows[0], rows[1:], delim
 
 
-def _fmt_size(n: int) -> str:
-    if n < 1024:
-        return f'{n} B'
-    if n < 1_048_576:
-        return f'{n / 1024:.1f} KB'
-    return f'{n / 1_048_576:.1f} MB'
-
-
-# ── Virtualised table model ───────────────────────────────────────────────────
+# ── Virtualised table model (data viewer) ─────────────────────────────────────
 
 class _TableModel(QAbstractTableModel):
     """Lightweight virtualised model — Qt only fetches data for visible rows."""
@@ -78,10 +107,9 @@ class _TableModel(QAbstractTableModel):
     def __init__(self, headers: list, rows: list, parent=None):
         super().__init__(parent)
         self._headers  = headers
-        self._rows     = rows   # list[list[str]]
+        self._rows     = rows
         self._editable = False
 
-    # Qt required overrides
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self._rows)
 
@@ -120,22 +148,18 @@ class _TableModel(QAbstractTableModel):
                 return True
         return False
 
-    # Sorting — tries numeric first, falls back to string
     def sort(self, column, order=Qt.SortOrder.AscendingOrder):
         self.layoutAboutToBeChanged.emit()
         reverse = (order == Qt.SortOrder.DescendingOrder)
-
         def _key(row):
             val = row[column] if column < len(row) else ''
             try:
                 return (0, float(val))
             except (ValueError, TypeError):
                 return (1, val.lower())
-
         self._rows.sort(key=_key, reverse=reverse)
         self.layoutChanged.emit()
 
-    # Accessors for save
     def get_headers(self):
         return self._headers
 
@@ -158,13 +182,18 @@ class FileExplorerTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._directory     = None
-        self._current_file  = None
+        self._directory:    str | None  = None   # root set by load_directory()
+        self._cwd:          Path | None = None   # currently displayed directory
+        self._back_stack:   list[Path]  = []     # navigation history
+        self._current_file: Path | None = None
         self._current_delim = ','
-        self._highlighter   = None
-        self._table_model:  _TableModel | None = None
-        self._ext_checkboxes: dict[str, QCheckBox] = {}
-        self._custom_exts:    list[str] = []
+        self._highlighter:  NMHighlighter | None = None
+        self._table_model:  _TableModel  | None  = None
+        self._active_exts:  set[str]     = set() # empty = All
+        self._custom_exts:  list[str]    = []
+        self._filter_btns:  dict[str, QPushButton] = {}  # ext → pill
+        self._pills_layout: QHBoxLayout | None = None    # ref for dynamic insert
+        self._add_btn:      QPushButton | None = None    # the [+] pill
         self._build_ui()
         self._load_filter_state()
 
@@ -175,61 +204,96 @@ class FileExplorerTab(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
+        root.addWidget(self._build_nav_bar())
+
+        sep = QWidget()
+        sep.setFixedHeight(1)
+        sep.setObjectName('hairlineSep')
+        root.addWidget(sep)
+
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self._build_filter_panel())
         splitter.addWidget(self._build_file_list_panel())
         splitter.addWidget(self._build_content_panel())
-        splitter.setSizes([160, 320, 520])
-        splitter.setStretchFactor(2, 1)
-        root.addWidget(splitter)
+        splitter.setSizes([380, 620])
+        splitter.setStretchFactor(1, 1)
+        root.addWidget(splitter, 1)
 
-    def _build_filter_panel(self):
-        w = QWidget()
-        w.setObjectName('feFilterPanel')
-        v = QVBoxLayout(w)
-        v.setContentsMargins(8, 10, 8, 8)
-        v.setSpacing(3)
+    def _build_nav_bar(self) -> QWidget:
+        """Full-width toolbar: [←] [breadcrumb ···] [All][.mod]…[+]"""
+        bar = QWidget()
+        bar.setObjectName('feNavBar')
+        bar.setFixedHeight(34)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(6, 4, 6, 4)
+        layout.setSpacing(4)
 
-        hdr = QLabel('Extensions')
-        f = hdr.font(); f.setPointSize(9); f.setBold(True); hdr.setFont(f)
-        v.addWidget(hdr)
-        v.addSpacing(4)
+        # ── Back button ───────────────────────────────────────────────────────
+        self._back_btn = QPushButton('←')
+        self._back_btn.setFixedWidth(28)
+        self._back_btn.setFixedHeight(24)
+        self._back_btn.setEnabled(False)
+        self._back_btn.setToolTip('Go up one level')
+        self._back_btn.clicked.connect(self._nav_back)
+        layout.addWidget(self._back_btn)
 
+        # ── Breadcrumb ────────────────────────────────────────────────────────
+        self._breadcrumb = QLabel('—')
+        self._breadcrumb.setObjectName('feBreadcrumb')
+        f = self._breadcrumb.font()
+        f.setPointSize(10)
+        self._breadcrumb.setFont(f)
+        layout.addWidget(self._breadcrumb, 1)   # stretch to fill centre
+
+        # ── Filter pills ──────────────────────────────────────────────────────
+        pills = QWidget()
+        pills_layout = QHBoxLayout(pills)
+        pills_layout.setContentsMargins(0, 0, 0, 0)
+        pills_layout.setSpacing(3)
+        self._pills_layout = pills_layout
+
+        # "All" pill
+        all_btn = QPushButton('All')
+        all_btn.setObjectName('innerPillBtn')
+        all_btn.setCheckable(True)
+        all_btn.setChecked(True)
+        all_btn.setFixedHeight(22)
+        all_btn.setToolTip('Show all files')
+        all_btn.clicked.connect(lambda: self._on_filter_pill_clicked('__all__'))
+        self._filter_btns['__all__'] = all_btn
+        pills_layout.addWidget(all_btn)
+
+        # Preset extension pills
         for ext in _PRESET_EXTS:
-            cb = QCheckBox(f'.{ext}')
-            cb.setChecked(True)
-            cb.toggled.connect(self._on_filter_changed)
-            self._ext_checkboxes[ext] = cb
-            v.addWidget(cb)
+            self._make_pill(ext, pills_layout)
 
-        v.addSpacing(8)
-
-        custom_hdr = QLabel('Custom:')
-        f2 = custom_hdr.font(); f2.setPointSize(8); custom_hdr.setFont(f2)
-        v.addWidget(custom_hdr)
-
-        add_row = QHBoxLayout()
-        add_row.setSpacing(4)
-        self._custom_ext_edit = QLineEdit()
-        self._custom_ext_edit.setPlaceholderText('ext')
-        self._custom_ext_edit.setFixedHeight(22)
-        self._custom_ext_edit.returnPressed.connect(self._add_custom_ext)
-        add_row.addWidget(self._custom_ext_edit)
+        # [+] pill — always last
         add_btn = QPushButton('+')
+        add_btn.setObjectName('innerPillBtn')
         add_btn.setFixedWidth(26)
         add_btn.setFixedHeight(22)
-        add_btn.clicked.connect(self._add_custom_ext)
-        add_row.addWidget(add_btn)
-        v.addLayout(add_row)
+        add_btn.setToolTip('Add a custom extension filter')
+        add_btn.clicked.connect(self._prompt_add_custom_ext)
+        self._add_btn = add_btn
+        pills_layout.addWidget(add_btn)
 
-        self._custom_cb_container = QVBoxLayout()
-        self._custom_cb_container.setSpacing(2)
-        v.addLayout(self._custom_cb_container)
+        layout.addWidget(pills)
+        return bar
 
-        v.addStretch()
-        return w
+    def _make_pill(self, ext: str, layout: QHBoxLayout | None = None) -> QPushButton:
+        """Create and register a filter pill for *ext*; append to layout if given."""
+        btn = QPushButton(f'.{ext}')
+        btn.setObjectName('innerPillBtn')
+        btn.setCheckable(True)
+        btn.setChecked(False)
+        btn.setFixedHeight(22)
+        btn.setToolTip(f'Show only .{ext} files (folders always visible)')
+        btn.clicked.connect(lambda _, e=ext: self._on_filter_pill_clicked(e))
+        self._filter_btns[ext] = btn
+        if layout is not None:
+            layout.addWidget(btn)
+        return btn
 
-    def _build_file_list_panel(self):
+    def _build_file_list_panel(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
@@ -254,11 +318,12 @@ class FileExplorerTab(QWidget):
         self._file_table.setAlternatingRowColors(True)
         self._file_table.verticalHeader().setDefaultSectionSize(24)
         self._file_table.itemSelectionChanged.connect(self._on_file_selected)
+        self._file_table.cellDoubleClicked.connect(self._on_double_click)
 
         v.addWidget(self._file_table)
         return w
 
-    def _build_content_panel(self):
+    def _build_content_panel(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(0, 0, 0, 0)
@@ -273,7 +338,9 @@ class FileExplorerTab(QWidget):
         tl.setSpacing(6)
 
         self._content_title = QLabel('No file selected')
-        f = self._content_title.font(); f.setPointSize(9); self._content_title.setFont(f)
+        f = self._content_title.font()
+        f.setPointSize(9)
+        self._content_title.setFont(f)
         tl.addWidget(self._content_title, 1)
 
         self._find_edit = QLineEdit()
@@ -330,7 +397,7 @@ class FileExplorerTab(QWidget):
         sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
-        # Stacked: index 0 = text, index 1 = virtualised table
+        # Stacked: 0=text, 1=table, 2=plot
         self._content_stack = QStackedWidget()
 
         self._text_view = QPlainTextEdit()
@@ -356,14 +423,14 @@ class FileExplorerTab(QWidget):
             QHeaderView.ResizeMode.Interactive)
 
         self.data_explorer = DataExplorerWidget(show_browser=False)
-        self._content_stack.addWidget(self._text_view)    # 0
-        self._content_stack.addWidget(self._table_view)   # 1
-        self._content_stack.addWidget(self.data_explorer) # 2
+        self._content_stack.addWidget(self._text_view)     # 0
+        self._content_stack.addWidget(self._table_view)    # 1
+        self._content_stack.addWidget(self.data_explorer)  # 2
         v.addWidget(self._content_stack, 1)
 
         return w
 
-    # ── View switching (table files) ──────────────────────────────────────────
+    # ── View switching ────────────────────────────────────────────────────────
 
     def _switch_to_table_view(self):
         self._content_stack.setCurrentIndex(1)
@@ -383,10 +450,14 @@ class FileExplorerTab(QWidget):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def load_directory(self, path: str | None):
-        self._directory = path
+        """Called externally when the working directory changes."""
+        self._directory    = path
+        self._cwd          = Path(path) if path else None
+        self._back_stack   = []
         self._current_file = None
-        self._table_model = None
+        self._table_model  = None
         self._table_view.setModel(None)
+        self._back_btn.setEnabled(False)
         self._content_title.setText('No file selected')
         self._text_view.setPlainText('')
         self._edit_btn.setChecked(False)
@@ -399,117 +470,227 @@ class FileExplorerTab(QWidget):
         self._rebuild_file_list()
 
     def select_file(self, path: str):
-        """Select and load a file by full path, if it appears in the current list."""
+        """Select and preview a file by full path (navigates to its parent if needed)."""
+        p = Path(path)
+        parent = p.parent
+        if parent != self._cwd:
+            # Navigate to the file's parent if it's under the root
+            root = Path(self._directory) if self._directory else None
+            if root and (parent == root or str(parent).startswith(str(root) + '/')):
+                self._navigate_to(parent)
+            else:
+                return
         for row in range(self._file_table.rowCount()):
             item = self._file_table.item(row, 0)
-            if item and item.data(Qt.ItemDataRole.UserRole) == path:
+            if item and item.data(_ROLE_PATH) == p:
                 self._file_table.setCurrentCell(row, 0)
                 return
 
-    # ── Extension filter ──────────────────────────────────────────────────────
+    # ── Navigation ────────────────────────────────────────────────────────────
 
-    def _active_exts(self) -> set:
-        return {ext.lower() for ext, cb in self._ext_checkboxes.items() if cb.isChecked()}
-
-    def _on_filter_changed(self):
-        self._save_filter_state()
+    def _navigate_into(self, folder: Path):
+        if self._cwd:
+            self._back_stack.append(self._cwd)
+        self._cwd = folder
+        self._back_btn.setEnabled(True)
+        self._current_file = None
+        self._content_title.setText('No file selected')
+        self._text_view.setPlainText('')
         self._rebuild_file_list()
 
-    def _add_custom_ext(self):
-        raw = self._custom_ext_edit.text().strip().lstrip('.')
-        if not raw or raw in self._ext_checkboxes:
+    def _navigate_to(self, directory: Path):
+        """Jump directly to *directory*, building a back-stack from root."""
+        root = Path(self._directory) if self._directory else None
+        if root is None:
             return
-        self._custom_exts.append(raw)
-        self._custom_ext_edit.clear()
+        try:
+            rel = directory.relative_to(root)
+        except ValueError:
+            return
+        # Build back stack: root → each ancestor → directory
+        parts = rel.parts
+        self._back_stack = [root] + [root.joinpath(*parts[:i]) for i in range(1, len(parts))]
+        self._cwd = directory
+        self._back_btn.setEnabled(bool(self._back_stack))
+        self._rebuild_file_list()
 
-        cb = QCheckBox(f'.{raw}')
-        cb.setChecked(True)
-        cb.toggled.connect(self._on_filter_changed)
-        self._ext_checkboxes[raw] = cb
+    def _nav_back(self):
+        if self._back_stack:
+            self._cwd = self._back_stack.pop()
+            self._back_btn.setEnabled(bool(self._back_stack))
+            self._current_file = None
+            self._content_title.setText('No file selected')
+            self._text_view.setPlainText('')
+            self._rebuild_file_list()
 
-        row_w = QWidget()
-        rl = QHBoxLayout(row_w)
-        rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(2)
-        rl.addWidget(cb)
-        rm_btn = QPushButton('-')
-        rm_btn.setFixedWidth(22)
-        rm_btn.setFixedHeight(20)
-        rm_btn.clicked.connect(lambda _, e=raw: self._remove_custom_ext(e))
-        rl.addWidget(rm_btn)
-        self._custom_cb_container.addWidget(row_w)
+    def _update_breadcrumb(self):
+        if not self._cwd:
+            self._breadcrumb.setText('—')
+            return
+        root = Path(self._directory) if self._directory else None
+        if root and self._cwd != root:
+            try:
+                rel = self._cwd.relative_to(root)
+                text = f'{root.name}  /  {str(rel).replace("/", "  /  ")}'
+            except ValueError:
+                text = str(self._cwd)
+        else:
+            text = self._cwd.name if self._cwd else '—'
+        self._breadcrumb.setText(text)
 
+    # ── Filter pills ──────────────────────────────────────────────────────────
+
+    def _on_filter_pill_clicked(self, ext: str):
+        if ext == '__all__':
+            self._active_exts.clear()
+        else:
+            if ext in self._active_exts:
+                self._active_exts.discard(ext)
+            else:
+                self._active_exts.add(ext)
+            # If nothing remains active, revert to All
+            if not self._active_exts:
+                pass  # handled by _sync_pill_states
+        self._sync_pill_states()
         self._save_filter_state()
         self._rebuild_file_list()
 
-    def _remove_custom_ext(self, ext: str):
-        if ext in self._custom_exts:
-            self._custom_exts.remove(ext)
-        cb = self._ext_checkboxes.pop(ext, None)
-        if cb:
-            for i in range(self._custom_cb_container.count()):
-                item = self._custom_cb_container.itemAt(i)
-                w = item.widget() if item else None
-                if w and w.layout():
-                    for j in range(w.layout().count()):
-                        child = w.layout().itemAt(j)
-                        if child and child.widget() is cb:
-                            w.deleteLater()
-                            break
+    def _sync_pill_states(self):
+        """Update pill checked states to match self._active_exts."""
+        all_active = len(self._active_exts) == 0
+        for key, btn in self._filter_btns.items():
+            if key == '__all__':
+                btn.setChecked(all_active)
+            else:
+                btn.setChecked(key in self._active_exts)
+
+    def _prompt_add_custom_ext(self):
+        text, ok = QInputDialog.getText(
+            self, 'Add extension filter',
+            'Enter extension without dot (e.g.  r, py, m8p):',
+            QLineEdit.EchoMode.Normal,
+        )
+        if not ok:
+            return
+        raw = text.strip().lstrip('.')
+        if not raw or raw in self._filter_btns:
+            if raw in self._filter_btns:
+                self.status_msg.emit(f'.{raw} is already in the filter list.')
+            return
+        self._add_custom_ext_silent(raw)
+        # Auto-activate the new extension
+        self._active_exts.add(raw)
+        self._sync_pill_states()
         self._save_filter_state()
         self._rebuild_file_list()
+
+    def _add_custom_ext_silent(self, ext: str):
+        """Add a custom extension pill without triggering a rebuild."""
+        if ext in self._filter_btns:
+            return
+        self._custom_exts.append(ext)
+        btn = self._make_pill(ext)
+        # Insert before the [+] button in the pills layout
+        if self._pills_layout and self._add_btn:
+            for i in range(self._pills_layout.count()):
+                item = self._pills_layout.itemAt(i)
+                if item and item.widget() is self._add_btn:
+                    self._pills_layout.insertWidget(i, btn)
+                    break
+            else:
+                self._pills_layout.addWidget(btn)
 
     # ── File list ─────────────────────────────────────────────────────────────
 
     def _rebuild_file_list(self):
         self._file_table.setSortingEnabled(False)
         self._file_table.setRowCount(0)
-        if not self._directory:
-            return
-        d = Path(self._directory)
-        if not d.is_dir():
-            return
-        active = self._active_exts()
-        files = sorted(
-            (f for f in d.iterdir()
-             if f.is_file() and f.suffix.lstrip('.').lower() in active),
-            key=lambda f: f.name.lower(),
-        )
-        self._file_table.setRowCount(len(files))
-        for row, f in enumerate(files):
-            stat = f.stat()
-            name_it = QTableWidgetItem(f.name)
-            name_it.setData(Qt.ItemDataRole.UserRole, str(f))
-            name_it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
 
-            size_it = QTableWidgetItem(_fmt_size(stat.st_size))
+        if not self._cwd or not self._cwd.is_dir():
+            self._update_breadcrumb()
+            return
+
+        try:
+            entries = list(self._cwd.iterdir())
+        except PermissionError:
+            self._update_breadcrumb()
+            return
+
+        active = self._active_exts  # set; empty = show all
+
+        folders = sorted(
+            [e for e in entries if e.is_dir() and not e.name.startswith('.')],
+            key=lambda e: e.name.lower(),
+        )
+        if active:
+            files = sorted(
+                [e for e in entries
+                 if e.is_file() and e.suffix.lstrip('.').lower() in active],
+                key=lambda f: f.name.lower(),
+            )
+        else:
+            files = sorted(
+                [e for e in entries if e.is_file()],
+                key=lambda f: f.name.lower(),
+            )
+
+        rows = folders + files
+        self._file_table.setRowCount(len(rows))
+
+        for row, entry in enumerate(rows):
+            is_dir = entry.is_dir()
+            if is_dir:
+                display_name = f'📁  {entry.name}'
+                size_str     = '—'
+                mtime_str    = '—'
+            else:
+                try:
+                    stat      = entry.stat()
+                    size_str  = _fmt_size(stat.st_size)
+                    mtime_str = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
+                except OSError:
+                    size_str  = '—'
+                    mtime_str = '—'
+                display_name = entry.name
+
+            name_it = QTableWidgetItem(display_name)
+            name_it.setData(_ROLE_PATH,   entry)
+            name_it.setData(_ROLE_IS_DIR, is_dir)
+            name_it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+            if is_dir:
+                f = name_it.font()
+                f.setBold(True)
+                name_it.setFont(f)
+
+            size_it = QTableWidgetItem(size_str)
             size_it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
             size_it.setTextAlignment(
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
-            mtime = datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M')
-            mod_it = QTableWidgetItem(mtime)
+            mod_it = QTableWidgetItem(mtime_str)
             mod_it.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
 
             self._file_table.setItem(row, 0, name_it)
             self._file_table.setItem(row, 1, size_it)
             self._file_table.setItem(row, 2, mod_it)
-        self._file_table.setSortingEnabled(True)
 
-    # ── File selection / content viewer ──────────────────────────────────────
+        self._file_table.setSortingEnabled(True)
+        self._update_breadcrumb()
+
+    # ── File selection / double-click ─────────────────────────────────────────
 
     def _on_file_selected(self):
+        """Single-click: load preview for files; ignore folder rows."""
         row = self._file_table.currentRow()
         if row < 0:
             return
         item = self._file_table.item(row, 0)
         if not item:
             return
-        path_str = item.data(Qt.ItemDataRole.UserRole)
-        if not path_str:
-            return
-        p = Path(path_str)
-        if p == self._current_file:
+        if item.data(_ROLE_IS_DIR):
+            return  # folder row — no preview
+        path = item.data(_ROLE_PATH)
+        if not path or path == self._current_file:
             return
         if self._edit_btn.isChecked():
             reply = QMessageBox.question(
@@ -520,8 +701,24 @@ class FileExplorerTab(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
         self._edit_btn.setChecked(False)
-        self._current_file = p
-        self._load_file(p)
+        self._current_file = path
+        self._load_file(path)
+
+    def _on_double_click(self, row: int, _col: int):
+        """Double-click: navigate into folder or open file with system app."""
+        item = self._file_table.item(row, 0)
+        if not item:
+            return
+        path:   Path = item.data(_ROLE_PATH)
+        is_dir: bool = item.data(_ROLE_IS_DIR)
+        if path is None:
+            return
+        if is_dir:
+            self._navigate_into(path)
+        else:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    # ── Content loading ───────────────────────────────────────────────────────
 
     def _load_file(self, path: Path):
         ext = path.suffix.lstrip('.').lower()
@@ -584,7 +781,7 @@ class FileExplorerTab(QWidget):
             self._plot_pill.setVisible(False)
             return
 
-        seen: dict = {}
+        seen:   dict = {}
         deduped: list = []
         for c in headers:
             cu = c.upper()
@@ -631,8 +828,7 @@ class FileExplorerTab(QWidget):
             return
         try:
             if self._content_stack.currentIndex() == 0:
-                self._current_file.write_text(
-                    self._text_view.toPlainText(), 'utf-8')
+                self._current_file.write_text(self._text_view.toPlainText(), 'utf-8')
             else:
                 if self._current_file.suffix.lower() == '.tab':
                     QMessageBox.information(
@@ -673,7 +869,7 @@ class FileExplorerTab(QWidget):
                 break
             sel = QPlainTextEdit.ExtraSelection()
             sel.cursor = cursor
-            sel.format = fmt
+            sel.format  = fmt
             selections.append(sel)
         self._text_view.setExtraSelections(selections)
         if selections:
@@ -683,19 +879,24 @@ class FileExplorerTab(QWidget):
 
     def _save_filter_state(self):
         s = load_settings()
-        s['file_explorer_checked_exts'] = [
-            ext for ext, cb in self._ext_checkboxes.items() if cb.isChecked()
-        ]
+        s['file_explorer_active_exts'] = sorted(self._active_exts)
         s['file_explorer_custom_exts'] = self._custom_exts[:]
         save_settings(s)
 
     def _load_filter_state(self):
         s = load_settings()
-        checked = s.get('file_explorer_checked_exts')
-        if checked is not None:
-            checked_set = set(checked)
-            for ext, cb in self._ext_checkboxes.items():
-                cb.setChecked(ext in checked_set)
+        # Restore custom extension pills first
         for ext in s.get('file_explorer_custom_exts', []):
-            self._custom_ext_edit.setText(ext)
-            self._add_custom_ext()
+            self._add_custom_ext_silent(ext)
+        # Restore active filter set
+        active = s.get('file_explorer_active_exts')
+        if active is None:
+            # Migrate from old checkbox format: if a specific subset was checked,
+            # treat those as the active filter; if all preset exts were checked → All
+            checked = s.get('file_explorer_checked_exts', list(_PRESET_EXTS))
+            if set(checked) != set(_PRESET_EXTS):
+                active = [e for e in checked if e in self._filter_btns]
+            else:
+                active = []   # All
+        self._active_exts = set(active) & set(self._filter_btns.keys()) - {'__all__'}
+        self._sync_pill_states()
