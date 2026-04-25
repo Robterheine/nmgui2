@@ -48,9 +48,9 @@ _log = logging.getLogger(__name__)
 # Model table
 # ══════════════════════════════════════════════════════════════════════════════
 
-COLS = ['*','Name','OFV','dOFV','Status','COV','CN','Method','nInd','nObs','nPar','AIC','Runtime']
-(COL_STAR, COL_NAME, COL_OFV, COL_DOFV, COL_STATUS,
- COL_COV, COL_CN, COL_METHOD, COL_NIND, COL_NOBS, COL_NPAR, COL_AIC, COL_RT) = range(13)
+COLS = ['*', 'Name', 'Description', 'OFV', 'COV', 'dOFV', 'AIC', 'CN', 'Method', 'Ind/Obs']
+(COL_STAR, COL_NAME, COL_DESC, COL_OFV, COL_COV,
+ COL_DOFV, COL_AIC, COL_CN, COL_METHOD, COL_INDOBS) = range(10)
 
 
 class ModelTableModel(QAbstractTableModel):
@@ -102,7 +102,11 @@ class ModelTableModel(QAbstractTableModel):
                 if m.get('status_tag'): s += f" [{m['status_tag']}]"
                 if m['path'] == self._ref_path: s += ' [REF]'
                 return s
-            if col == COL_OFV:  return fmt_ofv(m.get('ofv'))
+            if col == COL_DESC:   return m.get('comment', '')
+            if col == COL_OFV:    return fmt_ofv(m.get('ofv'))
+            if col == COL_COV:
+                cv = m.get('covariance_step')
+                return '' if cv is None else ('✓' if cv else '✗')
             if col == COL_DOFV:
                 ofv = m.get('ofv')
                 base, is_ref = self._dofv_base()
@@ -111,28 +115,25 @@ class ModelTableModel(QAbstractTableModel):
                 if not is_ref and abs(ofv - base) < 0.001: return '—'
                 d = ofv - base
                 return f'+{d:.3f}' if d > 0 else f'{d:.3f}'
-            if col == COL_STATUS: return (m.get('minimization_message') or '')[:35]
-            if col == COL_COV:
-                cv = m.get('covariance_step')
-                return '' if cv is None else ('✓' if cv else '✗')
+            if col == COL_AIC:    return fmt_ofv(m.get('aic'))
             if col == COL_CN:
                 cn = m.get('condition_number')
                 if cn is None: return ''
                 if cn >= 10000: return f'! {cn:.2e}'
                 if cn >= 1000:  return f'! {cn:.0f}'
                 return f'{cn:.1f}'
-            if col == COL_METHOD: return m.get('estimation_method','')
-            if col == COL_NIND:  return str(m['n_individuals']) if m.get('n_individuals') else ''
-            if col == COL_NOBS:  return str(m['n_observations']) if m.get('n_observations') else ''
-            if col == COL_NPAR:  return str(m['n_estimated_params']) if m.get('n_estimated_params') else ''
-            if col == COL_AIC:   return fmt_ofv(m.get('aic'))
-            if col == COL_RT:
-                rt = m.get('runtime')
-                if rt is None: return ''
-                return f'{rt:.0f}s' if rt < 3600 else f'{rt/3600:.1f}h'
+            if col == COL_METHOD: return m.get('estimation_method', '')
+            if col == COL_INDOBS:
+                ni = m.get('n_individuals')
+                no = m.get('n_observations')
+                if ni and no:  return f'{ni}/{no}'
+                if ni:         return f'{ni}/—'
+                if no:         return f'—/{no}'
+                return ''
         if role == Qt.ItemDataRole.ForegroundRole:
             if col == COL_STAR: return QBrush(QColor(C.star))
-            if col == COL_STATUS:
+            if col == COL_NAME:
+                if m.get('stale'): return QBrush(QColor(C.stale))
                 msg = m.get('minimization_message') or ''
                 if 'SUCCESSFUL' in msg or 'COMPLETED' in msg: return QBrush(QColor(C.green))
                 if m.get('minimization_successful') is False: return QBrush(QColor(C.red))
@@ -154,15 +155,15 @@ class ModelTableModel(QAbstractTableModel):
                         return QBrush(QColor(C.blue))
                     if not is_ref and abs(ofv - base) < 0.001:
                         return QBrush(QColor(C.green))
-            if col == COL_NAME and m.get('stale'): return QBrush(QColor(C.stale))
         if role == Qt.ItemDataRole.ToolTipRole:
             if col == COL_NAME:
                 tip = f"Path: {m['path']}"
                 if m.get('problem'): tip += f"\n{m['problem']}"
-                if m.get('comment'): tip += f"\n{m['comment']}"
                 if m.get('based_on'): tip += f"\nBased on: {m['based_on']}"
+                msg = m.get('minimization_message') or ''
+                if msg: tip += f"\nStatus: {msg}"
                 return tip
-            if col == COL_STATUS and m.get('cov_failure_reason'): return m['cov_failure_reason']
+            if col == COL_COV and m.get('cov_failure_reason'): return m['cov_failure_reason']
             if col == COL_CN:
                 cn = m.get('condition_number')
                 if cn is None:
@@ -281,27 +282,25 @@ class ModelsTab(QWidget):
 
         self.table = _ModelsTable()
         self.table.setColumnCount(len(COLS)); self.table.setHorizontalHeaderLabels(COLS)
-        self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(COL_DESC, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(COL_CN, QHeaderView.ResizeMode.ResizeToContents)
         self.table.verticalHeader().setVisible(False)
         # Column header tooltips
         _col_tips = {
             COL_STAR:   '*  Starred / flagged model',
-            COL_NAME:   'Model name (stem of .mod file)',
+            COL_NAME:   'Model name (stem of .mod file) — colour indicates minimization status',
+            COL_DESC:   'Short description / comment from the Annotation panel',
             COL_OFV:    'Objective Function Value',
-            COL_DOFV:   'ΔOFV relative to the best model in this directory',
-            COL_STATUS: 'Minimization status message',
             COL_COV:    'Covariance step  (✓ successful  ✗ failed)',
+            COL_DOFV:   'ΔOFV relative to the best model in this directory',
+            COL_AIC:    'Akaike Information Criterion  =  OFV + 2k',
             COL_CN:     'Condition number — ratio of largest to smallest eigenvalue '
                         'of the correlation matrix.\nRequires $COV with PRINT=E or '
                         'a NONMEM version that outputs it directly.\nValues > 1000 '
                         'may indicate near-collinearity.',
             COL_METHOD: 'Estimation method  (FO, FOCE, FOCE-I, SAEM, SAEM→IMP, BAYES…)',
-            COL_NIND:   'Number of individuals',
-            COL_NOBS:   'Number of observation records (MDV=0 rows)',
-            COL_NPAR:   'Number of estimated parameters  (non-fixed THETAs + OMEGA/SIGMA elements)',
-            COL_AIC:    'Akaike Information Criterion  =  OFV + 2k',
-            COL_RT:     'Estimation runtime (seconds or hours)',
+            COL_INDOBS: 'Number of individuals / observations',
         }
         for col, tip in _col_tips.items():
             item = self.table.horizontalHeaderItem(col)
@@ -626,7 +625,8 @@ class ModelsTab(QWidget):
                 if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
                 self.table.setItem(row, col, item)
         self.table.setSortingEnabled(True); self.table.resizeColumnsToContents()
-        self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(COL_DESC, QHeaderView.ResizeMode.Stretch)
         n = len(models); nr = sum(1 for m in models if m['has_run'])
         elapsed = time.time() - t0
         self.status_msg.emit(
