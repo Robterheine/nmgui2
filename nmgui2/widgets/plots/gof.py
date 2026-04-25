@@ -1,6 +1,6 @@
 import os, subprocess, sys, math
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog, QComboBox
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 try: import pyqtgraph as pg; HAS_PG = True
 except ImportError: HAS_PG = False
 try: import numpy as np; HAS_NP = True
@@ -26,6 +26,10 @@ class GOFWidget(QWidget):
         v = QVBoxLayout(self); v.setContentsMargins(0,0,0,0); v.setSpacing(0)
         if not HAS_PG or not HAS_NP:
             v.addWidget(_placeholder('Install pyqtgraph and numpy:\npip3 install pyqtgraph numpy')); return
+        self._replot_timer = QTimer(self)
+        self._replot_timer.setSingleShot(True)
+        self._replot_timer.setInterval(50)
+        self._replot_timer.timeout.connect(self._replot)
 
         # ── Toolbar ───────────────────────────────────────────────────────────
         tb = QWidget(); tb.setFixedHeight(36)
@@ -39,7 +43,7 @@ class GOFWidget(QWidget):
         for i, (key, lbl, dflt) in enumerate(zip(keys, panel_labels, defaults)):
             tbl.addWidget(QLabel(lbl))
             cb = QComboBox(); cb.setMinimumWidth(80); cb.addItem(dflt)
-            cb.currentTextChanged.connect(self._replot)
+            cb.currentTextChanged.connect(self._schedule_replot)
             self._x_cbs[key] = cb
             tbl.addWidget(cb)
             if i < 3: tbl.addSpacing(4)
@@ -51,7 +55,7 @@ class GOFWidget(QWidget):
         self._filt_col = QComboBox(); self._filt_col.setMinimumWidth(80); self._filt_col.addItem('')
         self._filt_val = QComboBox(); self._filt_val.setMinimumWidth(80); self._filt_val.setEditable(True)
         self._filt_col.currentTextChanged.connect(self._update_filter_vals)
-        self._filt_val.currentTextChanged.connect(self._replot)
+        self._filt_val.currentTextChanged.connect(self._schedule_replot)
         tbl.addWidget(self._filt_col); tbl.addWidget(self._filt_val)
 
         # Export
@@ -118,6 +122,9 @@ class GOFWidget(QWidget):
                 # String filter on string column not supported in numpy array — skip
                 pass
         return mask
+
+    def _schedule_replot(self, *_):
+        self._replot_timer.start()
 
     def _replot(self):
         if self._arr is None: return

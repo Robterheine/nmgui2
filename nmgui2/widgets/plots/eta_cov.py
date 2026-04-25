@@ -1,8 +1,8 @@
-import math
-import re
+import math, os, subprocess, sys, re
+from pathlib import Path
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox,
-    QListWidget, QAbstractItemView,
+    QListWidget, QAbstractItemView, QFileDialog, QMessageBox,
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
@@ -41,6 +41,11 @@ class ETACovWidget(QWidget):
         plot_btn = QPushButton('Plot'); plot_btn.setObjectName('primary')
         plot_btn.setFixedHeight(26); plot_btn.clicked.connect(self._plot)
         cl.addWidget(plot_btn)
+        self._exp_btn = QPushButton('Save PNG…')
+        self._exp_btn.setFixedHeight(26)
+        self._exp_btn.setEnabled(False)
+        self._exp_btn.clicked.connect(self._export)
+        cl.addWidget(self._exp_btn)
         v.addWidget(ctrl)
 
         sep = QWidget(); sep.setFixedHeight(1); sep.setObjectName('hairlineSep')
@@ -114,3 +119,27 @@ class ETACovWidget(QWidget):
             # LOESS
             xlo, ylo = loess(x, y)
             if xlo is not None: p.plot(xlo, ylo, pen=pg.mkPen(color, width=2))
+        self._exp_btn.setEnabled(True)
+
+    def _export(self):
+        if not HAS_PG or not HAS_NP: return
+        dst, _ = QFileDialog.getSaveFileName(
+            self, 'Save ETA vs Cov', str(Path.home() / 'eta_cov.png'),
+            'PNG images (*.png)')
+        if not dst: return
+        try:
+            from pyqtgraph.exporters import ImageExporter
+            exp = ImageExporter(self.gw.scene())
+            w = self.gw.width(); h = self.gw.height()
+            scale = max(1, 3000 // max(w, 1))
+            exp.parameters()['width']  = w * scale
+            exp.parameters()['height'] = h * scale
+            exp.export(dst)
+            if QMessageBox.question(self, 'Saved', f'Saved to:\n{dst}\n\nOpen?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            ) == QMessageBox.StandardButton.Yes:
+                if sys.platform == 'win32':    os.startfile(dst)
+                elif sys.platform == 'darwin': subprocess.Popen(['open', dst])
+                else:                          subprocess.Popen(['xdg-open', dst])
+        except Exception as e:
+            QMessageBox.warning(self, 'Export failed', str(e))

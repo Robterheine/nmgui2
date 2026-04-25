@@ -52,6 +52,7 @@ class NPDEDistWidget(QWidget):
 
     def load(self, header, rows, mdv_filter=True):
         if not HAS_MPL or not HAS_NP: return
+        self._last_args = (header, rows, mdv_filter)
         H = [h.upper() for h in header]
         t = THEMES[_active_theme]; bg = t['bg2']; fg = t['fg']; fg2 = t['fg2']
         self.ax.clear()
@@ -94,4 +95,6 @@ class NPDEDistWidget(QWidget):
             self._export_btn.setEnabled(True)
         except Exception: pass
 
-    def set_theme(self, bg, fg): pass
+    def set_theme(self, bg, fg):
+        if HAS_MPL and hasattr(self, '_last_args'):
+            self.load(*self._last_args)

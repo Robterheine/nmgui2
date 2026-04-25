@@ -57,9 +57,14 @@ class EvaluationTab(QWidget):
     SEC_WFALL = 2
     SEC_CONV  = 3
 
+    # Inner GOF sub-section key names (parallel to _gof_stack indices)
+    _GOF_INNER = ('gof', 'cwres', 'qq', 'etacov', 'npde')
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._header = None; self._rows = None; self._model = None
+        self._cov_header = None; self._cov_rows = None
+        self._dirty: set = set()
         self._load_worker: _TableLoadWorker | None = None
         self._build_ui()
 
@@ -169,11 +174,13 @@ class EvaluationTab(QWidget):
         self._stack.setCurrentIndex(index)
         for i, btn in enumerate(self._pill_btns):
             btn.setChecked(i == index)
+        self._reload_visible()
 
     def _switch_gof(self, index):
         self._gof_stack.setCurrentIndex(index)
         for i, btn in enumerate(self._gof_btns):
             btn.setChecked(i == index)
+        self._reload_visible()
 
     def _browse(self):
         d = str(Path(self._model['path']).parent) if self._model else str(HOME)
@@ -203,7 +210,10 @@ class EvaluationTab(QWidget):
     def _on_load_done(self, h, r):
         self._load_btn.setEnabled(True)
         self._load_btn.setText('Load')
-        self._header = h; self._rows = r; self._reload()
+        self._cov_header = None; self._cov_rows = None
+        self._header = h; self._rows = r
+        self._reload()
+        self._try_cov_table(self.file_edit.text())
         fname = Path(self.file_edit.text()).name
         truncated = len(r) >= _MAX_ROWS
         if truncated:
@@ -221,19 +231,67 @@ class EvaluationTab(QWidget):
         self.status_msg.emit(f'Load error: {msg}')
 
     def _reload(self):
+        """Mark all sdtab-dependent widgets dirty, then reload only the visible one."""
         if self._header is None: return
-        mdv = self.mdv_cb.isChecked()
-        self.gof.load(self._header, self._rows, mdv)
-        self.indfit.load(self._header, self._rows)
-        self.cwres_hist.load(self._header, self._rows, mdv)
-        self.qq_plot.load(self._header, self._rows, mdv)
-        self.eta_cov.load(self._header, self._rows, mdv)
-        self.npde_dist.load(self._header, self._rows, mdv)
-        # Show NPDE Dist button only when NPDE column is present
+        self._dirty = {'gof', 'cwres', 'qq', 'etacov', 'npde', 'indfit'}
         has_npde = 'NPDE' in [h.upper() for h in self._header]
         self._gof_btns[4].setVisible(has_npde)
         if not has_npde and self._gof_stack.currentIndex() == 4:
-            self._switch_gof(0)
+            # Reset inner pill to GOF 2x2 without triggering a second reload
+            self._gof_stack.setCurrentIndex(0)
+            for i, btn in enumerate(self._gof_btns): btn.setChecked(i == 0)
+        self._reload_visible()
+
+    def _reload_visible(self):
+        """Load the currently visible widget if it is marked dirty."""
+        if self._header is None: return
+        outer = self._stack.currentIndex()
+        if outer == 0:
+            key = self._GOF_INNER[self._gof_stack.currentIndex()]
+            self._load_widget(key)
+        elif outer == 1:
+            self._load_widget('indfit')
+
+    def _load_widget(self, key: str):
+        """Call .load() on the named widget and clear its dirty flag."""
+        if key not in self._dirty: return
+        mdv = self.mdv_cb.isChecked()
+        h, r = self._header, self._rows
+        if   key == 'gof':    self.gof.load(h, r, mdv)
+        elif key == 'cwres':  self.cwres_hist.load(h, r, mdv)
+        elif key == 'qq':     self.qq_plot.load(h, r, mdv)
+        elif key == 'etacov':
+            if self._cov_header is not None:
+                self.eta_cov.load(self._cov_header, self._cov_rows, False)
+            else:
+                self.eta_cov.load(h, r, mdv)
+        elif key == 'npde':   self.npde_dist.load(h, r, mdv)
+        elif key == 'indfit': self.indfit.load(h, r, mdv)
+        self._dirty.discard(key)
+
+    def _try_cov_table(self, sdtab_path: str):
+        """Search for patab/cotab alongside the loaded sdtab and pass it to ETACovWidget."""
+        if not HAS_PARSER: return
+        import re as _re
+        p = Path(sdtab_path)
+        if not p.is_file(): return
+        stem_dir = p.parent
+        m = _re.match(r'sdtab(.*)$', p.name.lower())
+        suffix = m.group(1) if m else ''
+        for prefix in ('patab', 'cotab'):
+            candidates = [f'{prefix}{suffix}', prefix] if suffix else [prefix]
+            for fname in candidates:
+                p2 = stem_dir / fname
+                if p2.is_file():
+                    try:
+                        ch, cr = read_table_file(str(p2), max_rows=_MAX_ROWS)
+                        if ch:
+                            self._cov_header = ch; self._cov_rows = cr
+                            self._dirty.add('etacov')
+                            self._reload_visible()
+                    except Exception as e:
+                        _log.debug('Failed to load cov table %s: %s', p2, e)
+                    return
 
     def load_model(self, model):
         self._model = model
@@ -242,7 +300,6 @@ class EvaluationTab(QWidget):
         if not model.get('lst_path'): return
 
         # Search for sdtab in both lst directory AND model directory
-        # (PSN puts .lst in a subdir; sdtab usually lives next to the .mod file)
         search_dirs = []
         lst_dir = Path(model['lst_path']).parent
         mod_dir = Path(model['path']).parent
@@ -253,7 +310,6 @@ class EvaluationTab(QWidget):
         runno = model.get('table_runno', '')
         stem  = model.get('stem', '')
 
-        # Build candidate prefixes — case-insensitive glob
         prefixes = []
         if runno:
             prefixes += [f'sdtab{runno}', f'sdtabrun{runno}']
@@ -280,24 +336,31 @@ class EvaluationTab(QWidget):
         if not HAS_PARSER: return
         stem = model['stem']
         for base in [Path(model['lst_path']).parent, Path(model['path']).parent]:
-            for fn in [f'{stem}.phi', f'{stem}/{stem}.phi']:
+            # Standard paths + PsN-style numbered attempt dirs (run1/, run2/, …)
+            candidates = [f'{stem}.phi', f'{stem}/{stem}.phi']
+            for d in sorted(base.glob(f'{stem}*/')):
+                candidates.append(f'{d.name}/{stem}.phi')
+            for fn in candidates:
                 p = base / fn
                 if p.is_file():
                     try:
                         r = parse_phi_file(str(p))
                         if r.get('obj') is not None: self.waterfall.load(r)
-                    except Exception as e: _log.debug(f'Failed to parse phi file {p}: {e}')
+                    except Exception as e: _log.debug('Failed to parse phi file %s: %s', p, e)
                     return
 
     def _try_ext(self, model):
         if not HAS_PARSER: return
         stem = model['stem']
         for base in [Path(model['lst_path']).parent, Path(model['path']).parent]:
-            for fn in [f'{stem}.ext', f'{stem}/{stem}.ext']:
+            candidates = [f'{stem}.ext', f'{stem}/{stem}.ext']
+            for d in sorted(base.glob(f'{stem}*/')):
+                candidates.append(f'{d.name}/{stem}.ext')
+            for fn in candidates:
                 p = base / fn
                 if p.is_file():
                     try:
                         r = parse_ext_file(str(p))
                         if r: self.conv.load(r)
-                    except Exception as e: _log.debug(f'Failed to parse ext file {p}: {e}')
+                    except Exception as e: _log.debug('Failed to parse ext file %s: %s', p, e)
                     return
