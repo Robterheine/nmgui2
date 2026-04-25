@@ -83,7 +83,7 @@ TEMPLATES = {}
 # ==============================================================================
 
 # ---------- Blank ---------------------------------------------------------------
-TEMPLATES['Blank'] = (
+TEMPLATES['$PRED subroutine blank'] = (
     _HEADER
     + """\
 $PRED
@@ -1147,6 +1147,6 @@ def render(template_name: str, stem: str, data_path: str = '../data.csv') -> str
     data_path : str
         Path written into the $DATA record.
     """
-    template = TEMPLATES.get(template_name, TEMPLATES['Blank'])
+    template = TEMPLATES.get(template_name, TEMPLATES['$PRED subroutine blank'])
     problem  = stem.replace('_', ' ').replace('-', ' ')
     return template.format(stem=stem, data_path=data_path, problem=problem)
