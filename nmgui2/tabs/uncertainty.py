@@ -25,6 +25,31 @@ from ..app.format import fmt_num
 _log = logging.getLogger(__name__)
 HOME = Path.home()
 
+# ── Column classification helpers ──────────────────────────────────────────────
+# Metadata columns that appear before parameter estimates in raw_results_*.csv
+_DIAG_COLS = frozenset({
+    'model', 'problem', 'subproblem', 'covariance_step_run',
+    'minimization_successful', 'covariance_step_successful',
+    'covariance_step_warnings', 'estimate_near_boundary',
+    'rounding_errors', 'zero_gradients', 'final_zero_gradients',
+    'hessian_reset', 's_matrix_singular', 'significant_digits',
+    'condition_number', 'est_methods', 'model_run_time',
+    'subprob_est_time', 'subprob_cov_time',
+})
+
+
+def _is_param_col(col: str) -> bool:
+    """True for OFV and parameter estimate columns (THETA/OMEGA/SIGMA labels).
+
+    Excludes: diagnostic run-metadata, se* (NONMEM $COV SEs),
+    shrinkage_* columns, and EI* (eigenvalues).
+    """
+    cl = col.lower().strip()
+    return (cl not in _DIAG_COLS
+            and not cl.startswith('se')
+            and not cl.startswith('shrinkage')
+            and not col.strip().upper().startswith('EI'))
+
 try:
     import numpy as np; HAS_NP = True
 except ImportError:
@@ -73,17 +98,17 @@ class BootstrapParser:
         if not rows:
             raise ValueError('raw_results file is empty')
 
-        # Identify parameter columns
+        # Identify parameter columns: OFV + labeled THETA/OMEGA/SIGMA estimates.
+        # PsN uses the NONMEM label as column name (e.g. "1 CL NR,L/H"), NOT
+        # "THETA1". Exclude run-metadata, se* (NONMEM COV SEs), shrinkage*, EI*.
         all_cols = list(rows[0].keys())
-        self.param_cols = [c for c in all_cols
-                          if c.startswith(('THETA', 'OMEGA', 'SIGMA'))
-                          and not c.endswith(('SE', 'RSE', '_SE'))]
+        self.param_cols = [c for c in all_cols if _is_param_col(c)]
 
-        # Find original model row (usually model==0 or 'original')
+        # Find original model row (model==0 in raw_results is the base model)
         orig_row = None
         for row in rows:
-            model_val = row.get('model', '').lower()
-            if model_val in ('0', 'original', 'input') or 'original' in model_val:
+            model_val = row.get('model', '').strip()
+            if model_val in ('0', 'original', 'input'):
                 orig_row = row
                 break
         if not orig_row:
@@ -140,6 +165,9 @@ class BootstrapParser:
         # Compute diagnostics
         diagnostics = self._assess()
 
+        # Pre-parse bootstrap_results.csv so display methods don't re-read it
+        br_sections = self._parse_bootstrap_results()
+
         return {
             'method': 'bootstrap',
             'folder': str(self.folder),
@@ -148,6 +176,7 @@ class BootstrapParser:
             'param_cols': self.param_cols,
             'original': self.original,
             'samples': successful_samples,
+            'br_sections': br_sections,
             'diagnostics': diagnostics
         }
 
@@ -341,35 +370,124 @@ class BootstrapParser:
 
         return {'overall': overall, 'checks': checks, 'biases': biases}
 
-    def get_parameter_table(self) -> list:
-        """Return list of dicts with parameter estimates and CIs."""
-        if not self.samples_df:
+    def _parse_bootstrap_results(self) -> dict:
+        """Parse bootstrap_results.csv multi-section format.
+
+        Returns a dict of {section_name: {'cols': [...], 'rows': {label: {col: val}}}}.
+        Column names are stripped of leading/trailing whitespace.
+        Row labels are stripped of leading/trailing whitespace (e.g. '  2.5%' → '2.5%').
+        """
+        brf = self.folder / 'bootstrap_results.csv'
+        if not brf.exists():
+            return {}
+
+        sections: dict = {}
+        current: str | None = None
+        expect_header = False
+        current_cols: list = []
+
+        with open(brf, 'r', newline='', encoding='utf-8') as fh:
+            for raw_line in fh:
+                try:
+                    parts = next(csv.reader([raw_line.rstrip('\n\r')]))
+                except StopIteration:
+                    continue
+
+                # Skip completely blank lines
+                if not parts or all(p.strip() == '' for p in parts):
+                    continue
+
+                # Section header: a single non-empty field with no sibling fields
+                if len(parts) == 1 and parts[0].strip():
+                    current = parts[0].strip()
+                    sections[current] = {'cols': [], 'rows': {}}
+                    expect_header = True
+                    current_cols = []
+                    continue
+
+                if current is None:
+                    continue
+
+                if expect_header:
+                    # First multi-field row after section header = column names.
+                    # First field is an empty row-label placeholder.
+                    current_cols = [c.strip() for c in parts[1:]]
+                    sections[current]['cols'] = current_cols
+                    expect_header = False
+                    continue
+
+                # Data row: map column names to numeric values by index
+                row_label = parts[0].strip()
+                vals = parts[1:]
+                row_dict: dict = {}
+                for j, col in enumerate(current_cols):
+                    if j < len(vals):
+                        v = vals[j].strip()
+                        if v.upper() in ('NA', 'NAN', ''):
+                            row_dict[col] = float('nan')
+                        else:
+                            try:
+                                row_dict[col] = float(v)
+                            except ValueError:
+                                row_dict[col] = float('nan')
+                sections[current]['rows'][row_label] = row_dict
+
+        return sections
+
+    @staticmethod
+    def _br_get(sections: dict, section: str, row: str, col: str) -> float:
+        """Retrieve a value from pre-parsed bootstrap_results sections."""
+        try:
+            return sections[section]['rows'][row][col]
+        except KeyError:
+            return float('nan')
+
+    def get_parameter_table(self, br_sections: dict | None = None) -> list:
+        """Return list of dicts with parameter estimates and CIs.
+
+        Uses bootstrap_results.csv (authoritative PsN output) for MEDIAN,
+        2.5%/97.5% CIs and RSE.  Falls back to computing from raw samples
+        if bootstrap_results.csv is not available.
+        """
+        if not self.samples_df and not br_sections:
             return []
+
+        br = br_sections if br_sections is not None else self._parse_bootstrap_results()
 
         table = []
         for col in self.param_cols:
             orig_val = self.original.get(col, float('nan'))
-            sample_vals = sorted([s[col] for s in self.samples_df if col in s])
-            if not sample_vals:
-                continue
 
-            median = statistics.median(sample_vals)
-            lo = sample_vals[int(len(sample_vals) * 0.025)]
-            hi = sample_vals[int(len(sample_vals) * 0.975)]
-
-            # RSE approximation
-            if abs(median) > 1e-10:
-                rse = (hi - lo) / (2 * 1.96 * abs(median)) * 100
+            if br:
+                median = self._br_get(br, 'medians', '', col)
+                ci_lo  = self._br_get(br, 'percentile.confidence.intervals', '2.5%', col)
+                ci_hi  = self._br_get(br, 'percentile.confidence.intervals', '97.5%', col)
+                se     = self._br_get(br, 'standard.errors', '', col)
+                mean   = self._br_get(br, 'means', '', col)
+                # RSE = 100 × SE / |mean|  (PsN convention)
+                if not math.isnan(se) and not math.isnan(mean) and abs(mean) > 1e-10:
+                    rse = 100.0 * abs(se) / abs(mean)
+                else:
+                    rse = float('nan')
             else:
-                rse = float('nan')
+                # Fallback: compute from samples
+                sample_vals = sorted([s[col] for s in (self.samples_df or [])
+                                      if col in s and not math.isnan(s[col])])
+                if not sample_vals:
+                    continue
+                median = statistics.median(sample_vals)
+                ci_lo  = sample_vals[int(len(sample_vals) * 0.025)]
+                ci_hi  = sample_vals[int(len(sample_vals) * 0.975)]
+                rse    = ((ci_hi - ci_lo) / (2 * 1.96 * abs(median)) * 100
+                          if abs(median) > 1e-10 else float('nan'))
 
             table.append({
                 'parameter': col,
-                'estimate': orig_val,
-                'median': median,
-                'ci_lo': lo,
-                'ci_hi': hi,
-                'rse': rse
+                'estimate':  orig_val,
+                'median':    median,
+                'ci_lo':     ci_lo,
+                'ci_hi':     ci_hi,
+                'rse':       rse,
             })
         return table
 
@@ -985,10 +1103,27 @@ class ParameterUncertaintyTab(QWidget):
         self.plots_panel = QWidget()
         plots_v = QVBoxLayout(self.plots_panel)
         plots_v.setContentsMargins(0, 0, 0, 0)
+        plots_v.setSpacing(0)
         if HAS_MPL:
-            self._figure = Figure(figsize=(8, 6), dpi=100)
+            # Toolbar: parameter selector + export
+            plots_tb = QWidget(); plots_tb.setFixedHeight(30)
+            plots_tbl = QHBoxLayout(plots_tb)
+            plots_tbl.setContentsMargins(8, 3, 8, 3); plots_tbl.setSpacing(6)
+            plots_tbl.addWidget(QLabel('Parameter:'))
+            self._plot_param_combo = QComboBox()
+            self._plot_param_combo.setMinimumWidth(200)
+            self._plot_param_combo.currentIndexChanged.connect(self._on_plot_param_changed)
+            plots_tbl.addWidget(self._plot_param_combo)
+            plots_tbl.addStretch()
+            self._plot_export_btn = QPushButton('Save PNG…')
+            self._plot_export_btn.setFixedHeight(22)
+            self._plot_export_btn.setEnabled(False)
+            self._plot_export_btn.clicked.connect(self._export_plot_png)
+            plots_tbl.addWidget(self._plot_export_btn)
+            plots_v.addWidget(plots_tb)
+            self._figure = Figure(figsize=(7, 4), dpi=100, tight_layout=True)
             self._canvas = FigureCanvasQTAgg(self._figure)
-            plots_v.addWidget(self._canvas)
+            plots_v.addWidget(self._canvas, 1)
         else:
             plots_v.addWidget(QLabel('Matplotlib not available'))
         self._results_stack.addWidget(self.plots_panel)
@@ -1315,11 +1450,47 @@ class ParameterUncertaintyTab(QWidget):
         if success:
             self.console.appendPlainText(f'\n[Completed] Output: {folder_or_err}')
             self.status_msg.emit('Run completed successfully')
-            # Auto-load results
             self._parse_and_display(Path(folder_or_err))
         else:
+            # PsN bootstrap exits with code 2 when all runs are excluded by the
+            # default skip criteria.  Auto-retry with -summarize and relaxed flags
+            # (including -no-skip_covariance_step_terminated so that runs where
+            # the covariance step was skipped are not also excluded).
+            if ('code 2' in folder_or_err
+                    and self.bootstrap_rb.isChecked()
+                    and not getattr(self, '_recovery_attempted', False)):
+                out_dir = self.boot_dir_edit.text().strip()
+                if out_dir and Path(out_dir).is_dir():
+                    self._attempt_bootstrap_recovery(out_dir)
+                    return
+
+            self._recovery_attempted = False
             self.console.appendPlainText(f'\n[Failed] {folder_or_err}')
             self.status_msg.emit(f'Run failed: {folder_or_err}')
+
+    def _attempt_bootstrap_recovery(self, out_dir: str):
+        """Re-run bootstrap -summarize with relaxed exclusion criteria."""
+        self._recovery_attempted = True
+        model_path = self._model.get('path', '') if self._model else ''
+        cmd = [
+            'bootstrap', model_path,
+            f'-directory={out_dir}',
+            '-summarize',
+            '-no-skip_minimization_terminated',
+            '-no-skip_estimate_near_boundary',
+            '-no-skip_covariance_step_terminated',
+        ]
+        self.console.appendPlainText(
+            '\n[Auto-recovery] PsN exit code 2: all runs excluded by default criteria.\n'
+            'Retrying with -summarize -no-skip_covariance_step_terminated '
+            '-no-skip_minimization_terminated -no-skip_estimate_near_boundary …\n'
+        )
+        self.run_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self._worker = PsNWorker(cmd, out_dir, get_login_env())
+        self._worker.line_out.connect(self._on_line)
+        self._worker.finished.connect(self._on_run_done)
+        self._worker.start()
 
     def _load_results(self):
         """Load existing results from selected folder."""
@@ -1454,7 +1625,8 @@ class ParameterUncertaintyTab(QWidget):
             parser.param_cols = self._results['param_cols']
             parser.original = self._results['original']
             parser.samples_df = self._results['samples']
-            table_data = parser.get_parameter_table()
+            table_data = parser.get_parameter_table(
+                br_sections=self._results.get('br_sections'))
         else:
             parser = SIRParser(Path(self._results['folder']))
             parser.param_cols = self._results['param_cols']
@@ -1464,62 +1636,139 @@ class ParameterUncertaintyTab(QWidget):
 
         self.param_table.setRowCount(len(table_data))
         for i, row in enumerate(table_data):
+            def _fmt(v):
+                return f'{v:.4g}' if not math.isnan(v) else '—'
             self.param_table.setItem(i, 0, QTableWidgetItem(row['parameter']))
-            self.param_table.setItem(i, 1, QTableWidgetItem(f"{row['estimate']:.4g}"))
-            self.param_table.setItem(i, 2, QTableWidgetItem(f"{row['median']:.4g}"))
-            self.param_table.setItem(i, 3, QTableWidgetItem(f"{row['ci_lo']:.4g}"))
-            self.param_table.setItem(i, 4, QTableWidgetItem(f"{row['ci_hi']:.4g}"))
+            self.param_table.setItem(i, 1, QTableWidgetItem(_fmt(row['estimate'])))
+            self.param_table.setItem(i, 2, QTableWidgetItem(_fmt(row['median'])))
+            self.param_table.setItem(i, 3, QTableWidgetItem(_fmt(row['ci_lo'])))
+            self.param_table.setItem(i, 4, QTableWidgetItem(_fmt(row['ci_hi'])))
             rse_str = f"{row['rse']:.1f}" if not math.isnan(row['rse']) else '—'
             self.param_table.setItem(i, 5, QTableWidgetItem(rse_str))
 
         self.param_table.resizeColumnsToContents()
 
     def _generate_plots(self):
-        """Generate diagnostic plots."""
+        """Populate the parameter selector and draw the first histogram."""
         if not HAS_MPL or not self._results:
             return
 
-        self._figure.clear()
         method = self._results['method']
-
         if method == 'bootstrap':
             self._plot_bootstrap()
         else:
             self._plot_sir()
-
-        self._canvas.draw()
+            self._canvas.draw()
 
     def _plot_bootstrap(self):
-        """Generate bootstrap diagnostic plots."""
-        samples = self._results['samples']
-        param_cols = self._results['param_cols'][:6]  # max 6 params
-        original = self._results['original']
-
-        if not samples or not param_cols:
+        """Populate parameter combo and draw the first parameter histogram."""
+        param_cols = self._results.get('param_cols', [])
+        # Plots show distributions, so exclude OFV (not a model parameter)
+        plot_cols = [c for c in param_cols if c.lower().strip() != 'ofv']
+        if not plot_cols:
             return
 
-        n_params = len(param_cols)
-        n_cols = min(3, n_params)
-        n_rows = (n_params + n_cols - 1) // n_cols
+        # Populate combo without triggering a redraw for each insertion
+        self._plot_param_combo.blockSignals(True)
+        self._plot_param_combo.clear()
+        for col in plot_cols:
+            self._plot_param_combo.addItem(col)
+        self._plot_param_combo.blockSignals(False)
 
-        for i, col in enumerate(param_cols):
-            ax = self._figure.add_subplot(n_rows, n_cols, i + 1)
-            vals = [s[col] for s in samples if col in s]
-            if not vals:
-                continue
+        self._draw_param_plot()
 
-            ax.hist(vals, bins=30, alpha=0.7, color='#4c8aff', edgecolor='none')
-            orig = original.get(col, None)
-            if orig is not None:
-                ax.axvline(orig, color='#e85555', linestyle='--', linewidth=1.5, label='Estimate')
+    def _on_plot_param_changed(self, _idx: int):
+        if self._results and self._results.get('method') == 'bootstrap':
+            self._draw_param_plot()
+
+    def _draw_param_plot(self):
+        """Draw bootstrap histogram for the currently selected parameter."""
+        if not HAS_MPL or not self._results:
+            return
+        param = self._plot_param_combo.currentText()
+        if not param:
+            return
+
+        samples  = self._results.get('samples', [])
+        original = self._results.get('original', {})
+        br       = self._results.get('br_sections', {})
+
+        vals = [s[param] for s in samples
+                if param in s and not math.isnan(s[param])]
+        if not vals:
+            return
+
+        # ── Gather CI lines ───────────────────────────────────────────────────
+        ci_lo = BootstrapParser._br_get(br, 'percentile.confidence.intervals', '2.5%', param)
+        ci_hi = BootstrapParser._br_get(br, 'percentile.confidence.intervals', '97.5%', param)
+        median = BootstrapParser._br_get(br, 'medians', '', param)
+
+        # Fall back to sample-derived values if bootstrap_results.csv missing
+        sv = sorted(vals)
+        n  = len(sv)
+        if math.isnan(ci_lo):
+            ci_lo = sv[max(0, int(n * 0.025))]
+        if math.isnan(ci_hi):
+            ci_hi = sv[min(n - 1, int(n * 0.975))]
+        if math.isnan(median):
             median = statistics.median(vals)
-            ax.axvline(median, color='#3ec97a', linestyle='-', linewidth=1.5, label='Median')
-            ax.set_title(col, fontsize=9)
-            ax.tick_params(labelsize=8)
-            if i == 0:
-                ax.legend(fontsize=7)
 
-        self._figure.tight_layout()
+        orig = original.get(param)
+        if orig is None or (isinstance(orig, float) and math.isnan(orig)):
+            orig = None
+
+        # ── Plot ──────────────────────────────────────────────────────────────
+        from ..app.theme import T, THEMES, _active_theme
+        t   = THEMES[_active_theme]
+        bg  = t['bg2']; fg = t['fg']; fg2 = t['fg2']
+
+        self._figure.clear()
+        ax = self._figure.add_subplot(111)
+        self._figure.patch.set_facecolor(bg)
+        ax.set_facecolor(bg)
+        ax.tick_params(colors=fg2)
+        ax.xaxis.label.set_color(fg2)
+        ax.yaxis.label.set_color(fg2)
+        ax.title.set_color(fg)
+        for sp in ax.spines.values():
+            sp.set_color(fg2)
+
+        ax.hist(vals, bins=30, color=t['accent'], alpha=0.7, edgecolor='none')
+
+        if orig is not None:
+            ax.axvline(orig, color=t['red'], linewidth=2,
+                       linestyle='-', label=f'Estimate: {orig:.4g}')
+        ax.axvline(median, color=t['green'], linewidth=1.5,
+                   linestyle='--', label=f'Median: {median:.4g}')
+        ax.axvline(ci_lo, color='#f4a028', linewidth=1.5,
+                   linestyle=':', label=f'2.5%: {ci_lo:.4g}')
+        ax.axvline(ci_hi, color='#f4a028', linewidth=1.5,
+                   linestyle=':', label=f'97.5%: {ci_hi:.4g}')
+
+        ax.set_xlabel(param)
+        ax.set_ylabel('Frequency')
+        ax.set_title(f'{param}  (n = {n} successful runs)')
+        leg = ax.legend(fontsize=9, framealpha=0.3)
+        if leg:
+            for txt in leg.get_texts():
+                txt.set_color(fg)
+
+        self._canvas.draw()
+        self._plot_export_btn.setEnabled(True)
+
+    def _export_plot_png(self):
+        """Save current histogram to PNG."""
+        param = getattr(self, '_plot_param_combo', None)
+        name  = param.currentText().replace('/', '_').replace(' ', '_') if param else 'bootstrap'
+        dst, _ = QFileDialog.getSaveFileName(
+            self, 'Save PNG', str(HOME / f'{name}_bootstrap.png'), 'PNG images (*.png)')
+        if not dst:
+            return
+        try:
+            self._figure.savefig(dst, dpi=300, bbox_inches='tight',
+                                 facecolor=self._figure.get_facecolor())
+        except Exception as e:
+            QMessageBox.critical(self, 'Export error', str(e))
 
     def _plot_sir(self):
         """Generate SIR diagnostic plots."""
