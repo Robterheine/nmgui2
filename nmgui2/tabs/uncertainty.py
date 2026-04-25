@@ -58,10 +58,11 @@ class BootstrapParser:
         self.n_successful = 0
 
     def parse(self) -> dict:
-        # Find raw_results file
-        raw_files = list(self.folder.glob('raw_results_*.csv'))
+        # Find raw_results file — exclude raw_results_sir.csv which belongs to SIR
+        raw_files = [f for f in self.folder.glob('raw_results_*.csv')
+                     if f.name != 'raw_results_sir.csv']
         if not raw_files:
-            raise FileNotFoundError('No raw_results_*.csv found in bootstrap folder')
+            raise FileNotFoundError('No bootstrap raw_results_*.csv found in folder')
 
         # Read CSV
         with open(raw_files[0], 'r', newline='', encoding='utf-8') as f:
@@ -1348,14 +1349,32 @@ class ParameterUncertaintyTab(QWidget):
         """Parse results folder and display diagnostics."""
         self.console.appendPlainText(f'\nParsing results from: {folder}\n')
 
-        # Detect method from folder contents
-        if (folder / 'raw_results_sir.csv').exists():
+        # ── Detect method from folder contents ───────────────────────────────
+        # SIR markers (checked first to avoid false bootstrap match)
+        sir_raw     = folder / 'raw_results_sir.csv'
+        sir_results = folder / 'sir_results.csv'
+
+        # Bootstrap markers: raw_results_<model>.csv — explicitly exclude
+        # raw_results_sir.csv so the glob cannot shadow the SIR check
+        bootstrap_raws = [f for f in folder.glob('raw_results_*.csv')
+                          if f.name != 'raw_results_sir.csv']
+
+        # Folder-name hint (e.g. "sir_run01" vs "bootstrap_run01")
+        folder_hint = folder.name.lower()
+
+        if sir_raw.exists() or sir_results.exists():
             method = 'sir'
-        elif list(folder.glob('raw_results_*.csv')):
+        elif bootstrap_raws and 'sir' not in folder_hint:
+            method = 'bootstrap'
+        elif 'sir' in folder_hint:
+            # Folder named like a SIR run but result files are missing/incomplete
+            method = 'sir'
+        elif bootstrap_raws:
             method = 'bootstrap'
         else:
             QMessageBox.warning(self, 'Not found',
-                'Could not find raw_results_*.csv or raw_results_sir.csv in this folder.')
+                'Could not find raw_results_sir.csv, sir_results.csv, or '
+                'raw_results_*.csv in this folder.')
             return
 
         try:
@@ -1371,7 +1390,7 @@ class ParameterUncertaintyTab(QWidget):
             self._display_parameters()
             self._generate_plots()
             self._switch_results_tab(1)  # Switch to assessment
-            self.status_msg.emit(f'Loaded {method} results from {folder.name}')
+            self.status_msg.emit(f'Loaded {method.upper()} results from {folder.name}')
 
         except Exception as e:
             self.console.appendPlainText(f'Error parsing results: {e}\n')
