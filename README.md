@@ -661,6 +661,10 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.0
+
+- **New Model** — create a blank NONMEM control file directly from the Models tab. Click **New model…** in the filter row (or press Ctrl+N / ⌘N) to open a dialog that lets you choose a model name, pick a structural-model template (Blank, 1-CMT oral, 1-CMT IV, 2-CMT oral, 2-CMT IV), set the `$DATA` path with a file picker, and preview the rendered file before writing it. After creation the directory is rescanned and the new model is auto-selected with the Editor tab open.
+
 ### v2.8.0
 
 - **Files tab now supports plotting** — selecting a `.tab` or `.csv` file shows a `[ Table | Plot ]` pill pair in the toolbar. Plot view is the full DataExplorer (scatter, LOESS, colour-by column, filters) that previously lived in the Evaluation tab. Column deduplication (from v2.7.9) now also applies in the Files tab viewer.

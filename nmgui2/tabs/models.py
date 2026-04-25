@@ -28,10 +28,12 @@ from ..widgets.lst_viewer import LstOutputWidget
 from ..dialogs.duplicate import DuplicateDialog
 from ..dialogs.comparison import ModelComparisonDialog
 from ..dialogs.workbench import ModelWorkbenchDialog
+from ..dialogs.new_model import NewModelDialog
 from ..widgets.collapsible import CollapsibleCard
 from ..dialogs.nmtran import NMTRANPanel
 from ..dialogs.run_record import RunRecordDialog
 from ..dialogs.lst_viewer_dialog import LstViewerDialog
+from ..app.model_templates import render as render_template
 
 try:
     from ..parser import parse_lst, extract_table_files, inject_estimates
@@ -206,7 +208,8 @@ class ModelsTab(QWidget):
         self._last_detach_check = 0.0          # epoch of last is_alive check
         self._is_ssh = bool(os.environ.get('SSH_CONNECTION') or os.environ.get('SSH_CLIENT'))
         self._current_model = None
-        self._ref_model_path = None   # user-selected reference for dOFV
+        self._ref_model_path = None     # user-selected reference for dOFV
+        self._pending_select_path = None  # set by _new_model(); consumed in _on_scan
         self._table_model = ModelTableModel()
         self._all_models  = []
         self._build_ui()
@@ -263,11 +266,16 @@ class ModelsTab(QWidget):
             self._filter_btns.append((btn, filter_val))
         self._filter_btns[0][0].setChecked(True)  # 'All' selected by default
         self._current_filter = 'all'
+        new_model_btn = QPushButton('New model…')
+        new_model_btn.setFixedHeight(24)
+        new_model_btn.setToolTip('Create a new blank NONMEM model file from a template (Ctrl+N / ⌘N)')
+        new_model_btn.clicked.connect(self._new_model)
         workbench_btn = QPushButton('Workbench…')
         workbench_btn.setFixedHeight(24)
         workbench_btn.setToolTip('Multi-model comparison workbench (all completed models)')
         workbench_btn.clicked.connect(self._open_workbench)
         filter_row.addStretch()
+        filter_row.addWidget(new_model_btn)
         filter_row.addWidget(workbench_btn)
         lv.addLayout(filter_row)
 
@@ -310,6 +318,10 @@ class ModelsTab(QWidget):
         self.table.right_clicked.connect(self._on_right_click)
         # Keyboard navigation only — no viewport filter needed
         self.table.installEventFilter(self)
+        # Ctrl+N / ⌘N — only fires when this tab widget is visible
+        from PyQt6.QtGui import QShortcut
+        _sc = QShortcut(QKeySequence.StandardKey.New, self)
+        _sc.activated.connect(self._new_model)
         lv.addWidget(self.table); spl.addWidget(left)
         # Prevent right panel from expanding at expense of model list
 
@@ -620,6 +632,24 @@ class ModelsTab(QWidget):
         self.status_msg.emit(
             f'{n} model{"s" if n!=1 else ""}, {nr} with results  ·  '
             f'{Path(self._directory).name}  ·  scanned in {elapsed:.1f}s')
+
+        # Auto-select a newly created model (set by _new_model())
+        if self._pending_select_path:
+            target = self._pending_select_path
+            self._pending_select_path = None
+            # Make sure 'All' filter is active so the new (unrun) model is visible
+            self._apply_filter('all')
+            for row in range(self.table.rowCount()):
+                item0 = self.table.item(row, 0)
+                if item0 is None:
+                    continue
+                model_row = item0.data(Qt.ItemDataRole.UserRole)
+                m = self._table_model.model_at(model_row) if model_row is not None else None
+                if m and m.get('path') == target:
+                    self.table.setCurrentCell(row, 0)
+                    self._on_select()
+                    self._detail_switch(1)   # 1 = Editor tab — user can start editing immediately
+                    break
 
     def _on_search_changed(self, text):
         """Handle search text changes with debounce."""
@@ -1120,6 +1150,35 @@ class ModelsTab(QWidget):
         tags_text = self.tags_edit.text().strip()
         e['tags'] = [t.strip() for t in tags_text.split(',') if t.strip()] if tags_text else []
         self._meta[m['path']] = e; save_meta(self._meta)
+
+    def _new_model(self):
+        """Create a new blank NONMEM model file from a template."""
+        if not self._directory or not Path(self._directory).is_dir():
+            self.status_msg.emit('Set a working directory before creating a new model.')
+            return
+        dlg = NewModelDialog(self._directory, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        stem      = dlg.stem()
+        text      = render_template(dlg.template(), stem, dlg.data_path())
+        out_path  = Path(self._directory) / f'{stem}.mod'
+        if out_path.exists():
+            reply = QMessageBox.question(
+                self, 'File already exists',
+                f'{stem}.mod already exists in this directory.\nOverwrite it?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            out_path.write_text(text, encoding='utf-8')
+        except OSError as e:
+            QMessageBox.warning(self, 'Could not create file', str(e))
+            return
+        self.status_msg.emit(f'Created {stem}.mod — rescanning…')
+        # Store path so _on_scan() can auto-select and open the editor
+        self._pending_select_path = str(out_path)
+        self._scan()
 
     def _duplicate(self):
         m = self._current_model
