@@ -44,10 +44,22 @@ from ..widgets.data_explorer import DataExplorerWidget
 _log = logging.getLogger(__name__)
 
 _PRESET_EXTS    = ['mod', 'ctl', 'lst', 'tab', 'csv', 'ext', 'cov', 'cor', 'phi',
-                   'txt', 'pdf', 'png', 'r']
+                   'cnv', 'coi', 'txt', 'pdf', 'png', 'r']
 _PILL_LABELS    = {'r': '.R'}   # override default ".{ext}" display label
-_TABLE_EXTS     = {'csv', 'tab'}
-_HIGHLIGHT_EXTS = {'mod', 'ctl'}
+# Extensions shown as table/plot — NONMEM space-separated format
+_NONMEM_TABLE_EXTS = {'tab', 'ext', 'cov', 'cor', 'phi', 'cnv', 'coi'}
+# Extensions shown as table/plot — CSV-style
+_CSV_TABLE_EXTS    = {'csv'}
+_TABLE_EXTS        = _NONMEM_TABLE_EXTS | _CSV_TABLE_EXTS
+_HIGHLIGHT_EXTS    = {'mod', 'ctl'}
+# Known binary types — show a friendly "no preview" message instead of garbled text
+_BINARY_EXTS = {
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff', 'tif', 'ico',
+    'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar',
+    'exe', 'dll', 'so', 'dylib',
+    'mp3', 'mp4', 'wav', 'avi', 'mov',
+}
 
 # Qt roles stored on column-0 items in the file list
 _ROLE_PATH   = Qt.ItemDataRole.UserRole        # Path object
@@ -304,12 +316,12 @@ class FileExplorerTab(QWidget):
         self._file_table = QTableWidget()
         self._file_table.setColumnCount(3)
         self._file_table.setHorizontalHeaderLabels(['Name', 'Size', 'Modified'])
-        self._file_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch)
-        self._file_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.ResizeToContents)
-        self._file_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents)
+        hdr = self._file_table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        hdr.setStretchLastSection(False)
+        self._file_table.setColumnWidth(0, 220)
+        self._file_table.setColumnWidth(1, 72)
+        self._file_table.setColumnWidth(2, 130)
         self._file_table.verticalHeader().setVisible(False)
         self._file_table.setSelectionBehavior(
             QAbstractItemView.SelectionBehavior.SelectRows)
@@ -695,10 +707,32 @@ class FileExplorerTab(QWidget):
     def _load_file(self, path: Path):
         ext = path.suffix.lstrip('.').lower()
         self._content_title.setText(path.name)
-        if ext in _TABLE_EXTS:
+        if ext in _BINARY_EXTS:
+            self._show_no_preview(path)
+        elif ext in _TABLE_EXTS:
             self._load_table_file(path, ext)
         else:
             self._load_text_file(path, ext)
+
+    def _show_no_preview(self, path: Path):
+        """Show a friendly placeholder for binary / non-previewable files."""
+        self._content_stack.setCurrentIndex(0)
+        self._text_view.setReadOnly(True)
+        self._text_view.setPlainText(
+            f'No preview available for {path.suffix.upper() or "this"} files.\n\n'
+            f'Double-click the file in the browser to open it with the system application.'
+        )
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+            self._highlighter = None
+        self._find_edit.setVisible(False)
+        self._table_pill.setVisible(False)
+        self._table_pill.setChecked(False)
+        self._plot_pill.setVisible(False)
+        self._plot_pill.setChecked(False)
+        self._edit_btn.setVisible(False)
+        self._save_btn.setVisible(False)
+        self._discard_btn.setVisible(False)
 
     def _load_text_file(self, path: Path, ext: str):
         try:
@@ -737,7 +771,7 @@ class FileExplorerTab(QWidget):
 
     def _load_table_file(self, path: Path, ext: str):
         try:
-            if ext == 'tab':
+            if ext in _NONMEM_TABLE_EXTS:
                 headers, rows = _read_nonmem_table(path)
                 self._current_delim = None
             else:
