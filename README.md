@@ -6,7 +6,18 @@ NMGUI2 is a PyQt6 desktop application that brings together everything a pharmaco
 
 It runs entirely offline on macOS, Windows and Linux. No browser. No server. No internet connection required during use.
 
-![NMGUI2 Models tab](screenshots/screenshot.png)
+<p align="center">
+  <img src="screenshots/screenshotmain.png" alt="NMGUI2 Models tab" width="900">
+</p>
+
+<p align="center">
+  <img src="screenshots/screenshotgof.png"     alt="Goodness-of-fit diagnostics" width="440">
+  <img src="screenshots/screenshotvpc.png"     alt="Visual predictive check"     width="440">
+</p>
+<p align="center">
+  <img src="screenshots/screenshotsimplot.png" alt="Simulation plot"             width="440">
+  <img src="screenshots/screenshotsir.png"     alt="SIR uncertainty diagnostics" width="440">
+</p>
 
 ---
 
