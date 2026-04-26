@@ -1,4 +1,4 @@
-import os, signal, subprocess, logging, time
+import os, re, signal, subprocess, logging, time
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal
 from .constants import IS_WIN
@@ -37,7 +37,6 @@ class ScanWorker(QThread):
         self._cancelled = True
 
     def run(self):
-        import re
         if not HAS_PARSER:
             self.error.emit('parser.py not found'); return
         try:
