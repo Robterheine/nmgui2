@@ -97,7 +97,13 @@ def _read_nonmem_table(path: Path):
 
 
 def _read_csv_file(path: Path):
-    """Read CSV with auto-detected delimiter. Returns (headers, rows, delimiter)."""
+    """Read CSV with auto-detected delimiter.
+
+    Returns (headers, rows, delimiter) on success, or
+    (None, None, delimiter) when the file has an irregular multi-section
+    structure (e.g. PsN summary reports) — the caller should fall back to
+    the plain-text viewer in that case.
+    """
     content = path.read_text('utf-8', errors='replace')
     sniffer = csv.Sniffer()
     try:
@@ -111,6 +117,15 @@ def _read_csv_file(path: Path):
     rows = list(csv.reader(lines, delimiter=delim))
     if not rows:
         return [], [], delim
+
+    # Detect multi-section / irregular files: if the first row (used as
+    # header) has far fewer columns than the rows that follow, the file is a
+    # section-report format and cannot be displayed as a single flat table.
+    if len(rows) > 1:
+        sample_max = max(len(r) for r in rows[1:min(8, len(rows))])
+        if sample_max > 0 and len(rows[0]) < sample_max / 2:
+            return None, None, delim   # signal: fall back to text view
+
     return rows[0], rows[1:], delim
 
 
@@ -785,6 +800,12 @@ class FileExplorerTab(QWidget):
             self._discard_btn.setVisible(False)
             self._table_pill.setVisible(False)
             self._plot_pill.setVisible(False)
+            return
+
+        # _read_csv_file returns None headers when the file is a multi-section
+        # report (e.g. PsN sir_results.csv) — fall back to the text viewer.
+        if headers is None:
+            self._load_text_file(path, ext)
             return
 
         seen:   dict = {}
