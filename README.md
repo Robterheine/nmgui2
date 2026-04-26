@@ -626,19 +626,25 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
-### v2.9.1
+### v2.9.1 — bug fixes and performance
 
-- **Audit pass — performance, correctness, and theme robustness.** No new features; no UI changes. All fixes were independently reviewed before merge.
-  - **Models tab — faster bulk fill.** `setUpdatesEnabled(False)` now wraps both the scan and filter `setItem` loops, eliminating per-cell repaints. Visible flicker on directories with 30+ models is gone, especially noticeable over X11/MobaXterm. The wrapper sits inside a `try/finally` so updates always re-enable, even if a row raises mid-fill.
-  - **Models scan — fewer file reads.** `ScanWorker` now caches `check_dataset()` results within a single scan, so a directory of 10 models that all reference the same dataset reads it once instead of ten times. Regex patterns used per-model (`$PROBLEM`, `$DATA`, `Based on:`) are compiled at module level instead of inline.
-  - **Detached runs — `_boot_time()` cached.** On Linux, the system boot time was being read from `/proc/stat` on every `is_alive()` check (≈1,200 redundant reads per 2-hour bootstrap with 5 active runs). Cached on first call now.
-  - **Theme switch — editor and notes panels refresh.** The Editor and Notes panels in the Models tab now update their palette colours when the theme is toggled, instead of remaining at the original theme's background.
-  - **Theme switch — open run popups refresh.** `RunPopup` and `WatchLogPopup` are tracked on a popup-list and re-themed on theme change. Previously, popups opened in dark mode stayed dark after switching to light.
-  - **Cross-OS console font.** The run-output console now uses the existing `monospace_font()` fallback chain (SF NS Mono → Consolas → DejaVu Sans Mono → …) instead of hardcoding "Menlo" / "Consolas". Linux gets a defined font instead of Qt's silent system fallback.
-  - **`set_reference()` no longer triggers a full model reset.** Only the affected columns (Name, dOFV) emit `dataChanged`.
-  - **Nav-icon cache.** Sidebar nav icons are now cached per `(name, size, color)`; theme toggling no longer redraws every icon from scratch.
-  - **Threading guard.** `RunWorker._send_signal()` now also checks `isRunning()` alongside the existing `_proc` None-check, hardening the stop path against teardown races.
-  - **Dead code removed.** A no-op nested function inside the dataset-row parsing loop was discarded (it created an unused closure on every row).
+A bug-fix release from a multi-lens code audit. No new features, no UI changes. Every fix was independently reviewed before merge.
+
+**Bug fixes**
+
+- **Editor and Notes panels stayed dark after theme switch.** The Editor and Notes panels in the Models tab now correctly update their palette colours when the theme is toggled (previously they remained at the original theme's background).
+- **Open run popups stayed at the old theme.** `RunPopup` and `WatchLogPopup` are tracked on a popup-list and re-themed on theme change. Previously, popups opened in dark mode stayed dark after switching to light.
+- **Run-output console font on Linux.** The console now uses the existing `monospace_font()` fallback chain (SF NS Mono → Consolas → DejaVu Sans Mono → …) instead of hardcoding "Menlo" / "Consolas". Linux gets a defined font instead of Qt's silent system fallback.
+- **Stop-button race during run teardown.** `RunWorker._send_signal()` now also checks `isRunning()` alongside the existing `_proc` None-check, hardening the stop path against teardown races.
+- **Dead code in dataset parser.** A no-op nested function inside the dataset-row parsing loop was discarded (it created an unused closure on every row).
+
+**Performance**
+
+- **Models tab — faster bulk fill.** `setUpdatesEnabled(False)` now wraps both the scan and filter `setItem` loops, eliminating per-cell repaints. Visible flicker on directories with 30+ models is gone, especially noticeable over X11/MobaXterm. The wrapper sits inside a `try/finally` so updates always re-enable, even if a row raises mid-fill.
+- **Models scan — fewer file reads.** `ScanWorker` now caches `check_dataset()` results within a single scan, so a directory of 10 models that all reference the same dataset reads it once instead of ten times. Regex patterns used per-model (`$PROBLEM`, `$DATA`, `Based on:`) are compiled at module level instead of inline.
+- **Detached runs — `_boot_time()` cached.** On Linux, the system boot time was being read from `/proc/stat` on every `is_alive()` check (≈1,200 redundant reads per 2-hour bootstrap with 5 active runs). Cached on first call now.
+- **`set_reference()` no longer triggers a full model reset.** Only the affected columns (Name, dOFV) emit `dataChanged`.
+- **Nav-icon cache.** Sidebar nav icons are now cached per `(name, size, color)`; theme toggling no longer redraws every icon from scratch.
 
 ### v2.9.0
 
