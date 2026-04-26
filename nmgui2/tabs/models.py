@@ -76,7 +76,28 @@ class ModelTableModel(QAbstractTableModel):
             self._ref_ofv = ref['ofv'] if ref and ref.get('ofv') is not None else None
         else:
             self._ref_ofv = None
-        self.beginResetModel(); self.endResetModel()
+        # Only COL_NAME (REF suffix) and COL_DOFV change; emit dataChanged for
+        # those columns instead of a full model reset. Note: this model is not
+        # currently attached to a view via setModel() — _refresh_table_display()
+        # in ModelsTab handles the actual table repaint — so the signal is
+        # informational for any future view that may attach.
+        n_rows = self.rowCount()
+        if n_rows > 0:
+            roles = [
+                Qt.ItemDataRole.DisplayRole,
+                Qt.ItemDataRole.BackgroundRole,
+                Qt.ItemDataRole.ForegroundRole,
+            ]
+            self.dataChanged.emit(
+                self.index(0, COL_NAME),
+                self.index(n_rows - 1, COL_NAME),
+                roles,
+            )
+            self.dataChanged.emit(
+                self.index(0, COL_DOFV),
+                self.index(n_rows - 1, COL_DOFV),
+                roles,
+            )
 
     def _dofv_base(self):
         """Return (ofv_base, is_reference) for dOFV calculation."""
