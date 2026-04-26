@@ -37,6 +37,9 @@ def _make_logo_pixmap(size=32):
     return px
 
 
+_NAV_ICON_CACHE: dict = {}
+
+
 def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap:
     """
     Draw a sidebar nav icon using QPainter — no image files, no emoji, no fonts.
@@ -44,6 +47,11 @@ def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap
     name: 'models' | 'tree' | 'evaluation' | 'vpc' | 'history' | 'settings'
     color: hex colour string, should match current theme fg
     """
+    cache_key = (name, size, color)
+    cached = _NAV_ICON_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     from PyQt6.QtGui import QPainter, QPainterPath, QPen, QBrush
     from PyQt6.QtCore import QPointF, QRectF
 
@@ -277,6 +285,7 @@ def _make_nav_icon(name: str, size: int = 28, color: str = '#cccccc') -> QPixmap
             p.drawLine(QPointF(s * 0.25, y), QPointF(s * 0.78, y))
 
     p.end()
+    _NAV_ICON_CACHE[cache_key] = px
     return px
 
 

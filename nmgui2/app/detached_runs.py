@@ -150,12 +150,21 @@ def is_alive(pid: int, started_epoch: int | None = None) -> bool:
     return True
 
 
+_BOOT_TIME: 'float | None' = None
+_BOOT_TIME_FETCHED = False
+
+
 def _boot_time() -> 'float | None':
-    """Return system boot time as Unix epoch (Linux only). Returns None on failure."""
+    """Return system boot time as Unix epoch (Linux only). Cached after first call."""
+    global _BOOT_TIME, _BOOT_TIME_FETCHED
+    if _BOOT_TIME_FETCHED:
+        return _BOOT_TIME
+    _BOOT_TIME_FETCHED = True
     try:
         for line in Path('/proc/stat').read_text().splitlines():
             if line.startswith('btime '):
-                return float(line.split()[1])
+                _BOOT_TIME = float(line.split()[1])
+                return _BOOT_TIME
     except Exception:
         pass
     return None

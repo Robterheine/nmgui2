@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QPalette, QColor, QCloseEvent
 
-from ..app.theme import C, T
+from ..app.theme import C, T, monospace_font
 from ..app.constants import IS_WIN, IS_MAC
 from ..app.workers import RunWorker
 from ..app.run_records import create_run_record, finalize_run_record, load_run_records, save_run_records
@@ -105,7 +105,7 @@ class RunPopup(QDialog):
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
         self.console.setMaximumBlockCount(10000)
-        self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 11))
+        self.console.setFont(monospace_font(11))
         v.addWidget(self.console, 1)
 
         # ── Button row ────────────────────────────────────────────────────────
@@ -386,7 +386,7 @@ class WatchLogPopup(QDialog):
         self.console = QPlainTextEdit()
         self.console.setReadOnly(True)
         self.console.setMaximumBlockCount(10000)
-        self.console.setFont(QFont('Menlo' if IS_MAC else 'Consolas', 11))
+        self.console.setFont(monospace_font(11))
         v.addWidget(self.console, 1)
 
         # Note about log file

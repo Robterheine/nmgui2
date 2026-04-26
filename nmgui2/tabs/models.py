@@ -76,7 +76,28 @@ class ModelTableModel(QAbstractTableModel):
             self._ref_ofv = ref['ofv'] if ref and ref.get('ofv') is not None else None
         else:
             self._ref_ofv = None
-        self.beginResetModel(); self.endResetModel()
+        # Only COL_NAME (REF suffix) and COL_DOFV change; emit dataChanged for
+        # those columns instead of a full model reset. Note: this model is not
+        # currently attached to a view via setModel() — _refresh_table_display()
+        # in ModelsTab handles the actual table repaint — so the signal is
+        # informational for any future view that may attach.
+        n_rows = self.rowCount()
+        if n_rows > 0:
+            roles = [
+                Qt.ItemDataRole.DisplayRole,
+                Qt.ItemDataRole.BackgroundRole,
+                Qt.ItemDataRole.ForegroundRole,
+            ]
+            self.dataChanged.emit(
+                self.index(0, COL_NAME),
+                self.index(n_rows - 1, COL_NAME),
+                roles,
+            )
+            self.dataChanged.emit(
+                self.index(0, COL_DOFV),
+                self.index(n_rows - 1, COL_DOFV),
+                roles,
+            )
 
     def _dofv_base(self):
         """Return (ofv_base, is_reference) for dOFV calculation."""
@@ -204,6 +225,7 @@ class ModelsTab(QWidget):
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
         self._run_popups: list[RunPopup] = []
+        self._watch_popups: list[WatchLogPopup] = []   # WatchLogPopup tracker for theme refresh
         self._detached_runs: list[dict] = []   # live detached run descriptors
         self._run_records_cache: list = []     # per-folder history from nmgui_run_records.json
         self._last_detach_check = 0.0          # epoch of last is_alive check
@@ -362,7 +384,7 @@ class ModelsTab(QWidget):
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
         self.editor = QPlainTextEdit()
         self.editor.setFont(monospace_font(11))
-        _ep = QPalette(); _ep.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _ep.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.editor.setPalette(_ep)
+        self._apply_editor_palette()
         self._hl = NMHighlighter(self.editor.document())
         ed_v.addLayout(ed_top); ed_v.addWidget(self.editor)
         self._detail_stack.addWidget(ed_w)
@@ -507,7 +529,7 @@ class ModelsTab(QWidget):
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText('Rationale, decisions…')
         self.notes_edit.setFixedHeight(120)
-        _np = QPalette(); _np.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _np.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.notes_edit.setPalette(_np)
+        self._apply_notes_palette()
         orig_focusOut = self.notes_edit.focusOutEvent
         self.notes_edit.focusOutEvent = lambda e: (self._save_meta_fields(), orig_focusOut(e))
         self._card_notes.add_widget(self.notes_edit)
@@ -535,6 +557,25 @@ class ModelsTab(QWidget):
         self._detail_stack.setCurrentIndex(index)
         for i, btn in enumerate(self._detail_btns):
             btn.setChecked(i == index)
+
+    # ── Theme ─────────────────────────────────────────────────────────────────
+    def _apply_editor_palette(self):
+        pal = QPalette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        self.editor.setPalette(pal)
+
+    def _apply_notes_palette(self):
+        pal = QPalette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        self.notes_edit.setPalette(pal)
+
+    def refresh_theme(self):
+        """Re-apply theme-dependent palettes after a global theme switch.
+        Called from MainWindow._apply_theme()."""
+        self._apply_editor_palette()
+        self._apply_notes_palette()
 
     # ── Bookmarks ──────────────────────────────────────────────────────────────
     def _refresh_bookmarks(self):
@@ -611,19 +652,23 @@ class ModelsTab(QWidget):
         t0 = time.time()
         self._all_models = models; self._table_model.load(models)
         self.table.setRowCount(len(models)); self.table.setSortingEnabled(False)
-        for row, m in enumerate(models):
-            for col in range(len(COLS)):
-                idx = self._table_model.index(row, col)
-                txt = self._table_model.data(idx, Qt.ItemDataRole.DisplayRole) or ''
-                fg  = self._table_model.data(idx, Qt.ItemDataRole.ForegroundRole)
-                tip = self._table_model.data(idx, Qt.ItemDataRole.ToolTipRole)
-                item = QTableWidgetItem(txt)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter |
-                    (Qt.AlignmentFlag.AlignRight if col >= COL_OFV else Qt.AlignmentFlag.AlignLeft))
-                if fg:  item.setForeground(fg)
-                if tip: item.setToolTip(tip)
-                if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
-                self.table.setItem(row, col, item)
+        self.table.setUpdatesEnabled(False)
+        try:
+            for row, m in enumerate(models):
+                for col in range(len(COLS)):
+                    idx = self._table_model.index(row, col)
+                    txt = self._table_model.data(idx, Qt.ItemDataRole.DisplayRole) or ''
+                    fg  = self._table_model.data(idx, Qt.ItemDataRole.ForegroundRole)
+                    tip = self._table_model.data(idx, Qt.ItemDataRole.ToolTipRole)
+                    item = QTableWidgetItem(txt)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter |
+                        (Qt.AlignmentFlag.AlignRight if col >= COL_OFV else Qt.AlignmentFlag.AlignLeft))
+                    if fg:  item.setForeground(fg)
+                    if tip: item.setToolTip(tip)
+                    if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
+                    self.table.setItem(row, col, item)
+        finally:
+            self.table.setUpdatesEnabled(True)
         self.table.setSortingEnabled(True); self.table.resizeColumnsToContents()
         hh = self.table.horizontalHeader()
         for c in range(len(COLS)):
@@ -704,19 +749,23 @@ class ModelsTab(QWidget):
         # Repopulate table
         self._table_model.load(filtered)
         self.table.setRowCount(len(filtered)); self.table.setSortingEnabled(False)
-        for row, m in enumerate(filtered):
-            for col in range(len(COLS)):
-                idx = self._table_model.index(row, col)
-                txt = self._table_model.data(idx, Qt.ItemDataRole.DisplayRole) or ''
-                fg  = self._table_model.data(idx, Qt.ItemDataRole.ForegroundRole)
-                tip = self._table_model.data(idx, Qt.ItemDataRole.ToolTipRole)
-                item = QTableWidgetItem(txt)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter |
-                    (Qt.AlignmentFlag.AlignRight if col >= COL_OFV else Qt.AlignmentFlag.AlignLeft))
-                if fg:  item.setForeground(fg)
-                if tip: item.setToolTip(tip)
-                if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
-                self.table.setItem(row, col, item)
+        self.table.setUpdatesEnabled(False)
+        try:
+            for row, m in enumerate(filtered):
+                for col in range(len(COLS)):
+                    idx = self._table_model.index(row, col)
+                    txt = self._table_model.data(idx, Qt.ItemDataRole.DisplayRole) or ''
+                    fg  = self._table_model.data(idx, Qt.ItemDataRole.ForegroundRole)
+                    tip = self._table_model.data(idx, Qt.ItemDataRole.ToolTipRole)
+                    item = QTableWidgetItem(txt)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignVCenter |
+                        (Qt.AlignmentFlag.AlignRight if col >= COL_OFV else Qt.AlignmentFlag.AlignLeft))
+                    if fg:  item.setForeground(fg)
+                    if tip: item.setToolTip(tip)
+                    if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
+                    self.table.setItem(row, col, item)
+        finally:
+            self.table.setUpdatesEnabled(True)
         self.table.setSortingEnabled(True)
 
         # Update status bar
@@ -1346,4 +1395,18 @@ class ModelsTab(QWidget):
         elif row < n_live + n_det:
             desc = self._detached_runs[row - n_live]
             dlg = WatchLogPopup(desc, parent=None)
+            self._watch_popups.append(dlg)
+            dlg.destroyed.connect(
+                lambda _, d=dlg: self._watch_popups.remove(d) if d in self._watch_popups else None)
             dlg.show(); dlg.raise_(); dlg.activateWindow()
+
+    def refresh_open_popup_themes(self):
+        """Re-apply theme to any open RunPopup / WatchLogPopup dialogs.
+        Called from MainWindow._apply_theme().  Each popup's _apply_theme()
+        is wrapped to tolerate already-deleted C++ objects."""
+        for popup in list(self._run_popups) + list(self._watch_popups):
+            try:
+                popup._apply_theme()
+            except RuntimeError:
+                # Wrapped C++ object deleted (popup destroyed mid-iteration)
+                pass

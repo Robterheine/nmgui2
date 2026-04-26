@@ -150,12 +150,6 @@ def check_dataset(mod_path, data_file_str: str) -> DatasetReport:
         if len(parts) != n_cols:
             bad_width += 1
             continue
-        # Convert to float where possible, keep None for non-numeric
-        def _f(i):
-            try:
-                return float(parts[i].replace(',', '.').replace('D', 'E').replace('d', 'e'))
-            except Exception:
-                return None
         rows.append(parts)
         if len(rows) >= MAX_ROWS:
             truncated = True
