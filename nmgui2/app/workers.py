@@ -7,6 +7,10 @@ from .tools import get_login_env
 
 _log = logging.getLogger(__name__)
 
+_RE_PROB   = re.compile(r'\$PROB(?:LEM)?\s+(.*?)(?:\n|\$)', re.IGNORECASE)
+_RE_DATA   = re.compile(r'\$DATA\s+(\S+)', re.IGNORECASE)
+_RE_BASEDON = re.compile(r'^;;\s*1\.\s*Based on:\s*(\S+)', re.MULTILINE | re.IGNORECASE)
+
 try:
     from ..parser import (
         parse_lst, extract_param_names, extract_table_files,
@@ -75,9 +79,9 @@ class ScanWorker(QThread):
                 data_mtime = None
                 try:
                     content = f.read_text('utf-8', errors='replace')
-                    prob = re.search(r'\$PROB(?:LEM)?\s+(.*?)(?:\n|\$)', content, re.IGNORECASE)
+                    prob = _RE_PROB.search(content)
                     if prob: m['problem'] = prob.group(1).strip()[:120]
-                    dat = re.search(r'\$DATA\s+(\S+)', content, re.IGNORECASE)
+                    dat = _RE_DATA.search(content)
                     if dat:
                         m['data_file'] = dat.group(1)
                         dp = p / m['data_file']
@@ -93,7 +97,7 @@ class ScanWorker(QThread):
                               'theta_fixed', 'omega_fixed', 'sigma_fixed'):
                         m[k] = pn.get(k, [])
                     # Parse parent model from PsN convention: ";; 1. Based on: runXX"
-                    based_m = re.search(r'^;;\s*1\.\s*Based on:\s*(\S+)', content, re.MULTILINE | re.IGNORECASE)
+                    based_m = _RE_BASEDON.search(content)
                     if based_m:
                         m['based_on'] = based_m.group(1).strip()
                     tf = extract_table_files(content)
