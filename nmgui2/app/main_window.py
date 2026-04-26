@@ -380,6 +380,10 @@ class MainWindow(QMainWindow):
         for w in (self.models_tab,):
             if hasattr(w, 'refresh_theme'):
                 w.refresh_theme()
+        # Top-level run-popup / watch-log dialogs are not in the widget hierarchy;
+        # ModelsTab tracks them and exposes a refresh helper.
+        if hasattr(self.models_tab, 'refresh_open_popup_themes'):
+            self.models_tab.refresh_open_popup_themes()
         if self.tree_tab._models:
             self.tree_tab._rebuild()
         from ..widgets.collapsible import CollapsibleCard

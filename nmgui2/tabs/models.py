@@ -225,6 +225,7 @@ class ModelsTab(QWidget):
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
         self._run_popups: list[RunPopup] = []
+        self._watch_popups: list[WatchLogPopup] = []   # WatchLogPopup tracker for theme refresh
         self._detached_runs: list[dict] = []   # live detached run descriptors
         self._run_records_cache: list = []     # per-folder history from nmgui_run_records.json
         self._last_detach_check = 0.0          # epoch of last is_alive check
@@ -1394,4 +1395,18 @@ class ModelsTab(QWidget):
         elif row < n_live + n_det:
             desc = self._detached_runs[row - n_live]
             dlg = WatchLogPopup(desc, parent=None)
+            self._watch_popups.append(dlg)
+            dlg.destroyed.connect(
+                lambda _, d=dlg: self._watch_popups.remove(d) if d in self._watch_popups else None)
             dlg.show(); dlg.raise_(); dlg.activateWindow()
+
+    def refresh_open_popup_themes(self):
+        """Re-apply theme to any open RunPopup / WatchLogPopup dialogs.
+        Called from MainWindow._apply_theme().  Each popup's _apply_theme()
+        is wrapped to tolerate already-deleted C++ objects."""
+        for popup in list(self._run_popups) + list(self._watch_popups):
+            try:
+                popup._apply_theme()
+            except RuntimeError:
+                # Wrapped C++ object deleted (popup destroyed mid-iteration)
+                pass
