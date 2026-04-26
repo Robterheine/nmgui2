@@ -362,7 +362,7 @@ class ModelsTab(QWidget):
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
         self.editor = QPlainTextEdit()
         self.editor.setFont(monospace_font(11))
-        _ep = QPalette(); _ep.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _ep.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.editor.setPalette(_ep)
+        self._apply_editor_palette()
         self._hl = NMHighlighter(self.editor.document())
         ed_v.addLayout(ed_top); ed_v.addWidget(self.editor)
         self._detail_stack.addWidget(ed_w)
@@ -507,7 +507,7 @@ class ModelsTab(QWidget):
         self.notes_edit = QTextEdit()
         self.notes_edit.setPlaceholderText('Rationale, decisions…')
         self.notes_edit.setFixedHeight(120)
-        _np = QPalette(); _np.setColor(QPalette.ColorRole.Base, QColor(T('bg2'))); _np.setColor(QPalette.ColorRole.Text, QColor(T('fg'))); self.notes_edit.setPalette(_np)
+        self._apply_notes_palette()
         orig_focusOut = self.notes_edit.focusOutEvent
         self.notes_edit.focusOutEvent = lambda e: (self._save_meta_fields(), orig_focusOut(e))
         self._card_notes.add_widget(self.notes_edit)
@@ -535,6 +535,25 @@ class ModelsTab(QWidget):
         self._detail_stack.setCurrentIndex(index)
         for i, btn in enumerate(self._detail_btns):
             btn.setChecked(i == index)
+
+    # ── Theme ─────────────────────────────────────────────────────────────────
+    def _apply_editor_palette(self):
+        pal = QPalette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        self.editor.setPalette(pal)
+
+    def _apply_notes_palette(self):
+        pal = QPalette()
+        pal.setColor(QPalette.ColorRole.Base, QColor(T('bg2')))
+        pal.setColor(QPalette.ColorRole.Text, QColor(T('fg')))
+        self.notes_edit.setPalette(pal)
+
+    def refresh_theme(self):
+        """Re-apply theme-dependent palettes after a global theme switch.
+        Called from MainWindow._apply_theme()."""
+        self._apply_editor_palette()
+        self._apply_notes_palette()
 
     # ── Bookmarks ──────────────────────────────────────────────────────────────
     def _refresh_bookmarks(self):

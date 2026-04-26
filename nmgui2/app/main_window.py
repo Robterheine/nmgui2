@@ -376,6 +376,10 @@ class MainWindow(QMainWindow):
         ):
             if hasattr(w, 'set_theme'):
                 w.set_theme(bg, fg)
+        # Theme-dependent palettes/widgets that don't take (bg, fg) signature
+        for w in (self.models_tab,):
+            if hasattr(w, 'refresh_theme'):
+                w.refresh_theme()
         if self.tree_tab._models:
             self.tree_tab._rebuild()
         from ..widgets.collapsible import CollapsibleCard
