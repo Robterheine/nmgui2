@@ -140,6 +140,11 @@ class DataExplorerWidget(QWidget):
         self.info_lbl = QLabel('Load a file from the browser')
         self.info_lbl.setObjectName('mutedSmall')
         tl.addWidget(self.info_lbl, 1)
+        # When embedded inside FileExplorerTab the parent toolbar already owns
+        # Table/Plot switching — hide the redundant pills here.
+        if not show_browser:
+            for btn in self._de_btns:
+                btn.setVisible(False)
         rv.addWidget(toolbar)
 
         de_sep = QWidget(); de_sep.setFixedHeight(1); de_sep.setObjectName('hairlineSep')
@@ -231,7 +236,8 @@ class DataExplorerWidget(QWidget):
         self.sub_tabs.addWidget(plot_w)
         rv.addWidget(self.sub_tabs, 1)
         root.addWidget(right, 1)
-        self._de_switch(0)  # start on Table view
+        # Embedded mode (no browser): always start in Plot — Table is the parent's QTableView.
+        self._de_switch(1 if not show_browser else 0)
 
     def _de_switch(self, index):
         self.sub_tabs.setCurrentIndex(index)

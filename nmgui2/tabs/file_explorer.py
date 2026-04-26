@@ -448,6 +448,7 @@ class FileExplorerTab(QWidget):
         self._edit_btn.setVisible(False)
         self._save_btn.setVisible(False)
         self._discard_btn.setVisible(False)
+        self.data_explorer._de_switch(1)  # always land on the plot sub-page
 
     # ── Public API ────────────────────────────────────────────────────────────
 
