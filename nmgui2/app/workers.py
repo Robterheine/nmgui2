@@ -46,6 +46,7 @@ class ScanWorker(QThread):
         try:
             models = []
             p = Path(self.directory)
+            _ds_cache: dict = {}
             for f in sorted(p.iterdir()):
                 # Check for cancellation
                 if self._cancelled:
@@ -88,7 +89,10 @@ class ScanWorker(QThread):
                         if dp.is_file(): data_mtime = dp.stat().st_mtime
                     if HAS_DS_CHECK and m['data_file']:
                         try:
-                            m['dataset_report'] = check_dataset(str(f), m['data_file'])
+                            data_key = m['data_file']
+                            if data_key not in _ds_cache:
+                                _ds_cache[data_key] = check_dataset(str(f), data_key)
+                            m['dataset_report'] = _ds_cache[data_key]
                         except Exception:
                             pass
                     pn = extract_param_names(content)
