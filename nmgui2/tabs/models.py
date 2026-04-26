@@ -611,6 +611,7 @@ class ModelsTab(QWidget):
         t0 = time.time()
         self._all_models = models; self._table_model.load(models)
         self.table.setRowCount(len(models)); self.table.setSortingEnabled(False)
+        self.table.setUpdatesEnabled(False)
         for row, m in enumerate(models):
             for col in range(len(COLS)):
                 idx = self._table_model.index(row, col)
@@ -624,6 +625,7 @@ class ModelsTab(QWidget):
                 if tip: item.setToolTip(tip)
                 if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
                 self.table.setItem(row, col, item)
+        self.table.setUpdatesEnabled(True)
         self.table.setSortingEnabled(True); self.table.resizeColumnsToContents()
         hh = self.table.horizontalHeader()
         for c in range(len(COLS)):
@@ -704,6 +706,7 @@ class ModelsTab(QWidget):
         # Repopulate table
         self._table_model.load(filtered)
         self.table.setRowCount(len(filtered)); self.table.setSortingEnabled(False)
+        self.table.setUpdatesEnabled(False)
         for row, m in enumerate(filtered):
             for col in range(len(COLS)):
                 idx = self._table_model.index(row, col)
@@ -717,6 +720,7 @@ class ModelsTab(QWidget):
                 if tip: item.setToolTip(tip)
                 if col == 0: item.setData(Qt.ItemDataRole.UserRole, row)
                 self.table.setItem(row, col, item)
+        self.table.setUpdatesEnabled(True)
         self.table.setSortingEnabled(True)
 
         # Update status bar
