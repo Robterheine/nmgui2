@@ -96,13 +96,65 @@ def _read_nonmem_table(path: Path):
     return headers, rows
 
 
+def _merge_csv_sections(rows: list, delim: str):
+    """Merge a multi-section CSV into one flat table.
+
+    Algorithm
+    ---------
+    1. Find the dominant column count (max across all rows).
+    2. The first row with that count becomes the canonical header.
+    3. Iterate the rows that follow:
+       - Rows matching the canonical header exactly → repeated section
+         header; flush any pending section title as a label row then skip.
+       - Rows with the dominant column count → data rows.
+       - Rows with far fewer columns → section-title text; held as
+         ``pending_title`` until the next data row consumes it.
+       - All other rows are ignored.
+
+    Returns ``(header, data_rows, delim)``, or ``(None, None, delim)`` if
+    no usable data could be extracted.
+    """
+    max_cols = max(len(r) for r in rows)
+    header_idx = next((i for i, r in enumerate(rows) if len(r) == max_cols), None)
+    if header_idx is None:
+        return None, None, delim
+    header = rows[header_idx]
+
+    data_rows: list = []
+    pending_title: str | None = None
+
+    for i, r in enumerate(rows):
+        if i <= header_idx:
+            continue                         # skip info rows before main header
+        ncols = len(r)
+        if ncols == max_cols:
+            if r == header:                  # repeated section header
+                if pending_title:
+                    data_rows.append([f'── {pending_title} ──'] + [''] * (max_cols - 1))
+                    pending_title = None
+            else:                            # data row
+                if pending_title:
+                    data_rows.append([f'── {pending_title} ──'] + [''] * (max_cols - 1))
+                    pending_title = None
+                data_rows.append(r)
+        elif ncols < max_cols / 2:           # section-title row
+            title = ' '.join(c.strip() for c in r if c.strip())
+            if title:
+                pending_title = title
+        # rows with an intermediate column count are silently skipped
+
+    return (header, data_rows, delim) if data_rows else (None, None, delim)
+
+
 def _read_csv_file(path: Path):
     """Read CSV with auto-detected delimiter.
 
-    Returns (headers, rows, delimiter) on success, or
-    (None, None, delimiter) when the file has an irregular multi-section
-    structure (e.g. PsN summary reports) — the caller should fall back to
-    the plain-text viewer in that case.
+    For simple flat files returns ``(headers, rows, delimiter)``.
+    For multi-section PsN-style reports (section titles interspersed with
+    repeated header rows) the sections are merged via
+    :func:`_merge_csv_sections` so the file still opens as a proper table.
+    Falls back to ``(None, None, delimiter)`` only when no usable table can
+    be extracted at all — the caller should then display the file as text.
     """
     content = path.read_text('utf-8', errors='replace')
     sniffer = csv.Sniffer()
@@ -118,13 +170,12 @@ def _read_csv_file(path: Path):
     if not rows:
         return [], [], delim
 
-    # Detect multi-section / irregular files: if the first row (used as
-    # header) has far fewer columns than the rows that follow, the file is a
-    # section-report format and cannot be displayed as a single flat table.
+    # Detect multi-section structure: the first row has far fewer columns
+    # than the dominant data rows → merge all sections into one flat table.
     if len(rows) > 1:
         sample_max = max(len(r) for r in rows[1:min(8, len(rows))])
         if sample_max > 0 and len(rows[0]) < sample_max / 2:
-            return None, None, delim   # signal: fall back to text view
+            return _merge_csv_sections(rows, delim)
 
     return rows[0], rows[1:], delim
 
