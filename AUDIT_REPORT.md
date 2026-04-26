@@ -351,9 +351,62 @@ See `STRUCTURAL_FLAGS.md`.
 
 | ID | Status | Commit |
 |---|---|---|
-| R1-A-001 | PENDING | — |
-| R1-A-002 | PENDING | — |
-| R1-A-003 | PENDING | — |
-| R1-C-001 | PENDING | — |
-| R1-C-002 | PENDING | — |
-| R1-B-001 | PENDING | — |
+| R1-A-001 | FIXED | c87fcca |
+| R1-A-002 | FIXED | 14a2bc7 |
+| R1-A-003 | FIXED | bfac76a |
+| R1-C-001 | FIXED | 706b2a9 |
+| R1-C-002 | FIXED | 5163177 |
+| R1-B-001 | FIXED | e242213 |
+
+---
+
+## Round 5 — Post-fix verification
+
+Independent re-read of all diffs (`git diff audit-r1-start..audit-r4-complete`).
+
+### dataset_check.py (c87fcca)
+- Deleted 6 lines: comment + `def _f(i)` block. Nothing else changed.
+- `col_vals()` handles all float conversion; no callers of `_f` exist anywhere.
+- **Public API:** unchanged. **Behaviour:** unchanged. **Cross-OS:** pure Python. ✓
+
+### workers.py — import re (14a2bc7)
+- `re` added to line-1 stdlib imports; `import re` removed from inside `run()`.
+- Python module semantics identical: `re` is now always available at module level.
+- **Public API:** unchanged. **Behaviour:** unchanged. **Cross-OS:** portable. ✓
+
+### workers.py — regex constants (bfac76a)
+- Three `_RE_*` module-level compiled patterns replace inline `re.search(pat, ...)` calls.
+- Flags and pattern strings are byte-for-byte identical.
+- **Public API:** unchanged. **Behaviour:** unchanged. **Cross-OS:** ASCII patterns. ✓
+
+### detached_runs.py (706b2a9)
+- `_boot_time()` now caches via two module globals. Return value type/range unchanged.
+- On macOS/Windows: `/proc/stat` absent → except block → `_BOOT_TIME=None`, `_BOOT_TIME_FETCHED=True`; subsequent calls return None immediately. Behaviour identical to before.
+- On Linux: first call reads `/proc/stat`, subsequent calls return cached float.
+- `is_alive()` callers unaffected; `_boot_time()` is private (underscore prefix).
+- **Public API:** unchanged. **Behaviour:** unchanged. **Cross-OS:** ✓ all three platforms.
+
+### workers.py — dataset cache (5163177)
+- `_ds_cache: dict = {}` scoped to `run()` — not a module-level variable, so it's
+  created fresh for each scan. No stale-data risk across scans or directories.
+- Cache key is `m['data_file']` (the raw string from `$DATA`). All models in the
+  same directory have the same `mod_dir`, so the resolved dataset path is identical
+  for the same key string. Correct.
+- First call uses `str(f)` (current .mod path) as `mod_path`; dataset resolution
+  `mod_dir / data_file_str` produces the same path for all models in `p`. ✓
+- **Public API:** unchanged. **Behaviour:** identical dataset reports. **Cross-OS:** ✓
+
+### models.py (e242213)
+- `setUpdatesEnabled(False)` added before the `setItem` loop; `setUpdatesEnabled(True)`
+  added after, in both `_on_scan()` and `_apply_filter()`.
+- Qt guarantees: disabling updates suppresses intermediate paints; a full repaint
+  fires when updates are re-enabled. Table content is identical.
+- No change to sort state, column widths, signal connections, or public methods.
+- **Public API:** unchanged. **Behaviour:** same data, no flicker. **Cross-OS:** ✓
+
+### Summary
+All 6 commits: no public API changes, no behaviour changes, no new exceptions,
+no new log messages at INFO+, no stylesheet/format/shortcut changes.
+`python3 -m py_compile` passes for all four changed modules.
+
+**Round 5 sign-off: PASS**
