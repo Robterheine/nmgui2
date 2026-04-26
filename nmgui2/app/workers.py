@@ -176,7 +176,9 @@ class RunWorker(QThread):
         self._send_signal(signal.SIGKILL if not IS_WIN else None, force=True)
 
     def _send_signal(self, sig, force):
-        if not self._proc:
+        # Belt-and-suspenders: stop() is connected to a button only enabled after
+        # run() has assigned self._proc, but guard explicitly in case of teardown.
+        if not self.isRunning() or not self._proc:
             return
         try:
             if IS_WIN:
