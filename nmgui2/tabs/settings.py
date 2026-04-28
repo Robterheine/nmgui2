@@ -52,8 +52,8 @@ class SettingsTab(QWidget):
         self.bm_list = QListWidget(); self.bm_list.setMaximumHeight(180)
         for b in load_bookmarks():
             self.bm_list.addItem(f"{b.get('name', '')}  —  {b.get('path', '')}")
-        rem_btn = QPushButton('Remove selected bookmark')
-        rem_btn.setObjectName('danger'); rem_btn.setFixedWidth(200)
+        rem_btn = QPushButton('Remove selected')
+        rem_btn.setObjectName('danger'); rem_btn.setMinimumWidth(120)
         rem_btn.clicked.connect(self._remove_bm)
         bv.addWidget(self.bm_list)
         rem_row = QHBoxLayout(); rem_row.addWidget(rem_btn); rem_row.addStretch()
@@ -63,7 +63,7 @@ class SettingsTab(QWidget):
         # ── Save ─────────────────────────────────────────────────────────────
         save_row = QHBoxLayout()
         save_btn = QPushButton('Save settings'); save_btn.setObjectName('primary')
-        save_btn.setFixedWidth(140); save_btn.clicked.connect(self._save)
+        save_btn.setMinimumWidth(120); save_btn.clicked.connect(self._save)
         save_row.addWidget(save_btn); save_row.addStretch()
         v.addLayout(save_row)
         v.addStretch()

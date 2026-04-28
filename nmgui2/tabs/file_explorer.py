@@ -465,7 +465,7 @@ class FileExplorerTab(QWidget):
 
         self._discard_btn = QPushButton('Discard')
         self._discard_btn.setFixedHeight(22)
-        self._discard_btn.setFixedWidth(56)
+        self._discard_btn.setMinimumWidth(66)
         self._discard_btn.setVisible(False)
         self._discard_btn.clicked.connect(self._discard_edits)
         tl.addWidget(self._discard_btn)
