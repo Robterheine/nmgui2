@@ -31,7 +31,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
+    QLineEdit, QMenu, QMessageBox, QPlainTextEdit, QPushButton, QSplitter,
     QStackedWidget, QTableWidget, QTableWidgetItem, QTableView,
     QVBoxLayout, QWidget,
 )
@@ -399,6 +399,8 @@ class FileExplorerTab(QWidget):
         self._file_table.verticalHeader().setDefaultSectionSize(24)
         self._file_table.itemSelectionChanged.connect(self._on_file_selected)
         self._file_table.cellDoubleClicked.connect(self._on_double_click)
+        self._file_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._file_table.customContextMenuRequested.connect(self._on_file_context_menu)
 
         v.addWidget(self._file_table)
         return w
@@ -726,6 +728,75 @@ class FileExplorerTab(QWidget):
 
         self._file_table.setSortingEnabled(True)
         self._update_breadcrumb()
+
+    # ── Context menu ──────────────────────────────────────────────────────────
+
+    def _on_file_context_menu(self, pos):
+        """Show a context menu for right-clicked file rows."""
+        row = self._file_table.rowAt(pos.y())   # right-click row, not current selection
+        if row < 0:
+            return
+        item = self._file_table.item(row, 0)
+        if not item or item.data(_ROLE_IS_DIR):
+            return
+        path: Path = item.data(_ROLE_PATH)
+        if path is None:
+            return
+
+        # Currently only .tab files have a context action
+        if path.suffix.lower() != '.tab':
+            return
+
+        menu = QMenu(self)
+        convert_act = menu.addAction('Convert to CSV')
+        action = menu.exec(self._file_table.viewport().mapToGlobal(pos))
+        if action == convert_act:
+            self._convert_tab_to_csv(path)
+
+    def _convert_tab_to_csv(self, path: Path):
+        """Convert a NONMEM TABLE file to CSV, then reload the file list."""
+        csv_path = path.with_suffix('.csv')
+
+        if csv_path.exists():
+            QMessageBox.warning(
+                self, 'File already exists',
+                f'<b>{csv_path.name}</b> already exists in this folder.<br>'
+                f'Remove or rename it before converting.',
+            )
+            return
+
+        try:
+            headers, rows = _read_nonmem_table(path)
+        except Exception as e:
+            QMessageBox.critical(self, 'Read error', f'Could not read {path.name}:\n{e}')
+            return
+
+        if not headers:
+            QMessageBox.warning(
+                self, 'Conversion failed',
+                f'No table data could be parsed from {path.name}.\n'
+                f'The file may be empty or in an unexpected format.',
+            )
+            return
+
+        try:
+            with csv_path.open('w', newline='', encoding='utf-8') as fh:
+                writer = csv.writer(fh)
+                writer.writerow(headers)
+                writer.writerows(rows)
+        except Exception as e:
+            QMessageBox.critical(self, 'Write error', f'Could not write {csv_path.name}:\n{e}')
+            return
+
+        self.status_msg.emit(f'Converted {path.name}  →  {csv_path.name}')
+        self._rebuild_file_list()
+
+        # Re-select the newly created CSV without triggering a second rebuild
+        for r in range(self._file_table.rowCount()):
+            it = self._file_table.item(r, 0)
+            if it and it.data(_ROLE_PATH) == csv_path:
+                self._file_table.setCurrentCell(r, 0)
+                break
 
     # ── File selection / double-click ─────────────────────────────────────────
 
