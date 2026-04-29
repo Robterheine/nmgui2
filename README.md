@@ -637,6 +637,23 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.2 — Files tab improvements
+
+Focused on the Files tab: new file-type handling, usability fixes, and a conversion utility.
+
+**New functionality**
+
+- **Convert .tab to CSV** — right-click any `.tab` file in the file browser and choose *Convert to CSV*. A new `.csv` file is created in the same folder using comma-separated format. If the target file already exists a warning is shown and nothing is overwritten. The file list reloads automatically and the new CSV is selected.
+- **NONMEM output files open as tables** — `.ext`, `.cov`, `.cor`, `.phi`, `.cnv`, `.coi` are now parsed by the NONMEM TABLE reader and open in the Table / Plot viewer, exactly like `.tab` files. Filter-bar pills for `.cnv` and `.coi` added.
+- **Multi-section CSV files display correctly** — PsN summary reports such as `sir_results.csv` (multiple sections with repeated headers) are now merged into a single flat table with section-label rows (e.g. *── Quantiles (R type=2) ──*) instead of showing a broken single-column table.
+- **Binary files show a friendly placeholder** — clicking a `.pdf`, `.png`, `.docx`, `.zip` or similar file now shows *"No preview available — double-click to open with the system application"* instead of garbled content.
+
+**Usability fixes**
+
+- **Resizable file-browser columns** — all three columns (Name, Size, Modified) are now freely draggable. Default widths: Name 220 px, Size 72 px, Modified 130 px.
+- **Duplicate Table/Plot pills removed** — when a table file was open in Plot mode, two identical Table/Plot pill rows appeared. The inner row (from `DataExplorerWidget`) is now hidden when the widget is embedded in the Files tab.
+- **Button text clipping on Linux** — `setFixedWidth` on the *Remove selected* and *Save settings* buttons in the Settings tab, and *Discard* in the Files toolbar, replaced with `setMinimumWidth` so text is never clipped on Linux.
+
 ### v2.9.1 — bug fixes and performance
 
 A bug-fix release from a multi-lens code audit. No new features, no UI changes. Every fix was independently reviewed before merge.
