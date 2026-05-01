@@ -120,10 +120,10 @@ def _check_r_packages():
         rv = subprocess.run(
             [rscript, '-e',
              'pkgs<-rownames(installed.packages());'
-             'cat(paste(c("vpc","xpose")[c("vpc","xpose")%in%pkgs],collapse=","))'],
+             'cat(paste(c("vpc","xpose","xpose4")[c("vpc","xpose","xpose4")%in%pkgs],collapse=","))'],
             capture_output=True, text=True, timeout=15, env=get_login_env(), **_wkw)
         installed = [p.strip() for p in rv.stdout.strip().split(',') if p.strip()]
-        avail = {p: p in installed for p in ('vpc', 'xpose')}
+        avail = {p: p in installed for p in ('vpc', 'xpose', 'xpose4')}
         return True, avail
     except Exception:
         return False, {}

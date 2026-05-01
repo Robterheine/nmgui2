@@ -20,12 +20,13 @@ class VPCWorker(QThread):
     line_out  = pyqtSignal(str)
     finished  = pyqtSignal(bool, str)   # success, image_path_or_error
 
-    def __init__(self, script_path, output_png, rscript, env):
+    def __init__(self, script_path, output_png, rscript, env, timeout_sec=1800):
         super().__init__()
-        self._script = script_path
-        self._png    = output_png
-        self._rs     = rscript
-        self._env    = env
+        self._script  = script_path
+        self._png     = output_png
+        self._rs      = rscript
+        self._env     = env
+        self._timeout = timeout_sec
 
     def run(self):
         try:
@@ -40,10 +41,10 @@ class VPCWorker(QThread):
                 self.line_out.emit(line.rstrip())
                 stdout_lines.append(line)
             try:
-                proc.wait(timeout=300)  # 5 minute hard timeout
+                proc.wait(timeout=self._timeout)
             except subprocess.TimeoutExpired:
                 proc.kill(); proc.wait()
-                self.finished.emit(False, 'R script timed out after 5 minutes')
+                self.finished.emit(False, f'R script timed out after {self._timeout // 60} minutes')
                 return
             stdout_all = ''.join(stdout_lines)
             png_ok = Path(self._png).is_file() and Path(self._png).stat().st_size > 1000
@@ -132,6 +133,10 @@ class VPCTab(QWidget):
         self.stratify_edit = QLineEdit()
         self.stratify_edit.setPlaceholderText('Stratify by column (optional)')
         self.stratify_edit.setFixedWidth(180)
+        self.stratify_edit.setToolTip(
+            'Column name(s) to stratify on, comma-separated (e.g. SEX, or DOSE).\n'
+            'Leave blank if you already used -stratify_on in PsN — '
+            'combining both produces incorrect plots.')
 
         self.pi_lo = _spin(0,   0.5, 0.05, 0.025, 3)
         self.pi_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
@@ -139,7 +144,15 @@ class VPCTab(QWidget):
         self.ci_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
         self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)')
         self.lloq_edit.setFixedWidth(100)
+        self.uloq_edit = QLineEdit(); self.uloq_edit.setPlaceholderText('ULOQ (optional)')
+        self.uloq_edit.setFixedWidth(100)
         self.nbins_sb  = _spin(3, 50, 10, 1, 0, w=70)
+        self.timeout_sb = QSpinBox()
+        self.timeout_sb.setRange(1, 120); self.timeout_sb.setValue(30)
+        self.timeout_sb.setSuffix(' min'); self.timeout_sb.setFixedWidth(80)
+        self.timeout_sb.setToolTip(
+            'Maximum time to wait for the R script.\n'
+            'VPCs with 1000+ simulations may need 15–30+ minutes.')
 
         def _hrow(*widgets, spacing=10):
             h = QHBoxLayout(); h.setContentsMargins(0,0,0,0); h.setSpacing(spacing)
@@ -178,10 +191,12 @@ class VPCTab(QWidget):
             QLabel('PI:'), self.pi_lo, dash1, self.pi_hi, 20,
             QLabel('CI:'), self.ci_lo, dash2, self.ci_hi, None))
 
-        # Row 5 — LLOQ / Bins
+        # Row 5 — LLOQ / ULOQ / Bins / Timeout
         sg.addLayout(_hrow(
-            _lbl('LLOQ:'), self.lloq_edit, 20,
-            QLabel('Bins:'), self.nbins_sb, None))
+            _lbl('LLOQ:'), self.lloq_edit, 10,
+            QLabel('ULOQ:'), self.uloq_edit, 20,
+            QLabel('Bins:'), self.nbins_sb, 20,
+            QLabel('Timeout:'), self.timeout_sb, None))
 
         v.addWidget(settings_grp)
 
@@ -316,13 +331,18 @@ class VPCTab(QWidget):
             return
         parts = []
         for p in ('vpc', 'xpose'):
-            parts.append(f'{p} ✓' if pkgs.get(p) else f'{p} ✗')
+            if pkgs.get(p):
+                parts.append(f'{p} ✓')
+            elif p == 'xpose' and pkgs.get('xpose4'):
+                parts.append('xpose ✗ (xpose4 found — run install.packages("xpose"))')
+            else:
+                parts.append(f'{p} ✗')
         self.r_status_lbl.setText('R: ' + '  '.join(parts))
 
     def _on_psn_inherit_change(self, _state=None):
         """Enable/disable manual-override widgets based on 'Use PsN settings' checkbox."""
         override = not self.use_psn_cb.isChecked()
-        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.nbins_sb):
+        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.uloq_edit, self.nbins_sb):
             w.setEnabled(override)
 
     def _browse_vpc(self):
@@ -366,9 +386,23 @@ class VPCTab(QWidget):
         m1_dir = vpc_path / 'm1'
         m1_zip = vpc_path / 'm1.zip'
 
-        # Already extracted (m1/ exists and has at least one entry)
+        # m1/ exists and has content — check for a newer m1.zip (PsN re-run)
         if m1_dir.is_dir() and any(m1_dir.iterdir()):
-            return True, ''
+            if m1_zip.is_file():
+                try:
+                    newest_m1 = max(p.stat().st_mtime for p in m1_dir.rglob('*') if p.is_file())
+                    if m1_zip.stat().st_mtime > newest_m1:
+                        self.console.appendPlainText(
+                            'm1.zip is newer than extracted m1/ — re-extracting…')
+                        import shutil
+                        shutil.rmtree(m1_dir, ignore_errors=True)
+                        # Fall through to extract below
+                    else:
+                        return True, ''
+                except Exception:
+                    return True, ''   # Can't compare — leave as-is
+            else:
+                return True, ''
 
         # No zip and no folder — leave it; downstream will report a clearer
         # error if simulation tables turn out to be needed
@@ -485,9 +519,11 @@ class VPCTab(QWidget):
             args = {'psn_folder': f'"{r_vpc}"'}
             if not use_psn:
                 lloq_raw = self.lloq_edit.text().strip()
+                uloq_raw = self.uloq_edit.text().strip()
                 strat    = self.stratify_edit.text().strip()
                 args['pred_corr'] = 'TRUE' if self.pred_corr_cb.isChecked() else 'FALSE'
                 args['lloq']      = lloq_raw if lloq_raw else 'NULL'
+                args['uloq']      = uloq_raw if uloq_raw else 'NULL'
                 args['bins']      = '"jenks"'
                 args['n_bins']    = int(self.nbins_sb.value())
                 if strat:
@@ -501,6 +537,7 @@ class VPCTab(QWidget):
             args_str  = ',\n    '.join(f'{k} = {v}' for k, v in args.items())
             log_extra = '\n  vpc_plot <- vpc_plot + ggplot2::scale_y_log10()' if log_y else ''
             script = f'''# NMGUI VPC — tool: vpc (Ron Keizer)
+Sys.setlocale("LC_NUMERIC", "C")
 library(vpc)
 library(ggplot2)
 
@@ -528,9 +565,11 @@ tryCatch({{
                 vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE)'
             else:
                 lloq_raw = self.lloq_edit.text().strip()
+                uloq_raw = self.uloq_edit.text().strip()
                 strat    = self.stratify_edit.text().strip()
                 opt_parts = [f'bins="jenks"', f'n_bins={int(self.nbins_sb.value())}']
                 if lloq_raw: opt_parts.append(f'lloq={lloq_raw}')
+                if uloq_raw: opt_parts.append(f'uloq={uloq_raw}')
                 if self.pred_corr_cb.isChecked(): opt_parts.append('pred_corr=TRUE')
                 vpc_data_args = [f'opt=vpc_opt({",".join(opt_parts)})',
                                  f'psn_folder="{r_vpc}"']
@@ -542,6 +581,7 @@ tryCatch({{
                 vpc_data_call = f'vpc_data({", ".join(vpc_data_args)})'
             vpc_call = 'vpc() + ggplot2::scale_y_log10()' if log_y else 'vpc()'
             script = f'''# NMGUI VPC — tool: xpose
+Sys.setlocale("LC_NUMERIC", "C")
 library(xpose)
 library(ggplot2)
 
@@ -555,7 +595,9 @@ tryCatch({{
   cat("NMGUI_VPC_OK\\n")
 }}, error=function(e) {{
   cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
-  cat("  sdtab files in run dir:", paste(list.files("{r_run}", pattern="^sdtab"), collapse=", "), "\\n")
+  cat("  sdtab files in run dir: ", paste(list.files("{r_run}", pattern="^sdtab"), collapse=", "), "\\n")
+  cat("  .lst files in run dir:  ", paste(list.files("{r_run}", pattern="\\.lst$"), collapse=", "), "\\n")
+  cat("  .mod files in run dir:  ", paste(list.files("{r_run}", pattern="\\.mod$"), collapse=", "), "\\n")
 }})
 '''
         return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
@@ -577,6 +619,13 @@ tryCatch({{
         if not ok:
             QMessageBox.warning(self, 'm1.zip extraction failed', err)
             return
+
+        # Warn if vpc_results.csv is absent (PsN -no_results=1 or aborted run)
+        if not (Path(vpc_folder) / 'vpc_results.csv').is_file():
+            self.console.appendPlainText(
+                '[WARNING] vpc_results.csv not found in the VPC folder.\n'
+                'PsN may have been run with -no_results=1, or the run did not complete.\n'
+                'The R backend may fail or produce an incomplete plot.')
 
         # Validate stratification column if specified
         strat = self.stratify_edit.text().strip()
@@ -621,7 +670,8 @@ tryCatch({{
             except Exception: pass  # Signal may not be connected
             try: self._worker.finished.disconnect()
             except Exception: pass  # Signal may not be connected
-        self._worker = VPCWorker(script_path, output_png, self._rscript, get_login_env())
+        self._worker = VPCWorker(script_path, output_png, self._rscript, get_login_env(),
+                                  timeout_sec=self.timeout_sb.value() * 60)
         self._worker.line_out.connect(self._on_line)
         self._worker.finished.connect(self._on_done)
         self._worker.start()

@@ -637,6 +637,27 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.4 — VPC tab: hardening and new options
+
+Seven targeted fixes and improvements to the VPC tab, covering silent failures, missing UI controls, and R script robustness.
+
+**Bug fixes**
+
+- **Stale `m1/` after a PsN re-run** — previously, if PsN's `vpc` was re-run with different settings and produced a fresh `m1.zip`, the app kept using the old extracted `m1/` folder. The extractor now compares the modification time of `m1.zip` against the newest file in `m1/` and re-extracts automatically when the zip is newer.
+- **`vpc_results.csv` absence not detected** — PsN run with `-no_results=1` or an aborted VPC produces no `vpc_results.csv`, causing the R backend to fail with a confusing message. The app now detects this before running and prints a clear warning to the console.
+- **`xpose4` confused with `xpose`** — users who have the legacy `xpose4` package installed (common in older NONMEM groups) but not the newer `xpose` package got a cryptic R error. The R-package check now explicitly detects this and shows: *"xpose ✗ (xpose4 found — run install.packages('xpose'))"*.
+- **R locale mismatch** — on systems with a non-English `LC_NUMERIC` locale (e.g. Dutch/German), `read.csv` would misparse decimal separators in `vpc_results.csv`. Both generated R scripts now begin with `Sys.setlocale("LC_NUMERIC", "C")`.
+- **xpose error messages lacked run-file diagnostics** — the xpose error handler now also lists `.lst` and `.mod` files in the run directory alongside sdtab files, so the cause of a "run not found" failure is immediately visible in the console.
+
+**New functionality**
+
+- **ULOQ field** — an upper limit of quantification field is now available next to LLOQ in the settings panel. Passed as `uloq=` to both `vpc::vpc()` and `xpose::vpc_opt()`. Disabled when "Use PsN settings" is checked.
+- **Configurable timeout** — the hard-coded 5-minute R script timeout is replaced by a user-configurable *Timeout* field (1–120 min, default 30 min) in the settings panel. VPCs with 1000+ simulations routinely need 10–30 minutes.
+
+**UX**
+
+- Stratify field now has a tooltip warning that combining it with PsN's `-stratify_on` option produces incorrect results.
+
 ### v2.9.3 — VPC tab: auto-extract m1.zip
 
 A focused bug-fix release for the VPC tab.
