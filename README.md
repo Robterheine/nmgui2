@@ -637,6 +637,14 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.3 — VPC tab: auto-extract m1.zip
+
+A focused bug-fix release for the VPC tab.
+
+**Bug fix**
+
+- **VPC failed silently when PsN had zipped the `m1/` folder.** PsN's `vpc` command produces `m1.zip` (instead of an unpacked `m1/`) when run with `-clean=2` or higher. Both VPC backends used by NMGUI2 — PsN's bundled `vpc.R` and the xpose-based plotter — read simulation tables from `m1/` directly, so they would either fail with "no simulation tables found" or silently produce an empty plot. The VPC tab now detects `m1.zip` on Run, extracts it in place if `m1/` is missing or empty, and logs the action to the run console. Existing unpacked `m1/` folders are left alone (no re-extract). Corrupt zips, permission errors, and unexpected layouts are reported with a clear error instead of failing silently. The folder hint in the VPC settings panel was updated to reflect that either `m1/` or `m1.zip` is acceptable.
+
 ### v2.9.2 — Files tab improvements
 
 Focused on the Files tab: new file-type handling, usability fixes, and a conversion utility.

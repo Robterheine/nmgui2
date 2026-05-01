@@ -1,4 +1,4 @@
-import os, re, subprocess, logging, tempfile, threading
+import os, re, subprocess, logging, tempfile, threading, zipfile
 from pathlib import Path
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
@@ -88,7 +88,9 @@ class VPCTab(QWidget):
         hint = QLabel(
             'Workflow: run <code>vpc</code> in PsN first, then select the resulting '
             '<code>vpc_*</code> folder below '
-            '(must contain <code>m1/</code>, <code>vpctab*</code>, <code>vpc_results.csv</code>).')
+            '(must contain <code>vpctab*</code>, <code>vpc_results.csv</code>, '
+            'and either <code>m1/</code> or <code>m1.zip</code> — '
+            'a zipped <code>m1</code> is auto-extracted on Run).')
         hint.setWordWrap(True)
         hint.setObjectName('mutedSmall')
         sg.addWidget(hint)
@@ -351,6 +353,52 @@ class VPCTab(QWidget):
             # Run dir for xpose — use lst directory (where sdtabs live)
             self.run_dir_edit.setText(str(lst_dir))
 
+    def _ensure_m1_extracted(self, vpc_folder):
+        """Ensure m1/ is extracted from m1.zip if needed.
+
+        PsN's vpc command zips the m1 directory when -clean>=2, but the R-based
+        VPC backends (PsN's vpc.R and xpose) read simulation tables from m1/
+        directly, so the zip must be unpacked before they can run.
+
+        Returns (success, error_message). Logs progress to the console widget.
+        """
+        vpc_path = Path(vpc_folder)
+        m1_dir = vpc_path / 'm1'
+        m1_zip = vpc_path / 'm1.zip'
+
+        # Already extracted (m1/ exists and has at least one entry)
+        if m1_dir.is_dir() and any(m1_dir.iterdir()):
+            return True, ''
+
+        # No zip and no folder — leave it; downstream will report a clearer
+        # error if simulation tables turn out to be needed
+        if not m1_zip.is_file():
+            return True, ''
+
+        self.console.appendPlainText(f'Extracting {m1_zip.name}…')
+        try:
+            with zipfile.ZipFile(m1_zip) as zf:
+                bad = zf.testzip()
+                if bad is not None:
+                    return False, f'm1.zip is corrupt: first bad entry is {bad}'
+                zf.extractall(vpc_path)
+        except zipfile.BadZipFile as e:
+            return False, f'm1.zip is not a valid zip file:\n{e}'
+        except PermissionError as e:
+            return False, f'Cannot write to {vpc_path} (permission denied):\n{e}'
+        except OSError as e:
+            return False, f'Failed to extract m1.zip:\n{e}'
+
+        # Confirm extraction produced m1/ with content
+        if not m1_dir.is_dir() or not any(m1_dir.iterdir()):
+            return False, (
+                'Extracted m1.zip but m1/ is still missing or empty.\n'
+                'The zip may have an unexpected layout.')
+
+        n_files = sum(1 for p in m1_dir.rglob('*') if p.is_file())
+        self.console.appendPlainText(f'Extracted {n_files} file(s) into m1/')
+        return True, ''
+
     def _validate_stratify_column(self, vpc_folder, strat_columns):
         """Validate stratification column(s) exist and have reasonable cardinality."""
         vpc_path = Path(vpc_folder)
@@ -521,6 +569,15 @@ tryCatch({{
             QMessageBox.warning(self, 'R not found', 'Rscript not found. Is R installed and on PATH?')
             return
 
+        # Clear console up front so extraction + run output land in a fresh log
+        self.console.clear()
+
+        # PsN with -clean>=2 zips m1/. vpc.R / xpose need the unpacked dir.
+        ok, err = self._ensure_m1_extracted(vpc_folder)
+        if not ok:
+            QMessageBox.warning(self, 'm1.zip extraction failed', err)
+            return
+
         # Validate stratification column if specified
         strat = self.stratify_edit.text().strip()
         if strat and not self.use_psn_cb.isChecked():
@@ -553,7 +610,7 @@ tryCatch({{
             Path(script_path).write_text(script_txt, 'utf-8')
         except Exception as e:
             QMessageBox.critical(self, 'Error', f'Cannot write R script:\n{e}'); return
-        self.console.clear()
+        # Console was already cleared at the top of _run() before extraction.
         self.console.appendPlainText(
             f'Running {self.tool_cb.currentText()} VPC'
             f'{"  [custom script]" if self.custom_script_cb.isChecked() else ""}…\n')
