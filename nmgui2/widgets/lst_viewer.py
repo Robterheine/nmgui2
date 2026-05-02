@@ -176,8 +176,8 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
     # Syntax-highlight $RECORDS in the control stream for HTML
     def hl_ctrl(s):
         s = s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
-        s = _re.sub(r'(\$[A-Z]+)', r'<span style="color:#4c8aff;font-weight:700;">\1</span>', s)
         s = _re.sub(r'(;[^\n]*)', r'<span style="color:#6a9955;font-style:italic;">\1</span>', s)
+        s = _re.sub(r'(\$[A-Z]+)', r'<span style="color:#4c8aff;font-weight:700;">\1</span>', s)
         return s
 
     # ── 4. Iteration trace ─────────────────────────────────────────────────
