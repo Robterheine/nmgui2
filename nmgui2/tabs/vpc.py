@@ -828,7 +828,6 @@ tryCatch({{
                 xpdb_line = f'xpdb <- xpose_data(runno="{runno}", dir="{r_run}/")'
             if use_psn:
                 opt_items = []
-                if idv:                      opt_items.append(f'idv="{idv}"')
                 if psn_opts.get('predcorr'): opt_items.append('pred_corr=pred_corr_val')
                 opt_str = f', opt=vpc_opt({", ".join(opt_items)})' if opt_items else ''
                 stratify_arg = ''
@@ -840,7 +839,6 @@ tryCatch({{
                 uloq_raw = self.uloq_edit.text().strip()
                 strat    = self.stratify_edit.text().strip()
                 opt_parts = [f'bins="jenks"', f'n_bins={int(self.nbins_sb.value())}']
-                if idv:      opt_parts.append(f'idv="{idv}"')
                 if lloq_raw: opt_parts.append(f'lloq={lloq_raw}')
                 if uloq_raw: opt_parts.append(f'uloq={uloq_raw}')
                 if self.pred_corr_cb.isChecked(): opt_parts.append('pred_corr=TRUE')
