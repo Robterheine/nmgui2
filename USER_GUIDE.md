@@ -1,4 +1,4 @@
-# NMGUI2 v2.9 — User Guide
+# NMGUI2 v2.9.6 — User Guide
 
 A complete feature reference for pharmacometricians. Each section states *where* the feature lives and *how* to use it. If you are coming from **Pirana**, see the quick-mapping table at the end.
 
@@ -259,6 +259,10 @@ Multiple extension pills can be active simultaneously. Clicking **All** clears a
 | `.lst`, `.phi`, other text | Monospace text | Find bar, Edit / Save / Discard |
 | `.csv` | Spreadsheet (sortable, virtualised — no row cap) | Table / Plot pills, Edit / Save / Discard |
 | `.tab` (NONMEM TABLE) | Spreadsheet (sortable, virtualised — no row cap) | Table / Plot pills (read-only) |
+| `.ext`, `.cov`, `.cor`, `.phi`, `.cnv`, `.coi` | Spreadsheet (same as `.tab`) | Table / Plot pills (read-only) |
+| Binary (`.pdf`, `.png`, `.zip`, …) | Placeholder message | Double-click to open with OS default |
+
+**Multi-section CSV files** (e.g. PsN `sir_results.csv`) — merged into a single flat table; section separators appear as labelled header rows.
 
 **Plot view** (`.csv` / `.tab`) — full Data Explorer:
 - Any column on X and Y.
@@ -272,6 +276,12 @@ Multiple extension pills can be active simultaneously. Clicking **All** clears a
 - `.tab` files remain read-only (NONMEM output).
 
 **Find bar** (text files only) — highlights all occurrences; jumps to first match.
+
+### Right-click context menu (file list)
+
+| Item | Condition | Action |
+|---|---|---|
+| **Convert to CSV** | `.tab` files only | Creates `<stem>.csv` in the same folder (comma-separated); reloads the file list and selects the new file. Will not overwrite an existing `.csv`. |
 
 ---
 
@@ -404,31 +414,53 @@ Availability shown as ✓ / ✗ per package at the top of the panel.
 
 ### 8.2 Inputs
 
-| Field | Purpose |
+| Field | Backends | Purpose |
+|---|---|---|
+| VPC folder | Both | PsN `vpc` output directory (contains `m1/` or `m1.zip`, `vpc_results.csv`) |
+| Run directory | xpose only | Directory containing sdtab, `.ext`, `.phi` files |
+| Model .lst | xpose only | Path to the model `.lst` file; auto-detected from `command.txt` in the vpc folder. Fill manually if auto-detection fails (model was renamed or moved). |
+| Run no | xpose only | Run number; fallback for xpose when `.lst` cannot be auto-detected |
+| **Use PsN settings** (default on) | Both | Reads `meta.yaml` / `command.txt` from the vpc folder and auto-injects IDV, pred-corr, stratification, lnDV, LLOQ, and bins — see §8.3 below. Uncheck to supply your own values. |
+| Prediction-corrected (pcVPC) | Both | Manual toggle; auto-set when Use PsN settings detects `-predcorr` |
+| Log Y axis | Both | Manual toggle; auto-set when Use PsN settings detects `-lnDV=1` |
+| Stratify | Both | Column name (manual override); validated against header; warns if > 20 levels |
+| PI (low / high) | Both | Prediction interval percentiles |
+| CI (low / high) | Both | Confidence interval percentiles |
+| IDV | Both | Independent variable column (e.g. TIME, TAD). Leave blank for auto-detection from `meta.yaml`. |
+| LLOQ | vpc only | Lower limit of quantification (manual override) |
+| LLOQ method | vpc only | Censoring method: **M1** (impute as LLOQ/2, default) / **M2** (impute as 0) / **M3** (Kaplan-Meier) |
+| ULOQ | vpc only | Upper limit of quantification (manual override) |
+| Bins | Both | Bin count when overriding PsN binning |
+| Timeout | Both | Maximum wait for the R process (1–120 min, default 30 min). VPCs with 1000+ simulations may need 10–30 min. |
+
+### 8.3 PsN auto-detection ("Use PsN settings")
+
+When **Use PsN settings** is checked (the default), NMGUI2 reads `meta.yaml` (preferred) and `command.txt` (fallback) from the vpc folder before running. The following are auto-injected, and a summary is printed to the console:
+
+| PsN option | Effect in NMGUI2 |
 |---|---|
-| VPC folder | PsN `vpc` output directory (contains `m1/`, `vpc_results.csv`) |
-| Run directory | For xpose backend; contains sdtab, `.ext`, `.phi` |
-| **Use PsN settings** (default on) | Inherits binning, stratification, pred-corr, LLOQ from PsN output; override individual fields by unchecking |
-| Stratify | Column name; validated against header before running; warns if > 20 levels |
-| PI (low / high) | Prediction interval percentiles |
-| CI (low / high) | Confidence interval percentiles |
-| LLOQ | Lower limit of quantification |
-| Bins | Bin count (when overriding PsN) |
-| Log Y axis | Toggle |
-| Prediction-corrected (pcVPC) | Toggle |
+| `-idv=TAD` | Forwarded as `obs_cols=list(idv="TAD")` (vpc) or read from `version_and_option_info.txt` (xpose) |
+| `-predcorr` | `pred_corr=TRUE` injected; pcVPC checkbox auto-checked |
+| `-stratify_on=DOSE` | Forwarded as `stratify="DOSE"` (vpc) or `stratify_on=c("DOSE")` (xpose) |
+| `-lnDV=1` | Log Y axis checkbox auto-enabled |
+| `-categorical` / `-tte` | **Run is aborted** with a clear error message — use `vpc_cat()` / `vpc_tte()` manually |
+| `-dv=LNDV` | Forwarded as `dv="LNDV"` inside `obs_cols` / `sim_cols` |
 
-### 8.3 Run flow
+### 8.4 Run flow
 
-1. Click **Generate VPC**. A script is generated and run via `Rscript`.
-2. Console streams stdout/stderr live.
-3. On success, the PNG is displayed inline.
-4. **Save high-res PNG…** — re-runs at 4× resolution.
-5. **Save PDF…** — re-runs with a `pdf()` device (vector output).
-6. **Stop** — terminates the R process.
+1. Click **Generate VPC**.
+2. If `m1.zip` is present and `m1/` is absent or stale, NMGUI2 extracts it automatically. If PsN was run with `-n_simulation_models > 1`, `m2.zip`, `m3.zip`, … are also extracted.
+3. If a categorical or TTE VPC is detected, a warning dialog is shown and the run is aborted (unsupported VPC type).
+4. The R script is written to the vpc folder and run via `Rscript`. Console streams stdout/stderr live.
+5. On success, the PNG is displayed inline.
+6. **Open in viewer** — opens the PNG in the OS default image viewer.
+7. **Save high-res PNG…** — re-runs at 300 DPI.
+8. **Save PDF…** — re-runs with a PDF device (vector output).
+9. **Stop** — terminates the R process.
 
-### 8.4 R script
+### 8.5 R script
 
-Toggle the **R Script** view to edit the generated script before running — add custom ggplot themes, colours, or annotations. **Reset** restores the template.
+Toggle the **R Script** view to edit the generated script before running — add custom ggplot themes, colours, or annotations. Check **Use custom script** to run the edited version as-is. **Reset from settings** regenerates the script from the current panel settings.
 
 ---
 
@@ -668,4 +700,4 @@ Delete `~/.nmgui/` to reset global settings. Per-project run records are not aff
 
 ---
 
-*NMGUI2 v2.9 · Developed with [Anthropic Claude](https://claude.ai) · [GitHub](https://github.com/Robterheine/nmgui2)*
+*NMGUI2 v2.9.6 · Developed with [Anthropic Claude](https://claude.ai) · [GitHub](https://github.com/Robterheine/nmgui2)*
