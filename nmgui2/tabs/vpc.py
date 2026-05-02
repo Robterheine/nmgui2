@@ -142,6 +142,14 @@ class VPCTab(QWidget):
         self.pi_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
         self.ci_lo = _spin(0,   0.5, 0.05, 0.025, 3)
         self.ci_hi = _spin(0.5, 1.0, 0.95, 0.025, 3)
+        self.idv_edit = QLineEdit(); self.idv_edit.setPlaceholderText('Auto (e.g. TIME, TAD)')
+        self.idv_edit.setFixedWidth(140)
+        self.idv_edit.setToolTip(
+            'Independent variable column name (e.g. TIME, TAD, IDV).\n'
+            'Auto-detected from PsN meta.yaml / command.txt.\n'
+            'Leave blank to use auto-detection; type here to override.\n'
+            'Always applied (regardless of "Use PsN settings") because the\n'
+            'vpc/xpose backends do not auto-detect IDV from PsN output.')
         self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)')
         self.lloq_edit.setFixedWidth(100)
         self.uloq_edit = QLineEdit(); self.uloq_edit.setPlaceholderText('ULOQ (optional)')
@@ -191,11 +199,15 @@ class VPCTab(QWidget):
             QLabel('PI:'), self.pi_lo, dash1, self.pi_hi, 20,
             QLabel('CI:'), self.ci_lo, dash2, self.ci_hi, None))
 
-        # Row 5 — LLOQ / ULOQ / Bins / Timeout
+        # Row 5 — Column overrides (IDV / LLOQ / ULOQ)
         sg.addLayout(_hrow(
-            _lbl('LLOQ:'), self.lloq_edit, 10,
-            QLabel('ULOQ:'), self.uloq_edit, 20,
-            QLabel('Bins:'), self.nbins_sb, 20,
+            _lbl('IDV:'), self.idv_edit, 20,
+            QLabel('LLOQ:'), self.lloq_edit, 10,
+            QLabel('ULOQ:'), self.uloq_edit, None))
+
+        # Row 6 — Numerics (Bins / Timeout)
+        sg.addLayout(_hrow(
+            _lbl('Bins:'), self.nbins_sb, 20,
             QLabel('Timeout:'), self.timeout_sb, None))
 
         v.addWidget(settings_grp)
@@ -373,6 +385,82 @@ class VPCTab(QWidget):
             # Run dir for xpose — use lst directory (where sdtabs live)
             self.run_dir_edit.setText(str(lst_dir))
 
+    def _parse_psn_meta(self, vpc_folder):
+        """Parse PsN's meta.yaml (preferred) or command.txt (fallback) to recover
+        the actual VPC options used by PsN — most importantly the IDV column.
+
+        Returns dict with keys: idv, dv, predcorr, stratify_on, samples, lloq.
+        Missing values are None (or False for predcorr).
+
+        Why: vpc::vpc(psn_folder=...) and xpose::vpc_data(psn_folder=...) do not
+        auto-detect the IDV from PsN output, so users who pass `-idv=TAD`
+        (or any non-default IDV name) hit a "no idv column" error. PsN itself
+        records the IDV in meta.yaml under tool_options.
+        """
+        opts = {'idv': None, 'dv': None, 'predcorr': False,
+                'stratify_on': None, 'samples': None, 'lloq': None}
+        vpc_path = Path(vpc_folder)
+
+        # Preferred: meta.yaml (PsN ≥4.x). Inline parser to avoid pyyaml dep.
+        meta = vpc_path / 'meta.yaml'
+        if meta.is_file():
+            try:
+                in_tool = False
+                for raw in meta.read_text('utf-8', errors='replace').splitlines():
+                    if raw.rstrip() == 'tool_options:':
+                        in_tool = True
+                        continue
+                    if in_tool:
+                        # Block ends when we hit a non-indented line
+                        if raw and not raw.startswith(' '):
+                            break
+                        s = raw.strip()
+                        if not s or ':' not in s:
+                            continue
+                        key, _, val = s.partition(':')
+                        key = key.strip()
+                        val = val.strip().strip('"').strip("'")
+                        if key == 'idv' and val:
+                            opts['idv'] = val
+                        elif key == 'dv' and val:
+                            opts['dv'] = val
+                        elif key == 'predcorr':
+                            opts['predcorr'] = (val == '1')
+                        elif key == 'stratify_on' and val:
+                            opts['stratify_on'] = val
+                        elif key == 'samples' and val:
+                            try: opts['samples'] = int(val)
+                            except ValueError: pass
+                        elif key == 'lloq' and val:
+                            try: opts['lloq'] = float(val)
+                            except ValueError: pass
+            except Exception as e:
+                _log.warning(f'Failed to parse meta.yaml: {e}')
+
+        # Fallback: command.txt (older PsN). Only fill what meta.yaml didn't.
+        cmd = vpc_path / 'command.txt'
+        if cmd.is_file() and not opts['idv']:
+            try:
+                text = cmd.read_text('utf-8', errors='replace')
+                m = re.search(r'-idv=(\S+)', text)
+                if m: opts['idv'] = m.group(1)
+                m = re.search(r'-dv=(\S+)', text)
+                if m and not opts['dv']: opts['dv'] = m.group(1)
+                if not opts['predcorr'] and re.search(r'-predcorr\b', text):
+                    opts['predcorr'] = True
+                m = re.search(r'-stratify_on=(\S+)', text)
+                if m and not opts['stratify_on']: opts['stratify_on'] = m.group(1)
+                m = re.search(r'-samples=(\d+)', text)
+                if m and not opts['samples']: opts['samples'] = int(m.group(1))
+                m = re.search(r'-lloq=(\S+)', text)
+                if m and opts['lloq'] is None:
+                    try: opts['lloq'] = float(m.group(1))
+                    except ValueError: pass
+            except Exception as e:
+                _log.warning(f'Failed to parse command.txt: {e}')
+
+        return opts
+
     def _ensure_m1_extracted(self, vpc_folder):
         """Ensure m1/ is extracted from m1.zip if needed.
 
@@ -500,6 +588,22 @@ class VPCTab(QWidget):
 
         return True, ""
 
+    def _resolve_idv(self, vpc_folder):
+        """Compute the IDV column to forward to vpc/xpose, or None for default.
+
+        Resolution order:
+          1. Manual override in idv_edit (if non-empty)
+          2. PsN's meta.yaml / command.txt (if non-default)
+          3. None — let the package fall back to its default ('TIME')
+        """
+        user = self.idv_edit.text().strip()
+        if user:
+            return user
+        detected = self._parse_psn_meta(vpc_folder).get('idv')
+        if detected and detected.upper() not in ('TIME', 'T'):
+            return detected
+        return None
+
     def _build_r_script(self):
         tool       = self.tool_cb.currentText()
         vpc_folder = self.vpc_folder_edit.text().strip()
@@ -509,6 +613,7 @@ class VPCTab(QWidget):
         use_psn    = self.use_psn_cb.isChecked()
         pi_lo      = self.pi_lo.value(); pi_hi = self.pi_hi.value()
         ci_lo      = self.ci_lo.value(); ci_hi = self.ci_hi.value()
+        idv        = self._resolve_idv(vpc_folder)   # may be None
 
         r_vpc = _sanitize_r(vpc_folder)
         r_run = _sanitize_r(run_dir)
@@ -517,6 +622,11 @@ class VPCTab(QWidget):
         if tool == 'vpc':
             # psn_folder is the authoritative source; only add overrides when user opts in
             args = {'psn_folder': f'"{r_vpc}"'}
+            # IDV: forward when non-default — vpc::vpc(psn_folder=) doesn't auto-detect
+            # the IDV column, so users with -idv=TAD (etc.) hit a "no idv column" error.
+            if idv:
+                args['obs_cols'] = f'list(idv = "{idv}")'
+                args['sim_cols'] = f'list(idv = "{idv}")'
             if not use_psn:
                 lloq_raw = self.lloq_edit.text().strip()
                 uloq_raw = self.uloq_edit.text().strip()
@@ -560,14 +670,20 @@ tryCatch({{
 }})
 '''
         else:  # xpose
+            # IDV needs to flow through vpc_opt() in both use_psn and override paths,
+            # otherwise xpose::vpc_data(psn_folder=) fails on non-default IDVs (e.g. TAD).
             if use_psn:
-                # Let xpose inherit everything from PsN output
-                vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE)'
+                if idv:
+                    vpc_data_call = (f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE, '
+                                     f'opt=vpc_opt(idv="{idv}"))')
+                else:
+                    vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE)'
             else:
                 lloq_raw = self.lloq_edit.text().strip()
                 uloq_raw = self.uloq_edit.text().strip()
                 strat    = self.stratify_edit.text().strip()
                 opt_parts = [f'bins="jenks"', f'n_bins={int(self.nbins_sb.value())}']
+                if idv:      opt_parts.append(f'idv="{idv}"')
                 if lloq_raw: opt_parts.append(f'lloq={lloq_raw}')
                 if uloq_raw: opt_parts.append(f'uloq={uloq_raw}')
                 if self.pred_corr_cb.isChecked(): opt_parts.append('pred_corr=TRUE')
@@ -596,8 +712,8 @@ tryCatch({{
 }}, error=function(e) {{
   cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
   cat("  sdtab files in run dir: ", paste(list.files("{r_run}", pattern="^sdtab"), collapse=", "), "\\n")
-  cat("  .lst files in run dir:  ", paste(list.files("{r_run}", pattern="\\.lst$"), collapse=", "), "\\n")
-  cat("  .mod files in run dir:  ", paste(list.files("{r_run}", pattern="\\.mod$"), collapse=", "), "\\n")
+  cat("  .lst files in run dir:  ", paste(list.files("{r_run}", pattern=glob2rx("*.lst")), collapse=", "), "\\n")
+  cat("  .mod files in run dir:  ", paste(list.files("{r_run}", pattern=glob2rx("*.mod")), collapse=", "), "\\n")
 }})
 '''
         return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
@@ -626,6 +742,22 @@ tryCatch({{
                 '[WARNING] vpc_results.csv not found in the VPC folder.\n'
                 'PsN may have been run with -no_results=1, or the run did not complete.\n'
                 'The R backend may fail or produce an incomplete plot.')
+
+        # Log the PsN options recovered from meta.yaml / command.txt — visibility
+        # for users debugging "wrong column" issues.
+        psn_opts = self._parse_psn_meta(vpc_folder)
+        parts = []
+        if psn_opts.get('idv'):         parts.append(f'idv={psn_opts["idv"]}')
+        if psn_opts.get('dv'):          parts.append(f'dv={psn_opts["dv"]}')
+        if psn_opts.get('predcorr'):    parts.append('predcorr=1')
+        if psn_opts.get('stratify_on'): parts.append(f'stratify_on={psn_opts["stratify_on"]}')
+        if psn_opts.get('samples'):     parts.append(f'samples={psn_opts["samples"]}')
+        if psn_opts.get('lloq') is not None: parts.append(f'lloq={psn_opts["lloq"]}')
+        if parts:
+            self.console.appendPlainText('Detected PsN options: ' + ', '.join(parts))
+        resolved_idv = self._resolve_idv(vpc_folder)
+        if resolved_idv:
+            self.console.appendPlainText(f'Using IDV column: {resolved_idv}')
 
         # Validate stratification column if specified
         strat = self.stratify_edit.text().strip()

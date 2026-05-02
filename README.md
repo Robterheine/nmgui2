@@ -637,6 +637,24 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.5 — VPC tab: non-default IDV support and regex fix
+
+Two bug fixes for the VPC tab. Both surfaced when running `psn vpc -idv=TAD` (or any non-`TIME` IDV).
+
+**Bug fixes**
+
+- **xpose VPC failed at the parse step with `'\.' is an unrecognized escape in character string`.** A regex pattern in the xpose error-diagnostic block (added in v2.9.4) used Python f-string escaping that rendered as `\.` in R source. R 4.x rejects this. The two patterns now use `glob2rx("*.lst")` and `glob2rx("*.mod")`, letting R construct the regex itself.
+- **vpc and xpose backends failed with "no idv column" when PsN was run with `-idv=TAD`.** Neither `vpc::vpc(psn_folder=...)` nor `xpose::vpc_data(psn_folder=...)` auto-detect the IDV column from PsN output, so non-default IDVs caused the run to abort with `No column for indepentent variable indicator found`. NMGUI2 now parses PsN's `meta.yaml` (preferred) or `command.txt` (fallback) to recover the IDV, DV, predcorr flag, samples, stratification column, and LLOQ that PsN actually used. The IDV is forwarded as `obs_cols=list(idv="…")` / `sim_cols=list(idv="…")` to `vpc::vpc()` and as `idv=…` inside `vpc_opt()` for xpose. The detected options are logged to the run console so users can see exactly what was recovered.
+
+**New functionality**
+
+- **IDV override field** — a new *IDV* field in the VPC settings panel (Row 5: IDV / LLOQ / ULOQ). Leave blank to use auto-detection; type a column name to override. Always available, regardless of "Use PsN settings", because the IDV column-name issue is independent of which numerical settings are used.
+
+**Internal**
+
+- New `_parse_psn_meta(vpc_folder)` helper reads `meta.yaml`'s `tool_options:` block and `command.txt` flags without adding a YAML dependency.
+- New `_resolve_idv(vpc_folder)` centralises the resolution order: manual override → meta.yaml → command.txt → package default.
+
 ### v2.9.4 — VPC tab: hardening and new options
 
 Seven targeted fixes and improvements to the VPC tab, covering silent failures, missing UI controls, and R script robustness.
