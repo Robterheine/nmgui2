@@ -637,6 +637,35 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.6 — VPC coverage hardening
+
+**Bug fix (critical)**
+- **xpose VPC failed with "Model file run3.lst not found"** when the model that generated the
+  VPC had been renamed or moved. The xpose backend now auto-detects the correct `.lst` file
+  from `command.txt` in the vpc folder (`xpose_data(file=…)` instead of `xpose_data(runno=…, dir=…)`).
+  A new *Model .lst* field in the xpose settings allows manual override when auto-detection fails.
+
+**VPC correctness fixes (previously silent failures)**
+- **pcVPCs now plot correctly** when PsN was run with `-predcorr`: `pred_corr=TRUE` is
+  auto-injected into `vpc::vpc()` and `xpose::vpc_opt()` from `meta.yaml`.
+- **Stratified VPCs now work with "Use PsN settings"**: `stratify_on` from `meta.yaml` is
+  forwarded as `stratify=` (vpc package) or `stratify_on=` (xpose).
+- **Categorical and TTE VPCs**: NMGUI2 now detects `-categorical` and `-tte` in `meta.yaml`
+  and shows a clear error instead of silently producing a wrong continuous-style plot.
+- **vpc package v1.x compatibility**: the vpc() return value is unwrapped from `$plot` when
+  needed, preventing `ggsave()` failures on vpc ≥ 1.0.
+- **Non-default DV column** (`-dv=LNDV` etc.) now forwarded to `obs_cols`/`sim_cols`.
+- **Log-scale VPCs**: `-lnDV=1` is detected from `meta.yaml` and the Log Y axis is
+  auto-enabled.
+
+**Robustness**
+- Multiple simulation directories (`m2.zip`, `m3.zip`, …) from PsN `-n_simulation_models > 1`
+  are now all extracted before the R script runs.
+- `command.txt` fallback now handles both `=` and space-separated PsN arguments (`-idv TAD`).
+- `meta.yaml` parser fixed for values containing colons (e.g., `stratify_on: DOSE:BIN`).
+- xpose `pred_corr` injection is version-gated for xpose < 0.4 compatibility.
+- LLOQ method selector (M1/M2/M3) added to VPC settings.
+
 ### v2.9.5 — VPC tab: non-default IDV support and regex fix
 
 Two bug fixes for the VPC tab. Both surfaced when running `psn vpc -idv=TAD` (or any non-`TIME` IDV).

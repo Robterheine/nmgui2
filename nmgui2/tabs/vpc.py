@@ -152,6 +152,14 @@ class VPCTab(QWidget):
             'vpc/xpose backends do not auto-detect IDV from PsN output.')
         self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)')
         self.lloq_edit.setFixedWidth(100)
+        self.lloq_method_cb = QComboBox()
+        self.lloq_method_cb.addItems(['M1', 'M2', 'M3'])
+        self.lloq_method_cb.setFixedWidth(60)
+        self.lloq_method_cb.setToolTip(
+            'LLOQ censoring method passed to vpc::vpc(lloq_method=).\n'
+            'M1: BLQ imputed as LLOQ/2 (default)\n'
+            'M2: BLQ imputed as 0\n'
+            'M3: Kaplan-Meier (requires survival package)')
         self.uloq_edit = QLineEdit(); self.uloq_edit.setPlaceholderText('ULOQ (optional)')
         self.uloq_edit.setFixedWidth(100)
         self.nbins_sb  = _spin(3, 50, 10, 1, 0, w=70)
@@ -191,6 +199,21 @@ class VPCTab(QWidget):
         self.run_dir_w = QWidget(); self.run_dir_w.setLayout(r3)
         sg.addWidget(self.run_dir_w)
 
+        # Row 3b — Model .lst file (xpose only, hidden by default)
+        self.lst_file_edit = QLineEdit()
+        self.lst_file_edit.setPlaceholderText(
+            'Path to model .lst file (auto-detected from command.txt; fill if auto-detect fails)')
+        self.lst_file_edit.setToolTip(
+            'xpose needs the original model .lst file to load run metadata.\n'
+            'NMGUI2 auto-detects this from the vpc folder\'s command.txt.\n'
+            'If auto-detection fails (model was renamed or moved), browse here.')
+        self.lst_file_lbl = QLabel('Model .lst:'); self.lst_file_lbl.setFixedWidth(74)
+        lst_browse = QPushButton('Browse…'); lst_browse.clicked.connect(self._browse_lst)
+        r3b = QHBoxLayout(); r3b.setContentsMargins(0, 0, 0, 0); r3b.setSpacing(6)
+        r3b.addWidget(self.lst_file_lbl); r3b.addWidget(self.lst_file_edit, 1); r3b.addWidget(lst_browse)
+        self.lst_file_w = QWidget(); self.lst_file_w.setLayout(r3b)
+        sg.addWidget(self.lst_file_w)
+
         # Row 4 — Stratify / PI / CI
         dash1 = QLabel('–'); dash1.setFixedWidth(10)
         dash2 = QLabel('–'); dash2.setFixedWidth(10)
@@ -202,7 +225,7 @@ class VPCTab(QWidget):
         # Row 5 — Column overrides (IDV / LLOQ / ULOQ)
         sg.addLayout(_hrow(
             _lbl('IDV:'), self.idv_edit, 20,
-            QLabel('LLOQ:'), self.lloq_edit, 10,
+            QLabel('LLOQ:'), self.lloq_edit, self.lloq_method_cb, 10,
             QLabel('ULOQ:'), self.uloq_edit, None))
 
         # Row 6 — Numerics (Bins / Timeout)
@@ -325,6 +348,8 @@ class VPCTab(QWidget):
         show_run_dir = (tool == 'xpose')
         self.run_dir_lbl.setVisible(show_run_dir)
         self.run_dir_w.setVisible(show_run_dir)
+        self.lst_file_lbl.setVisible(show_run_dir)
+        self.lst_file_w.setVisible(show_run_dir)
 
     def _check_r(self):
         def _do():
@@ -354,7 +379,7 @@ class VPCTab(QWidget):
     def _on_psn_inherit_change(self, _state=None):
         """Enable/disable manual-override widgets based on 'Use PsN settings' checkbox."""
         override = not self.use_psn_cb.isChecked()
-        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.uloq_edit, self.nbins_sb):
+        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.lloq_method_cb, self.uloq_edit, self.nbins_sb):
             w.setEnabled(override)
 
     def _browse_vpc(self):
@@ -366,6 +391,13 @@ class VPCTab(QWidget):
         d = str(Path(self._model['path']).parent) if self._model else str(HOME)
         folder = QFileDialog.getExistingDirectory(self, 'Select run directory', d)
         if folder: self.run_dir_edit.setText(folder)
+
+    def _browse_lst(self):
+        d = str(Path(self._model['path']).parent) if self._model else str(HOME)
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Select model .lst file', d, 'NONMEM output (*.lst);;All files (*)')
+        if path:
+            self.lst_file_edit.setText(path)
 
     def load_model(self, model):
         self._model = model
@@ -398,7 +430,8 @@ class VPCTab(QWidget):
         records the IDV in meta.yaml under tool_options.
         """
         opts = {'idv': None, 'dv': None, 'predcorr': False,
-                'stratify_on': None, 'samples': None, 'lloq': None}
+                'stratify_on': None, 'samples': None, 'lloq': None,
+                'vpc_type': None, 'lnDV': False}
         vpc_path = Path(vpc_folder)
 
         # Preferred: meta.yaml (PsN ≥4.x). Inline parser to avoid pyyaml dep.
@@ -415,9 +448,9 @@ class VPCTab(QWidget):
                         if raw and not raw.startswith(' '):
                             break
                         s = raw.strip()
-                        if not s or ':' not in s:
+                        if ':' not in s:
                             continue
-                        key, _, val = s.partition(':')
+                        key, val = s.split(':', 1)
                         key = key.strip()
                         val = val.strip().strip('"').strip("'")
                         if key == 'idv' and val:
@@ -434,28 +467,43 @@ class VPCTab(QWidget):
                         elif key == 'lloq' and val:
                             try: opts['lloq'] = float(val)
                             except ValueError: pass
+                        elif key == 'vpc_type' and val:
+                            try: opts['vpc_type'] = int(val)
+                            except ValueError: pass
+                        elif key == 'categorical' and val == '1':
+                            opts['vpc_type'] = 2
+                        elif key == 'tte' and val == '1':
+                            opts['vpc_type'] = 3
+                        elif key == 'lnDV':
+                            opts['lnDV'] = (val == '1')
             except Exception as e:
                 _log.warning(f'Failed to parse meta.yaml: {e}')
 
         # Fallback: command.txt (older PsN). Only fill what meta.yaml didn't.
         cmd = vpc_path / 'command.txt'
-        if cmd.is_file() and not opts['idv']:
+        if cmd.is_file():
             try:
                 text = cmd.read_text('utf-8', errors='replace')
-                m = re.search(r'-idv=(\S+)', text)
-                if m: opts['idv'] = m.group(1)
-                m = re.search(r'-dv=(\S+)', text)
+                if not opts['idv']:
+                    m = re.search(r'-idv[= ](\S+)', text)
+                    if m: opts['idv'] = m.group(1)
+                m = re.search(r'-dv[= ](\S+)', text)
                 if m and not opts['dv']: opts['dv'] = m.group(1)
                 if not opts['predcorr'] and re.search(r'-predcorr\b', text):
                     opts['predcorr'] = True
-                m = re.search(r'-stratify_on=(\S+)', text)
+                m = re.search(r'-stratify_on[= ](\S+)', text)
                 if m and not opts['stratify_on']: opts['stratify_on'] = m.group(1)
-                m = re.search(r'-samples=(\d+)', text)
+                m = re.search(r'-samples[= ](\d+)', text)
                 if m and not opts['samples']: opts['samples'] = int(m.group(1))
-                m = re.search(r'-lloq=(\S+)', text)
+                m = re.search(r'-lloq[= ](\S+)', text)
                 if m and opts['lloq'] is None:
                     try: opts['lloq'] = float(m.group(1))
                     except ValueError: pass
+                if opts['vpc_type'] is None:
+                    if re.search(r'-categorical\b', text): opts['vpc_type'] = 2
+                    elif re.search(r'-tte\b', text): opts['vpc_type'] = 3
+                if not opts['lnDV'] and re.search(r'-lnDV=1\b', text):
+                    opts['lnDV'] = True
             except Exception as e:
                 _log.warning(f'Failed to parse command.txt: {e}')
 
@@ -519,6 +567,27 @@ class VPCTab(QWidget):
 
         n_files = sum(1 for p in m1_dir.rglob('*') if p.is_file())
         self.console.appendPlainText(f'Extracted {n_files} file(s) into m1/')
+
+        # Also extract m2.zip, m3.zip, … if present (PsN -n_simulation_models > 1)
+        extra_zips = sorted(vpc_path.glob('m[2-9]*.zip'))
+        for extra_zip in extra_zips:
+            extra_dir = vpc_path / extra_zip.stem
+            if extra_dir.is_dir() and any(extra_dir.iterdir()):
+                continue  # already extracted
+            self.console.appendPlainText(f'Extracting {extra_zip.name}…')
+            try:
+                with zipfile.ZipFile(extra_zip) as zf:
+                    bad = zf.testzip()
+                    if bad:
+                        self.console.appendPlainText(
+                            f'[WARNING] {extra_zip.name} is corrupt ({bad}) — skipping')
+                        continue
+                    zf.extractall(vpc_path)
+                n = sum(1 for p in extra_dir.rglob('*') if p.is_file())
+                self.console.appendPlainText(f'Extracted {n} file(s) into {extra_dir.name}/')
+            except Exception as e:
+                self.console.appendPlainText(f'[WARNING] Failed to extract {extra_zip.name}: {e}')
+
         return True, ''
 
     def _validate_stratify_column(self, vpc_folder, strat_columns):
@@ -604,6 +673,64 @@ class VPCTab(QWidget):
             return detected
         return None
 
+    def _resolve_xpose_lst(self, vpc_folder):
+        """Find the .lst file xpose_data() should load.
+
+        Resolution order:
+          1. User override in lst_file_edit
+          2. Parse command.txt to get model name -> check {name}.lst in parent dir
+          3. UI runno -> check run{runno}.lst in parent dir
+          4. None (falls back to runno= form, may fail)
+
+        Returns (path_or_None, warning_str_or_None).
+        """
+        user_lst = self.lst_file_edit.text().strip()
+        if user_lst:
+            if Path(user_lst).is_file():
+                return user_lst, None
+            else:
+                return None, f'Specified model .lst file not found:\n{user_lst}'
+
+        vpc_path = Path(vpc_folder)
+        parent = vpc_path.parent
+
+        cmd = vpc_path / 'command.txt'
+        if cmd.is_file():
+            try:
+                text = cmd.read_text('utf-8', errors='replace')
+                m = re.search(r'(?:^|\s)([^\s-]\S*\.mod)(?:\s|$)', text, re.MULTILINE)
+                if m:
+                    model_stem = Path(m.group(1).strip()).stem
+                    lst_candidate = parent / f'{model_stem}.lst'
+                    if lst_candidate.is_file():
+                        return str(lst_candidate), None
+                    available = sorted(f.name for f in parent.glob('*.lst'))
+                    avail_str = ', '.join(available) if available else '(none found)'
+                    warn = (
+                        f'Auto-detect: model "{model_stem}.lst" not found in parent directory.\n'
+                        f'Available .lst files: {avail_str}\n'
+                        f'Set the "Model .lst" field in the xpose settings to proceed.')
+                    return None, warn
+            except Exception as e:
+                _log.warning(f'command.txt parse failed: {e}')
+
+        runno = self.runno_edit.text().strip()
+        if runno:
+            lst_candidate = parent / f'run{runno}.lst'
+            if lst_candidate.is_file():
+                return str(lst_candidate), None
+
+        return None, None
+
+    def _resolve_dv(self, vpc_folder, psn_opts=None):
+        """Resolve DV column name, or None if default ('DV')."""
+        if psn_opts is None:
+            psn_opts = self._parse_psn_meta(vpc_folder)
+        dv = psn_opts.get('dv')
+        if dv and dv.upper() not in ('DV',):
+            return dv
+        return None
+
     def _build_r_script(self):
         tool       = self.tool_cb.currentText()
         vpc_folder = self.vpc_folder_edit.text().strip()
@@ -614,28 +741,42 @@ class VPCTab(QWidget):
         pi_lo      = self.pi_lo.value(); pi_hi = self.pi_hi.value()
         ci_lo      = self.ci_lo.value(); ci_hi = self.ci_hi.value()
         idv        = self._resolve_idv(vpc_folder)   # may be None
+        psn_opts   = self._parse_psn_meta(vpc_folder)
 
         r_vpc = _sanitize_r(vpc_folder)
         r_run = _sanitize_r(run_dir)
         r_out = _sanitize_r(str(Path(vpc_folder) / 'nmgui_vpc.png'))
 
         if tool == 'vpc':
-            # psn_folder is the authoritative source; only add overrides when user opts in
             args = {'psn_folder': f'"{r_vpc}"'}
-            # IDV: forward when non-default — vpc::vpc(psn_folder=) doesn't auto-detect
-            # the IDV column, so users with -idv=TAD (etc.) hit a "no idv column" error.
-            if idv:
+            # obs_cols/sim_cols: forward non-default IDV and/or DV
+            dv = self._resolve_dv(vpc_folder, psn_opts)
+            if dv:
+                obs_parts = [f'idv = "{idv}"'] if idv else []
+                obs_parts.append(f'dv = "{dv}"')
+                sim_parts = obs_parts[:]
+                args['obs_cols'] = f'list({", ".join(obs_parts)})'
+                args['sim_cols'] = f'list({", ".join(sim_parts)})'
+            elif idv:
                 args['obs_cols'] = f'list(idv = "{idv}")'
                 args['sim_cols'] = f'list(idv = "{idv}")'
+            # Auto-inject from PsN meta when using PsN settings
+            if use_psn and psn_opts.get('predcorr'):
+                args['pred_corr'] = 'TRUE'
+            if use_psn and psn_opts.get('stratify_on'):
+                args['stratify'] = f'"{psn_opts["stratify_on"]}"'
             if not use_psn:
                 lloq_raw = self.lloq_edit.text().strip()
                 uloq_raw = self.uloq_edit.text().strip()
                 strat    = self.stratify_edit.text().strip()
                 args['pred_corr'] = 'TRUE' if self.pred_corr_cb.isChecked() else 'FALSE'
-                args['lloq']      = lloq_raw if lloq_raw else 'NULL'
-                args['uloq']      = uloq_raw if uloq_raw else 'NULL'
-                args['bins']      = '"jenks"'
-                args['n_bins']    = int(self.nbins_sb.value())
+                if lloq_raw:
+                    args['lloq'] = lloq_raw
+                    args['lloq_method'] = f'"{self.lloq_method_cb.currentText().lower()}"'
+                if uloq_raw:
+                    args['uloq'] = uloq_raw
+                args['bins']   = '"jenks"'
+                args['n_bins'] = int(self.nbins_sb.value())
                 if strat:
                     vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
                     args['stratify'] = (f'"{vars_[0]}"' if len(vars_) == 1
@@ -662,7 +803,15 @@ tryCatch({{
         invokeRestart("muffleWarning")
     }}
   )
-  if (is.null(vpc_plot)) stop("vpc() returned NULL"){log_extra}
+  if (is.null(vpc_plot)) stop("vpc() returned NULL")
+  # Handle vpc package v1.x which returns a list with $plot
+  if (!inherits(vpc_plot, "gg") && !inherits(vpc_plot, "ggplot")) {{
+    if (is.list(vpc_plot) && (inherits(vpc_plot$plot, "gg") || inherits(vpc_plot$plot, "ggplot"))) {{
+      vpc_plot <- vpc_plot$plot
+    }} else {{
+      stop("vpc() returned an unrecognised object type (expected ggplot or vpc list)")
+    }}
+  }}{log_extra}
   ggsave("{r_out}", vpc_plot, width=8, height=6, dpi=150)
   cat("NMGUI_VPC_OK\\n")
 }}, error=function(e) {{
@@ -670,14 +819,22 @@ tryCatch({{
 }})
 '''
         else:  # xpose
-            # IDV needs to flow through vpc_opt() in both use_psn and override paths,
-            # otherwise xpose::vpc_data(psn_folder=) fails on non-default IDVs (e.g. TAD).
+            # Resolve .lst file for xpose_data() (GAP 0)
+            lst_path, _lst_warn = self._resolve_xpose_lst(vpc_folder)
+            if lst_path:
+                r_lst = _sanitize_r(lst_path)
+                xpdb_line = f'xpdb <- xpose_data(file="{r_lst}")'
+            else:
+                xpdb_line = f'xpdb <- xpose_data(runno="{runno}", dir="{r_run}/")'
             if use_psn:
-                if idv:
-                    vpc_data_call = (f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE, '
-                                     f'opt=vpc_opt(idv="{idv}"))')
-                else:
-                    vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE)'
+                opt_items = []
+                if idv:                      opt_items.append(f'idv="{idv}"')
+                if psn_opts.get('predcorr'): opt_items.append('pred_corr=pred_corr_val')
+                opt_str = f', opt=vpc_opt({", ".join(opt_items)})' if opt_items else ''
+                stratify_arg = ''
+                if psn_opts.get('stratify_on'):
+                    stratify_arg = f', stratify_on=c("{psn_opts["stratify_on"]}")'
+                vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE{opt_str}{stratify_arg})'
             else:
                 lloq_raw = self.lloq_edit.text().strip()
                 uloq_raw = self.uloq_edit.text().strip()
@@ -702,7 +859,10 @@ library(xpose)
 library(ggplot2)
 
 tryCatch({{
-  xpdb <- xpose_data(runno="{runno}", dir="{r_run}/")
+  {xpdb_line}
+  # xpose version compatibility for pred_corr
+  xpose_ver <- tryCatch(as.numeric(utils::packageVersion("xpose")), error=function(e) 0)
+  pred_corr_val <- if (xpose_ver >= 0.4) TRUE else 1
   vpc_plot <- xpdb %>%
     {vpc_data_call} %>%
     {vpc_call}
@@ -758,6 +918,35 @@ tryCatch({{
         resolved_idv = self._resolve_idv(vpc_folder)
         if resolved_idv:
             self.console.appendPlainText(f'Using IDV column: {resolved_idv}')
+
+        # vpc_type pre-check: abort for unsupported VPC types (GAP 4)
+        vpc_type = psn_opts.get('vpc_type')
+        if vpc_type in (2, 3):
+            type_name = 'categorical' if vpc_type == 2 else 'time-to-event (TTE)'
+            QMessageBox.warning(self, 'VPC type not supported',
+                f'PsN was run with a {type_name} VPC (-vpc_type={vpc_type}).\n\n'
+                f'NMGUI2 currently supports only continuous VPCs. '
+                f'For {type_name} VPCs, please run the R script manually '
+                f'using vpc_cat() or vpc_tte() from the vpc package.\n\n'
+                f'The R script tab will show the generated script as a starting point.')
+            return
+
+        # Auto-enable log Y axis when lnDV detected (GAP 5)
+        if self.use_psn_cb.isChecked() and psn_opts.get('lnDV'):
+            self.log_y_cb.setChecked(True)
+            self.console.appendPlainText('Auto-enabling log Y axis (PsN -lnDV=1 detected)')
+
+        # xpose: pre-check model .lst file resolution (GAP 0)
+        if self.tool_cb.currentText() == 'xpose':
+            _lst_path, _lst_warn = self._resolve_xpose_lst(vpc_folder)
+            if _lst_warn:
+                self.console.appendPlainText(f'[WARNING] {_lst_warn}')
+            elif _lst_path:
+                self.console.appendPlainText(f'xpose model file: {Path(_lst_path).name}')
+
+        # Log auto-injected stratification (GAP 2)
+        if psn_opts.get('stratify_on') and self.use_psn_cb.isChecked():
+            self.console.appendPlainText(f'Auto-stratifying on: {psn_opts["stratify_on"]}')
 
         # Validate stratification column if specified
         strat = self.stratify_edit.text().strip()
