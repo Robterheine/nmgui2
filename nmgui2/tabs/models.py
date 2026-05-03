@@ -373,6 +373,7 @@ class ModelsTab(QWidget):
 
         # 0 — Parameters
         self.param_table = ParameterTable()
+        self.param_table.export_done.connect(self.status_msg)
         self._detail_stack.addWidget(self.param_table)
 
         # 1 — Editor
@@ -641,6 +642,8 @@ class ModelsTab(QWidget):
         # Terminate any in-flight scan before starting a new one
         if self._scan_worker and self._scan_worker.isRunning():
             self._scan_worker.result.disconnect()
+            try: self._scan_worker.error.disconnect()
+            except Exception: pass
             self._scan_worker.cancel()  # Cooperative cancellation
             self._scan_worker.wait(500)  # Wait up to 500ms
         w = ScanWorker(d, self._meta)

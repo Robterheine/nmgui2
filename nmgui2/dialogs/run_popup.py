@@ -14,7 +14,7 @@ from PyQt6.QtGui import QFont, QPalette, QColor, QCloseEvent
 from ..app.theme import C, T, monospace_font
 from ..app.constants import IS_WIN, IS_MAC
 from ..app.workers import RunWorker
-from ..app.run_records import create_run_record, finalize_run_record, load_run_records, save_run_records
+from ..app.run_records import create_run_record, finalize_run_record, load_run_records, save_run_records, patch_versions_async
 from ..app.config import load_runs, save_runs
 from ..app import detached_runs as _dr
 
@@ -181,6 +181,8 @@ class RunPopup(QDialog):
         records = load_run_records(cwd)
         records.insert(0, self._run_record)
         save_run_records(cwd, records[:500])
+        import threading as _t
+        _t.Thread(target=patch_versions_async, args=(self._run_record, cwd), daemon=True).start()
 
         runs = load_runs()
         self._run_history_id = f"{self.stem}_{int(time.time())}"

@@ -107,8 +107,8 @@ class ScanWorker(QThread):
                     tf = extract_table_files(content)
                     m['table_files'] = tf['table_files']
                     m['table_runno'] = tf['runno']
-                except Exception:
-                    pass
+                except Exception as e:
+                    _log.warning(f'Parse error reading {f.name}: {e}')
                 # Find .lst
                 lst_same = p / (f.stem + '.lst'); lst_sub = None
                 rd = p / f.stem

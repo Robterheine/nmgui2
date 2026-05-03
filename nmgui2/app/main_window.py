@@ -421,9 +421,14 @@ class MainWindow(QMainWindow):
         # Check R availability in background — don't block startup
         def _r_check():
             if not _find_rscript():
-                QTimer.singleShot(0, lambda: self.statusBar().showMessage(
-                    'R (Rscript) not found on PATH — VPC and RStudio features unavailable. '
-                    'Install R or set its path in Settings.'))
+                def _show():
+                    try:
+                        self.statusBar().showMessage(
+                            'R (Rscript) not found on PATH — VPC and RStudio features unavailable. '
+                            'Install R or set its path in Settings.')
+                    except RuntimeError:
+                        pass
+                QTimer.singleShot(0, _show)
         threading.Thread(target=_r_check, daemon=True).start()
 
     def _version_check(self):
@@ -440,8 +445,11 @@ class MainWindow(QMainWindow):
                         except ValueError: parts.append(0)
                     return tuple(parts)
                 if tag and _tup(tag) > _tup(APP_VERSION):
-                    QTimer.singleShot(0, lambda: self.statusBar().showMessage(
-                        f'Update available: v{tag}  —  github.com/robterheine/NMGUI2/releases'))
+                    msg = f'Update available: v{tag}  —  github.com/robterheine/NMGUI2/releases'
+                    def _show(m=msg):
+                        try: self.statusBar().showMessage(m)
+                        except RuntimeError: pass
+                    QTimer.singleShot(0, _show)
             except Exception:
                 pass
         threading.Thread(target=_fetch, daemon=True).start()

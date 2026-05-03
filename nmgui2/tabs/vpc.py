@@ -27,15 +27,23 @@ class VPCWorker(QThread):
         self._rs      = rscript
         self._env     = env
         self._timeout = timeout_sec
+        self._proc: subprocess.Popen | None = None
+
+    def stop_subprocess(self):
+        """Kill the Rscript process from the main thread before terminating the QThread."""
+        if self._proc and self._proc.poll() is None:
+            try: self._proc.kill()
+            except Exception: pass
 
     def run(self):
         try:
             _pkw = {'creationflags': subprocess.CREATE_NO_WINDOW} if IS_WIN else {'start_new_session': True}
-            proc = subprocess.Popen(
+            self._proc = subprocess.Popen(
                 [self._rs, self._script],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, bufsize=1, env=self._env,
                 cwd=str(Path(self._script).parent), **_pkw)
+            proc = self._proc
             stdout_lines = []
             for line in iter(proc.stdout.readline, ''):
                 self.line_out.emit(line.rstrip())
@@ -71,9 +79,10 @@ class VPCTab(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._model   = None
-        self._worker  = None
-        self._rscript = None
+        self._model          = None
+        self._worker         = None
+        self._export_worker  = None
+        self._rscript        = None
         self._pkg_avail = {'vpc': False, 'xpose': False}
         self._r_check_done.connect(self._on_r_check_done)
         self._build_ui()
@@ -877,6 +886,8 @@ tryCatch({{
         return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
 
     def _run(self):
+        if self._export_worker and self._export_worker.isRunning():
+            return
         vpc_folder = self.vpc_folder_edit.text().strip()
         if not vpc_folder or not Path(vpc_folder).is_dir():
             QMessageBox.warning(self, 'Missing folder', 'Select a valid PsN VPC output folder first.')
@@ -1150,5 +1161,10 @@ tryCatch({{
         except Exception as e: _log.debug(f'Could not open file {path}: {e}')
 
     def _stop(self):
-        if self._worker: self._worker.terminate()
+        if self._worker:
+            self._worker.stop_subprocess()
+            self._worker.terminate()
+        if self._export_worker and self._export_worker.isRunning():
+            self._export_worker.stop_subprocess()
+            self._export_worker.terminate()
         self.run_btn.setEnabled(True); self.stop_btn.setEnabled(False)

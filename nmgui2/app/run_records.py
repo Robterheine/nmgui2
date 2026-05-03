@@ -122,8 +122,8 @@ def create_run_record(model_path, cmd, tool):
         'data_n_subjects': data_subjects,
         'tool': tool,
         'command': cmd,
-        'nonmem_version': _detect_nonmem_version(str(cwd)),
-        'psn_version': _detect_psn_version(),
+        'nonmem_version': 'unknown',
+        'psn_version': 'unknown',
         'nmgui_version': APP_VERSION,
         'started': datetime.now().isoformat(),
         'completed': None,
@@ -137,6 +137,24 @@ def create_run_record(model_path, cmd, tool):
         'output_hashes': {},
     }
     return record
+
+
+def patch_versions_async(record, cwd):
+    """Detect NONMEM/PsN versions off the main thread and patch the run record."""
+    nm_ver  = _detect_nonmem_version(cwd)
+    psn_ver = _detect_psn_version()
+    record['nonmem_version'] = nm_ver
+    record['psn_version']    = psn_ver
+    try:
+        records = load_run_records(cwd)
+        for i, r in enumerate(records):
+            if r.get('run_id') == record.get('run_id'):
+                records[i]['nonmem_version'] = nm_ver
+                records[i]['psn_version']    = psn_ver
+                break
+        save_run_records(cwd, records)
+    except Exception as e:
+        _log.debug(f'Could not patch version info in run records: {e}')
 
 
 def finalize_run_record(record, model_path, exit_code):

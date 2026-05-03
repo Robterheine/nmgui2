@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QPush
                               QHeaderView, QAbstractItemView, QGroupBox, QComboBox,
                               QFileDialog, QMessageBox, QProgressBar, QCheckBox, QSpinBox,
                               QPlainTextEdit, QStackedWidget, QRadioButton, QButtonGroup,
-                              QFormLayout, QDoubleSpinBox, QGridLayout, QLineEdit)
+                              QFormLayout, QGridLayout, QLineEdit)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QBrush, QColor, QFont, QPalette
 
@@ -1369,16 +1369,14 @@ class ParameterUncertaintyTab(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
 
-        self.boot_samples_spin = QDoubleSpinBox()
+        self.boot_samples_spin = QSpinBox()
         self.boot_samples_spin.setRange(100, 10000)
         self.boot_samples_spin.setValue(1000)
-        self.boot_samples_spin.setDecimals(0)
         form.addRow('Samples:', self.boot_samples_spin)
 
-        self.boot_threads_spin = QDoubleSpinBox()
+        self.boot_threads_spin = QSpinBox()
         self.boot_threads_spin.setRange(1, 64)
         self.boot_threads_spin.setValue(4)
-        self.boot_threads_spin.setDecimals(0)
         form.addRow('Threads:', self.boot_threads_spin)
 
         self.boot_stratify_edit = QLineEdit()
@@ -1408,22 +1406,19 @@ class ParameterUncertaintyTab(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
 
-        self.sir_samples_spin = QDoubleSpinBox()
+        self.sir_samples_spin = QSpinBox()
         self.sir_samples_spin.setRange(100, 50000)
         self.sir_samples_spin.setValue(1000)
-        self.sir_samples_spin.setDecimals(0)
         form.addRow('Samples:', self.sir_samples_spin)
 
-        self.sir_resamples_spin = QDoubleSpinBox()
+        self.sir_resamples_spin = QSpinBox()
         self.sir_resamples_spin.setRange(100, 50000)
         self.sir_resamples_spin.setValue(1000)
-        self.sir_resamples_spin.setDecimals(0)
         form.addRow('Resamples:', self.sir_resamples_spin)
 
-        self.sir_threads_spin = QDoubleSpinBox()
+        self.sir_threads_spin = QSpinBox()
         self.sir_threads_spin.setRange(1, 64)
         self.sir_threads_spin.setValue(4)
-        self.sir_threads_spin.setDecimals(0)
         form.addRow('Threads:', self.sir_threads_spin)
 
         # Output directory
@@ -1569,8 +1564,8 @@ class ParameterUncertaintyTab(QWidget):
             return []
 
         cmd = ['bootstrap', self._model['path']]
-        cmd.append(f'-samples={int(self.boot_samples_spin.value())}')
-        cmd.append(f'-threads={int(self.boot_threads_spin.value())}')
+        cmd.append(f'-samples={self.boot_samples_spin.value()}')
+        cmd.append(f'-threads={self.boot_threads_spin.value()}')
 
         strat = self.boot_stratify_edit.text().strip()
         if strat:
@@ -1590,9 +1585,9 @@ class ParameterUncertaintyTab(QWidget):
             return []
 
         cmd = ['sir', self._model['path']]
-        cmd.append(f'-samples={int(self.sir_samples_spin.value())}')
-        cmd.append(f'-resamples={int(self.sir_resamples_spin.value())}')
-        cmd.append(f'-threads={int(self.sir_threads_spin.value())}')
+        cmd.append(f'-samples={self.sir_samples_spin.value()}')
+        cmd.append(f'-resamples={self.sir_resamples_spin.value()}')
+        cmd.append(f'-threads={self.sir_threads_spin.value()}')
 
         out_dir = self.sir_dir_edit.text().strip()
         if out_dir:

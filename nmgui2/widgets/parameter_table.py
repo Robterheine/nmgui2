@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QFileDialog, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor
 
 from ..app.theme import C, T
@@ -20,6 +20,8 @@ _SECTION_ROW_KEY = 'section_header'   # stored in UserRole to identify header ro
 
 
 class ParameterTable(QWidget):
+    export_done = pyqtSignal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._model = None
@@ -140,9 +142,7 @@ class ParameterTable(QWidget):
             w = _csv.writer(f)
             w.writerow(['Parameter','Name','Estimate','SE','RSE_pct','Units','Fixed'])
             w.writerows(rows)
-        p = self.parent()
-        if p and p.parent() and hasattr(p.parent(), 'status_msg'):
-            p.parent().status_msg.emit(f'Parameters exported: {Path(dst).name}')
+        self.export_done.emit(f'Parameters exported: {Path(dst).name}')
 
     def load(self, model, parent_model=None):
         self._model = model if model.get('has_run') else None

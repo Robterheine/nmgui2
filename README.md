@@ -637,6 +637,38 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.7 — Code quality and stability audit
+
+**Reliability fixes**
+- **Run popup no longer freezes the UI on launch**: NONMEM and PsN version detection
+  (`_detect_nonmem_version`, `_detect_psn_version`) was called synchronously on the main
+  thread, blocking the GUI for up to 10 s when PsN was not on `$PATH`. Detection now runs
+  in a background thread and patches the run record after the popup opens.
+- **No more crash after closing the main window while a background check is in progress**:
+  The R-availability check and version-update check post their results back to the UI via
+  `QTimer.singleShot`. If the window is already closed when the callback fires, the call
+  previously raised `RuntimeError: wrapped C++ object deleted`. Both callbacks are now
+  guarded with `try/except RuntimeError`.
+- **VPC Stop button now actually kills the Rscript process**: Clicking Stop terminated the
+  Python `QThread` wrapper but left the Rscript subprocess running (it was started with
+  `start_new_session=True` in its own process group). A new `stop_subprocess()` method on
+  `VPCWorker` explicitly kills the child process. The same fix is applied to export workers
+  (PNG/PDF). An export in progress now also correctly blocks a new VPC run from starting.
+- **Stale scan-error callbacks no longer accumulate**: When a directory scan was cancelled
+  and immediately replaced by a new scan, the `error` signal of the old worker was not
+  disconnected. Each rapid rescan leaked one error handler that could fire misleading status
+  messages. The `error` signal is now disconnected alongside `result`.
+- **Parameter CSV export status message no longer silently fails**: `ParameterTable` used a
+  fragile `parent().parent()` widget-tree walk to emit a status-bar message after CSV
+  export. It now emits its own `export_done` signal, connected at the callsite in `models.py`.
+
+**Code quality**
+- Bootstrap / SIR sample, resample, and thread spinboxes in the Uncertainty tab changed from
+  `QDoubleSpinBox(decimals=0)` to `QSpinBox` — avoids showing a spurious decimal point on
+  some platforms and removes unnecessary `int()` casts in the command builder.
+- Per-model parse errors in `ScanWorker` are now logged at `WARNING` level instead of being
+  silently swallowed, so problems with individual `.mod` files appear in diagnostic output.
+
 ### v2.9.6 — VPC coverage hardening
 
 **Bug fix (critical)**
