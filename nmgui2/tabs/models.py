@@ -1346,7 +1346,7 @@ class ModelsTab(QWidget):
             finished = getattr(popup, '_finished', False)
             elapsed  = getattr(popup, '_elapsed', 0)
             if finished:
-                ok = getattr(popup._status_lbl, 'text', lambda: '')().startswith('✓')
+                ok = getattr(popup, '_run_ok', False)
                 status_txt, status_col = ('✓  Done', C.green) if ok else ('✗  Failed', C.red)
             else:
                 status_txt, status_col = '●  Running', T('accent')

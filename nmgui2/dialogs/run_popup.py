@@ -39,6 +39,7 @@ class RunPopup(QDialog):
         self._last_ofv: str | None = None   # remembered for completion status line
         self._run_record = None
         self._finished = False
+        self._run_ok   = False
 
         self.setWindowTitle(f'{stem} — {tool}')
         self.setObjectName('RunPopupDlg')
@@ -218,6 +219,7 @@ class RunPopup(QDialog):
 
     def _on_done(self, rc: int):
         self._finished = True
+        self._run_ok   = (rc == 0)
         self._elapsed_timer.stop()
         self._pulse_timer.stop()
 

@@ -197,6 +197,9 @@ def apply_palette(app, theme_name='dark'):
 
 
 def build_stylesheet(theme_name='dark'):
+    import sys
+    _font_stack = ('"Helvetica Neue", Arial, sans-serif' if sys.platform == 'darwin'
+                   else '"Segoe UI", Arial, sans-serif')
     t = THEMES[theme_name]
     _up = _arrow_png_uri(t['fg2'], 'up')
     _dn = _arrow_png_uri(t['fg2'], 'down')
@@ -204,7 +207,7 @@ def build_stylesheet(theme_name='dark'):
 /* ── Base ─────────────────────────────────────── */
 QMainWindow, QWidget, QDialog {{
     background: {t['bg']}; color: {t['fg']};
-    font-family: "Helvetica Neue", "Segoe UI", Arial, sans-serif;
+    font-family: {_font_stack};
     font-size: 13px;
 }}
 
