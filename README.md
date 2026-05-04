@@ -637,6 +637,20 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.8 — iOFV waterfall: normalised mode and chi-squared threshold
+
+**New features**
+- **Normalised iOFV view**: The waterfall plot now offers an **Absolute / Normalised** toggle. Normalised mode divides each subject's iOFV by their number of informative observations (EVID=0, MDV=0), making subjects with very rich or very sparse sampling directly comparable.
+- **Chi-squared outlier threshold**: The previous mean+2 SD horizontal line has been replaced by a statistically sound χ²(df=n_obs, α=0.001) threshold. In Absolute mode this renders as a per-subject step function; in Normalised mode as a smooth decreasing curve (because variance of χ²(k)/k = 2/k, so sparse subjects have a higher per-unit threshold).
+- **Amber highlighting for sparse subjects**: Subjects with fewer than 5 observations are highlighted in amber — the chi-squared approximation is unreliable at that sample size.
+- **Info bar**: A one-line explanation beneath the toolbar reads *"iOFV scales with the number of observations per subject · Absolute: raw iOFV with subject-specific χ² threshold · Normalised: iOFV / n_obs corrects for unequal sampling richness"*, so the reason two options exist is always visible.
+- **Rich tooltips**: Each toggle button carries a detailed tooltip explaining when to use it and how the threshold is computed.
+- **Colour legend**: A legend bar at the bottom of the plot identifies normal (blue–purple gradient), outlier (red), sparse (amber), and no-data (grey) bars.
+
+**How it works**
+- Observation counts are read from the dataset file specified in `$DATA` in the background using a `QThread` worker. Rows with EVID≠0 or MDV=1 are excluded.
+- If `scipy` is not available the plot falls back to a mean+2 SD threshold with a visible warning.
+
 ### v2.9.7 — Code quality and stability audit
 
 **Reliability fixes**

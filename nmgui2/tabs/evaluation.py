@@ -329,6 +329,15 @@ class EvaluationTab(QWidget):
         if found:
             self.file_edit.setText(str(found))
             self._load()
+
+        # Resolve dataset path so the waterfall can count observations per subject
+        data_file = model.get('data_file', '')
+        if data_file:
+            resolved = mod_dir / data_file
+            self.waterfall.set_dataset_path(str(resolved) if resolved.is_file() else None)
+        else:
+            self.waterfall.set_dataset_path(None)
+
         self._try_phi(model)
         self._try_ext(model)
 

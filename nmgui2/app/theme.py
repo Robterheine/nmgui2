@@ -510,6 +510,39 @@ QPushButton#pillBtn:checked {{
     font-weight: 600;
     border-color: {t['accent']};
 }}
+/* ── Segmented [Left]/[Right] button pair ─────────── */
+QPushButton#segLeft, QPushButton#segRight {{
+    background: {t['bg3']};
+    border: 1px solid {t['border']};
+    color: {t['fg2']};
+    padding: 3px 14px;
+    font-size: 12px;
+    min-width: 80px;
+}}
+QPushButton#segLeft {{
+    border-top-left-radius: 5px;
+    border-bottom-left-radius: 5px;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right-width: 0;
+}}
+QPushButton#segRight {{
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-top-right-radius: 5px;
+    border-bottom-right-radius: 5px;
+}}
+QPushButton#segLeft:hover, QPushButton#segRight:hover {{
+    background: {t['bg4']};
+    color: {t['fg']};
+    border-color: {t['fg3']};
+}}
+QPushButton#segLeft:checked, QPushButton#segRight:checked {{
+    background: {t['accent']};
+    color: #ffffff;
+    border-color: {t['accent']};
+    font-weight: 600;
+}}
 QPushButton#filterBtn {{
     background: {t['bg3']};
     border: 1px solid {t['border']};
