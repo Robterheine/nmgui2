@@ -637,6 +637,13 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.9 — Individual fit plots: legend and observation count
+
+**Improvements**
+- **Shared legend bar**: A 22 px legend bar now appears below the toolbar on the individual fit plot, identifying the three series: blue filled circles (DV — Observed), solid line (IPRED — Individual prediction), and red dashed line (PRED — Population prediction). The legend carries a tooltip explaining the diagnostic meaning of each comparison, including the ETA shrinkage warning (DV ≈ PRED ≠ IPRED).
+- **Observation count in subplot titles**: Each subplot now shows `ID 101  (n=12)` — the number of informative observations plotted — so subjects with very sparse data (n=2–3) are immediately obvious without counting dots.
+- The legend repaints correctly when switching between dark and light themes.
+
 ### v2.9.8 — iOFV waterfall: normalised mode and chi-squared threshold
 
 **New features**

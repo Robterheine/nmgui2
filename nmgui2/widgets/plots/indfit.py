@@ -3,12 +3,90 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                               QLabel, QComboBox, QLineEdit, QFileDialog, QMessageBox)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 try: import pyqtgraph as pg; HAS_PG = True
 except ImportError: HAS_PG = False
 try: import numpy as np; HAS_NP = True
 except ImportError: HAS_NP = False
 from ...app.theme import C, T, THEMES, _active_theme
 from ...widgets._icons import _placeholder
+
+_SWATCH_W, _SWATCH_H = 20, 10
+_DV_COLOR = '#3c78dc'  # opaque read of pg.mkBrush(60, 120, 220, 160) used in _render
+
+
+def _make_swatch_dv() -> QPixmap:
+    pm = QPixmap(_SWATCH_W, _SWATCH_H)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(_DV_COLOR))
+    cx, cy, r = _SWATCH_W // 2, _SWATCH_H // 2, 4
+    p.drawEllipse(cx - r, cy - r, r * 2, r * 2)
+    p.end()
+    return pm
+
+
+def _make_swatch_line(color: str, dashed: bool) -> QPixmap:
+    pm = QPixmap(_SWATCH_W, _SWATCH_H)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    pen = QPen(QColor(color), 2)
+    if dashed:
+        pen.setStyle(Qt.PenStyle.DashLine)
+    p.setPen(pen)
+    mid = _SWATCH_H // 2
+    p.drawLine(0, mid, _SWATCH_W, mid)
+    p.end()
+    return pm
+
+
+class _LegendBar(QWidget):
+    """22px shared legend: DV · IPRED · PRED."""
+
+    _ENTRIES = [
+        ('dv',    'DV — Observed'),
+        ('ipred', 'IPRED — Individual prediction'),
+        ('pred',  'PRED — Population prediction'),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(22)
+        h = QHBoxLayout(self)
+        h.setContentsMargins(10, 0, 10, 0)
+        h.setSpacing(6)
+        h.addStretch()
+
+        self._sw: dict[str, QLabel] = {}
+        self._tx: dict[str, QLabel] = {}
+        for key, text in self._ENTRIES:
+            sw = QLabel()
+            sw.setFixedSize(_SWATCH_W, _SWATCH_H)
+            tx = QLabel(text)
+            self._sw[key] = sw
+            self._tx[key] = tx
+            h.addWidget(sw)
+            h.addWidget(tx)
+            if key != 'pred':
+                h.addSpacing(14)
+        h.addStretch()
+
+        self.setToolTip(
+            '<b>DV</b> (blue circles) — observed measurement<br>'
+            '<b>IPRED</b> (solid line) — individual predicted using subject-specific ETAs<br>'
+            '<b>PRED</b> (dashed line) — population predicted using typical ETAs (no individual adjustment)<br><br>'
+            '<b>DV ≈ IPRED ≠ PRED</b> → subject deviates from typical but model fits well<br>'
+            '<b>DV ≈ PRED ≠ IPRED</b> → ETA shrinkage warning: individual predictions may be unreliable')
+
+    def set_theme(self, bg: str, fg: str, red: str):
+        self.setStyleSheet(f'background: {bg};')
+        for lbl in self._tx.values():
+            lbl.setStyleSheet(f'color: {fg}; font-size: 10px; background: transparent;')
+        self._sw['dv'].setPixmap(_make_swatch_dv())
+        self._sw['ipred'].setPixmap(_make_swatch_line(fg, dashed=False))
+        self._sw['pred'].setPixmap(_make_swatch_line(red, dashed=True))
 
 
 class IndFitWidget(QWidget):
@@ -56,11 +134,19 @@ class IndFitWidget(QWidget):
         sep = QWidget(); sep.setFixedHeight(1); sep.setObjectName('hairlineSep')
         v.addWidget(sep)
 
+        # ── Legend bar ────────────────────────────────────────────────────────
+        self._legend = _LegendBar()
+        v.addWidget(self._legend)
+        self._legend.set_theme(T('bg2'), T('fg2'), C.red)
+
         self.gw = pg.GraphicsLayoutWidget()
         v.addWidget(self.gw, 1)
 
     def set_theme(self, bg, fg):
-        if HAS_PG and hasattr(self, 'gw'): self.gw.setBackground(bg)
+        if HAS_PG and hasattr(self, 'gw'):
+            self.gw.setBackground(bg)
+        if hasattr(self, '_legend'):
+            self._legend.set_theme(T('bg2'), T('fg2'), C.red)
 
     def load(self, header, rows, mdv_filter=True):
         if not HAS_PG or not HAS_NP: return
@@ -137,9 +223,9 @@ class IndFitWidget(QWidget):
         pr_p = pg.mkPen(C.red, width=1, style=Qt.PenStyle.DashLine)
         for i, rid in enumerate(ids_page):
             ri, ci_ = divmod(i, g)
-            p = self.gw.addPlot(row=ri, col=ci_, title=f'ID {rid}')
-            p.showGrid(x=True, y=True, alpha=0.15)
             rws = id_rows.get(rid, [])
+            p = self.gw.addPlot(row=ri, col=ci_, title=f'ID {rid}  (n={len(rws)})')
+            p.showGrid(x=True, y=True, alpha=0.15)
             def cv(idx, _rws=rws):
                 if idx is None: return None
                 try: return np.array([float(r[idx]) for r in _rws])
