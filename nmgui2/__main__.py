@@ -1,9 +1,19 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt
-from .app.constants import APP_VERSION
+from PyQt6.QtGui import QIcon
+from .app.constants import APP_VERSION, IS_WIN
 from .app.theme import THEMES, set_active_theme, build_stylesheet, apply_palette
 from .app.config import load_settings
+
+# Windows: must be called before QApplication so the taskbar uses our icon
+# instead of grouping the window under the generic pythonw.exe entry.
+if IS_WIN:
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('NMGui.NMGui2.1')
+    except Exception:
+        pass
 
 try:
     import pyqtgraph as pg
@@ -20,11 +30,20 @@ except ImportError as e:
     _PARSER_ERR = str(e)
 
 
+def _build_icon() -> QIcon:
+    from .widgets._icons import _make_logo_pixmap
+    icon = QIcon()
+    for sz in (16, 24, 32, 48, 64, 128, 256):
+        icon.addPixmap(_make_logo_pixmap(sz))
+    return icon
+
+
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName('NMGUI')
     app.setApplicationVersion(APP_VERSION)
     app.setStyle('Fusion')
+    app.setWindowIcon(_build_icon())
 
     saved_theme = (load_settings().get('theme') or 'dark')
     set_active_theme(saved_theme)

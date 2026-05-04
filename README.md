@@ -637,6 +637,11 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.10 — Custom application icon
+
+- **Custom app icon**: The NM monogram (blue rounded rectangle, white bold "NM") now appears in the macOS Dock and Windows taskbar instead of the generic Python icon. Built at eight sizes (16–256 px) from the existing QPainter logo, so it is sharp at every resolution including Retina/HiDPI displays. No image files required.
+- **Windows taskbar grouping**: On Windows, `SetCurrentProcessExplicitAppUserModelID` is called before `QApplication` starts, which tells the taskbar to treat NMGUI as its own application entry rather than grouping it under pythonw.exe.
+
 ### v2.9.9 — Individual fit plots: legend and observation count
 
 **Improvements**
