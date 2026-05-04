@@ -637,6 +637,11 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.11 — Startup warning and TypeError fixes
+
+- **`TypeError: invalid argument to sipBadCatcherResult()`**: The `QPainter.drawText(QRect, flags, str)` overload is broken in some PyQt6 builds (sip binding bug). The NM logo painter now uses `QFontMetrics.horizontalAdvance()` to manually centre the text and calls `drawText(x, y, str)` instead, which has no ambiguous overload.
+- **`qt.qpa.fonts: … missing font family "Sans-serif"`**: Qt stylesheets do not understand CSS generic family names like `sans-serif` — Qt treats them as literal font names and spends ~80 ms searching before giving up. Removed the generic fallback from the font stack; Qt applies its own system fallback automatically.
+
 ### v2.9.10 — Custom application icon
 
 - **Custom app icon**: The NM monogram (blue rounded rectangle, white bold "NM") now appears in the macOS Dock and Windows taskbar instead of the generic Python icon. Built at eight sizes (16–256 px) from the existing QPainter logo, so it is sharp at every resolution including Retina/HiDPI displays. No image files required.

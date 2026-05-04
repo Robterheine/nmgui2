@@ -198,8 +198,11 @@ def apply_palette(app, theme_name='dark'):
 
 def build_stylesheet(theme_name='dark'):
     import sys
-    _font_stack = ('"Helvetica Neue", Arial, sans-serif' if sys.platform == 'darwin'
-                   else '"Segoe UI", Arial, sans-serif')
+    # Qt resolves its own system fallback — do not include CSS generic families
+    # like "sans-serif" here; Qt treats them as literal font names and wastes
+    # ~80 ms searching for a font called "Sans-serif" that does not exist.
+    _font_stack = ('"Helvetica Neue", Arial' if sys.platform == 'darwin'
+                   else '"Segoe UI", Arial')
     t = THEMES[theme_name]
     _up = _arrow_png_uri(t['fg2'], 'up')
     _dn = _arrow_png_uri(t['fg2'], 'down')

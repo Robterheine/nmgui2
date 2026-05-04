@@ -8,9 +8,8 @@ from ..app.theme import C, T
 def _make_logo_pixmap(size=32):
     """Draw the NM logo using QPainter — no SVG dependency."""
     from PyQt6.QtGui import QPainter, QFont, QFontMetrics
-    from PyQt6.QtCore import QRect, QRectF
+    from PyQt6.QtCore import QRectF
 
-    # Use device-pixel-ratio-aware pixmap for sharp rendering on HiDPI
     px = QPixmap(size, size)
     px.fill(Qt.GlobalColor.transparent)
 
@@ -24,14 +23,20 @@ def _make_logo_pixmap(size=32):
     painter.setPen(Qt.PenStyle.NoPen)
     painter.drawRoundedRect(QRectF(0, 0, size, size), radius, radius)
 
-    # White "NM" text — use a bold system font, slightly off-white for crispness
+    # White "NM" text — manually centred via QFontMetrics to avoid the
+    # drawText(QRect, flags, str) overload which triggers sipBadCatcherResult
+    # in some PyQt6 builds.
     painter.setPen(QColor('#eef2ff'))
     font = QFont()
     font.setPixelSize(max(10, int(size * 0.42)))
     font.setWeight(QFont.Weight.Black)
     font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, -0.5)
     painter.setFont(font)
-    painter.drawText(QRect(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, 'NM')
+    fm = QFontMetrics(font)
+    tw = fm.horizontalAdvance('NM')
+    x = (size - tw) // 2
+    y = (size - fm.height()) // 2 + fm.ascent()
+    painter.drawText(x, y, 'NM')
 
     painter.end()
     return px
