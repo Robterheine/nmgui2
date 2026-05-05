@@ -73,6 +73,24 @@ class VPCWorker(QThread):
             self.finished.emit(False, str(e))
 
 
+def _vpc_strat_arg(psn_opts, use_psn, stratify_edit):
+    """Return a stratify= argument string for R, or ''.
+
+    Always produces a properly-quoted R character vector:
+      ', stratify = "COL"'  or  ', stratify = c("COL1", "COL2")'
+    """
+    if use_psn and psn_opts.get('stratify_on'):
+        col = _r_col(psn_opts['stratify_on'])
+        return f', stratify = "{col}"'
+    strat = stratify_edit.text().strip()
+    if strat and not use_psn:
+        vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
+        if len(vars_) == 1:
+            return f', stratify = "{vars_[0]}"'
+        return ', stratify = c(' + ', '.join(f'"{v}"' for v in vars_) + ')'
+    return ''
+
+
 class VPCTab(QWidget):
     status_msg = pyqtSignal(str)
     _r_check_done = pyqtSignal(bool, dict, str)  # has_r, pkgs, rscript_path
@@ -223,6 +241,58 @@ class VPCTab(QWidget):
         self.lst_file_w = QWidget(); self.lst_file_w.setLayout(r3b)
         sg.addWidget(self.lst_file_w)
 
+        # ── VPC type info widgets (hidden until folder loaded) ───────────────────
+
+        # A — Type badge row
+        self.vpc_type_lbl = QLabel('VPC type:'); self.vpc_type_lbl.setFixedWidth(74)
+        self.vpc_type_badge = QLabel('—')
+        self.vpc_type_badge.setToolTip(
+            'VPC type auto-detected from PsN options (meta.yaml / command.txt).')
+        _r_type = QHBoxLayout(); _r_type.setContentsMargins(0, 0, 0, 0); _r_type.setSpacing(6)
+        _r_type.addWidget(self.vpc_type_lbl); _r_type.addWidget(self.vpc_type_badge)
+        _r_type.addStretch()
+        self._vpc_type_row = QWidget(); self._vpc_type_row.setLayout(_r_type)
+        self._vpc_type_row.setVisible(False)
+        sg.addWidget(self._vpc_type_row)
+
+        # B — Categorical levels (informational, read-only)
+        self.cat_levels_edit = QLineEdit(); self.cat_levels_edit.setReadOnly(True)
+        self.cat_levels_edit.setFixedWidth(220)
+        self.cat_levels_edit.setPlaceholderText('Auto-detected from PsN (e.g. 0,1,2)')
+        self.cat_levels_edit.setToolTip(
+            'Category levels from PsN -levels= option (shown for reference only).\n'
+            'vpc_cat() always infers levels automatically from the observed DV values.\n'
+            'Stratification requires the xpose backend (vpc_cat has no stratify= argument).')
+        _r_cat = QHBoxLayout(); _r_cat.setContentsMargins(0, 0, 0, 0); _r_cat.setSpacing(6)
+        _r_cat.addWidget(QLabel('Levels:')); _r_cat.addWidget(self.cat_levels_edit)
+        _r_cat.addStretch()
+        self._cat_levels_row = QWidget(); self._cat_levels_row.setLayout(_r_cat)
+        self._cat_levels_row.setVisible(False)
+        sg.addWidget(self._cat_levels_row)
+
+        # C — TTE info row (time variable only; KM is always used, no checkbox needed)
+        self.tte_var_edit = QLineEdit(); self.tte_var_edit.setReadOnly(True)
+        self.tte_var_edit.setFixedWidth(120)
+        self.tte_var_edit.setToolTip(
+            'Time variable detected from PsN -tte= option.\n'
+            'Passed as obs_cols/sim_cols idv= to vpc_tte().')
+        _r_tte = QHBoxLayout(); _r_tte.setContentsMargins(0, 0, 0, 0); _r_tte.setSpacing(6)
+        _r_tte.addWidget(QLabel('TTE var:')); _r_tte.addWidget(self.tte_var_edit)
+        _r_tte.addStretch()
+        self._tte_info_row = QWidget(); self._tte_info_row.setLayout(_r_tte)
+        self._tte_info_row.setVisible(False)
+        sg.addWidget(self._tte_info_row)
+
+        # D — Censored info row
+        self.censor_info_edit = QLineEdit(); self.censor_info_edit.setReadOnly(True)
+        self.censor_info_edit.setFixedWidth(380)
+        _r_cens = QHBoxLayout(); _r_cens.setContentsMargins(0, 0, 0, 0); _r_cens.setSpacing(6)
+        _r_cens.addWidget(QLabel('Censoring:')); _r_cens.addWidget(self.censor_info_edit)
+        _r_cens.addStretch()
+        self._censor_info_row = QWidget(); self._censor_info_row.setLayout(_r_cens)
+        self._censor_info_row.setVisible(False)
+        sg.addWidget(self._censor_info_row)
+
         # Row 4 — Stratify / PI / CI
         dash1 = QLabel('–'); dash1.setFixedWidth(10)
         dash2 = QLabel('–'); dash2.setFixedWidth(10)
@@ -345,6 +415,10 @@ class VPCTab(QWidget):
         self._on_tool_change(self.tool_cb.currentText())
         self.use_psn_cb.stateChanged.connect(self._on_psn_inherit_change)
         self.use_psn_cb.setChecked(True)  # fires stateChanged → disables override widgets
+        # Debounced folder detection
+        self._folder_detect_timer = QTimer(); self._folder_detect_timer.setSingleShot(True)
+        self._folder_detect_timer.timeout.connect(self._on_folder_detect_timer)
+        self.vpc_folder_edit.textChanged.connect(self._on_vpc_folder_changed)
 
     def _apply_editor_palette(self, widget):
         pal = QPalette()
@@ -354,11 +428,15 @@ class VPCTab(QWidget):
         widget.setPalette(pal)
 
     def _on_tool_change(self, tool):
-        show_run_dir = (tool == 'xpose')
-        self.run_dir_lbl.setVisible(show_run_dir)
-        self.run_dir_w.setVisible(show_run_dir)
-        self.lst_file_lbl.setVisible(show_run_dir)
-        self.lst_file_w.setVisible(show_run_dir)
+        show_xpose = (tool == 'xpose')
+        self.run_dir_lbl.setVisible(show_xpose)
+        self.run_dir_w.setVisible(show_xpose)
+        self.lst_file_lbl.setVisible(show_xpose)
+        self.lst_file_w.setVisible(show_xpose)
+        # Refresh greyouts — stratify availability differs by backend for categorical VPC
+        folder = self.vpc_folder_edit.text().strip()
+        if folder and Path(folder).is_dir():
+            self._update_type_ui(self._parse_psn_meta(folder))
 
     def _check_r(self):
         def _do():
@@ -390,6 +468,94 @@ class VPCTab(QWidget):
         override = not self.use_psn_cb.isChecked()
         for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.lloq_method_cb, self.uloq_edit, self.nbins_sb):
             w.setEnabled(override)
+
+    def _on_vpc_folder_changed(self, text):
+        self._pending_folder_text = text
+        self._folder_detect_timer.start(400)
+
+    def _on_folder_detect_timer(self):
+        text = getattr(self, '_pending_folder_text', '')
+        if text and Path(text).is_dir():
+            self._update_type_ui(self._parse_psn_meta(text))
+
+    def _update_type_ui(self, psn_opts):
+        """Show/hide VPC type info widgets; grey-out irrelevant controls per type and backend."""
+        vpc_type    = psn_opts.get('vpc_type') or 1
+        tool        = self.tool_cb.currentText()
+        is_cat      = (vpc_type == 2)
+        is_tte      = (vpc_type == 3)
+        is_censored = (vpc_type == 1 and psn_opts.get('censor_var') is not None)
+        is_plain    = (not is_cat and not is_tte and not is_censored)
+
+        _STYLE = {
+            'cat':  'background:#1a5fa8;color:#e8f0fe;border-radius:9px;padding:1px 8px;',
+            'tte':  'background:#a85c00;color:#ffe8cc;border-radius:9px;padding:1px 8px;',
+            'cens': 'background:#7a7a00;color:#f5f5c0;border-radius:9px;padding:1px 8px;',
+        }
+        if is_cat:
+            label, style = 'Categorical VPC', _STYLE['cat']
+        elif is_tte:
+            label, style = 'TTE VPC', _STYLE['tte']
+        elif is_censored:
+            label, style = 'Censored VPC', _STYLE['cens']
+        else:
+            label, style = '', ''
+        self.vpc_type_badge.setText(label)
+        self.vpc_type_badge.setStyleSheet(style)
+        self._vpc_type_row.setVisible(not is_plain)
+
+        self._cat_levels_row.setVisible(is_cat)
+        if is_cat:
+            self.cat_levels_edit.setText(psn_opts.get('levels') or '')
+
+        self._tte_info_row.setVisible(is_tte)
+        if is_tte:
+            self.tte_var_edit.setText(psn_opts.get('tte_var') or 'TIME (default)')
+
+        self._censor_info_row.setVisible(is_censored)
+        if is_censored:
+            col  = psn_opts.get('censor_var')
+            lloq = psn_opts.get('lloq')
+            if lloq is not None:
+                self.censor_info_edit.setText(f'censor column: {col}  |  LLOQ: {lloq}')
+            else:
+                self.censor_info_edit.setText(
+                    f'censor column: {col}  —  enter LLOQ value in LLOQ field above')
+
+        # ORDERING IS CRITICAL — three steps execute in this exact order:
+        # Step 1: re-enable everything (clean slate).
+        # Step 2: _on_psn_inherit_change() sets the use_psn baseline.
+        # Step 3: type-specific overrides win over Step 2.
+        # v3 bug: Step 3 was before Step 2, so _on_psn_inherit_change() re-enabled
+        # TTE-disabled widgets and re-disabled the force-enabled censored lloq_edit.
+
+        _type_widgets = (self.pred_corr_cb, self.log_y_cb, self.lloq_edit,
+                         self.uloq_edit, self.lloq_method_cb,
+                         self.pi_lo, self.pi_hi, self.ci_lo, self.ci_hi,
+                         self.stratify_edit)
+
+        for w in _type_widgets:
+            w.setEnabled(True)
+
+        self._on_psn_inherit_change()
+
+        if is_tte:
+            for w in _type_widgets:
+                w.setEnabled(False)
+        elif is_cat:
+            for w in (self.pred_corr_cb, self.log_y_cb,
+                      self.lloq_edit, self.uloq_edit, self.lloq_method_cb):
+                w.setEnabled(False)
+            self.stratify_edit.setEnabled(tool == 'xpose')
+            if tool == 'vpc':
+                self.stratify_edit.setToolTip(
+                    'Stratification is not supported by vpc_cat().\n'
+                    'Switch to the xpose backend to use stratified categorical VPC.')
+            else:
+                self.stratify_edit.setToolTip(
+                    'Column name(s) to stratify on, comma-separated (e.g. SEX, or DOSE).')
+        elif is_censored and psn_opts.get('lloq') is None:
+            self.lloq_edit.setEnabled(True)
 
     def _browse_vpc(self):
         d = str(Path(self._model['path']).parent) if self._model else str(HOME)
@@ -440,7 +606,11 @@ class VPCTab(QWidget):
         """
         opts = {'idv': None, 'dv': None, 'predcorr': False,
                 'stratify_on': None, 'samples': None, 'lloq': None,
-                'vpc_type': None, 'lnDV': False}
+                'vpc_type': None, 'lnDV': False,
+                'tte_var':    None,
+                'levels':     None,
+                'censor_var': None,
+                'uloq':       None}
         vpc_path = Path(vpc_folder)
 
         # Preferred: meta.yaml (PsN ≥4.x). Inline parser to avoid pyyaml dep.
@@ -485,6 +655,17 @@ class VPCTab(QWidget):
                             opts['vpc_type'] = 3
                         elif key == 'lnDV':
                             opts['lnDV'] = (val == '1')
+                        elif key == 'tte_variable' and val and not val.isdigit():
+                            opts['tte_var'] = val
+                        elif key == 'tte' and val and val != '1' and not val.isdigit():
+                            opts['tte_var'] = val
+                        elif key == 'levels' and val:
+                            opts['levels'] = val
+                        elif key == 'censor' and val:
+                            opts['censor_var'] = val
+                        elif key == 'uloq' and val:
+                            try: opts['uloq'] = float(val)
+                            except ValueError: pass
             except Exception as e:
                 _log.warning(f'Failed to parse meta.yaml: {e}')
 
@@ -513,6 +694,25 @@ class VPCTab(QWidget):
                     elif re.search(r'-tte\b', text): opts['vpc_type'] = 3
                 if not opts['lnDV'] and re.search(r'-lnDV=1\b', text):
                     opts['lnDV'] = True
+                m = re.search(r'-tte[= ](\S+)', text)
+                if m:
+                    candidate = m.group(1)
+                    if not candidate.isdigit() and opts['tte_var'] is None:
+                        opts['tte_var'] = candidate
+                m = re.search(r'-levels[= ]([\d,.\-]+)', text)
+                if m and not opts['levels']:
+                    opts['levels'] = m.group(1).strip()
+                    if opts['vpc_type'] is None:
+                        opts['vpc_type'] = 2
+                if opts['vpc_type'] is None and re.search(r'\B-categorical\b', text):
+                    opts['vpc_type'] = 2
+                m = re.search(r'-censor[= ](\S+)', text)
+                if m and not opts['censor_var']:
+                    opts['censor_var'] = m.group(1)
+                m = re.search(r'-uloq[= ](\S+)', text)
+                if m and opts['uloq'] is None:
+                    try: opts['uloq'] = float(m.group(1))
+                    except ValueError: pass
             except Exception as e:
                 _log.warning(f'Failed to parse command.txt: {e}')
 
@@ -756,6 +956,231 @@ class VPCTab(QWidget):
         r_run = _sanitize_r(run_dir)
         r_out = _sanitize_r(str(Path(vpc_folder) / 'nmgui_vpc.png'))
 
+        # ── Read vpc_type before any branch ──────────────────────────────────────
+        _vpc_type    = psn_opts.get('vpc_type') or 1
+        _is_censored = (_vpc_type == 1 and psn_opts.get('censor_var') is not None)
+
+        # ══ TTE VPC ══════════════════════════════════════════════════════════════
+        if _vpc_type == 3:
+            _events_col = _r_col(psn_opts.get('dv') or 'DV')
+            _tte_time   = _r_col(psn_opts.get('tte_var') or psn_opts.get('idv') or 'TIME')
+            _ci_vec     = f'c({ci_lo}, {ci_hi})'
+            _strat      = _vpc_strat_arg(psn_opts, use_psn, self.stratify_edit)
+
+            if tool == 'vpc':
+                script = f'''\
+# NMGUI VPC — TTE (time-to-event) — backend: vpc (Ron Keizer)
+Sys.setlocale("LC_NUMERIC", "C")
+library(vpc)
+library(ggplot2)
+tryCatch({{
+  vpc_plot <- withCallingHandlers(
+    vpc_tte(
+      psn_folder = "{r_vpc}",
+      rtte       = FALSE,
+      obs_cols   = list(idv = "{_tte_time}", dv = "{_events_col}"),
+      sim_cols   = list(idv = "{_tte_time}", dv = "{_events_col}"),
+      ci         = {_ci_vec}{_strat}
+    ),
+    warning = function(w) {{
+      if (grepl("parsing failure", conditionMessage(w), ignore.case = TRUE))
+        invokeRestart("muffleWarning")
+    }}
+  )
+  if (is.null(vpc_plot)) stop("vpc_tte() returned NULL")
+  if (!inherits(vpc_plot, "gg") && !inherits(vpc_plot, "ggplot")) {{
+    if (is.list(vpc_plot) && inherits(vpc_plot$plot, "gg"))
+      vpc_plot <- vpc_plot$plot
+    else stop("vpc_tte() returned unrecognised type")
+  }}
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            else:  # xpose
+                lst_path, _lst_warn = self._resolve_xpose_lst(vpc_folder)
+                if _lst_warn:
+                    self.console.appendPlainText(f'[WARNING] {_lst_warn}')
+                r_lst     = _sanitize_r(lst_path) if lst_path else ''
+                xpdb_line = (f'xpdb <- xpose_data(file = "{r_lst}")'
+                             if r_lst else
+                             f'xpdb <- xpose_data(runno = "{runno}", dir = "{r_run}/")')
+                script = f'''\
+# NMGUI VPC — TTE (time-to-event) — backend: xpose
+Sys.setlocale("LC_NUMERIC", "C")
+library(xpose)
+library(ggplot2)
+tryCatch({{
+  {xpdb_line}
+  vpc_plot <- xpdb %>%
+    vpc_data(
+      vpc_type   = "time-to-event",
+      psn_folder = "{r_vpc}"
+    ) %>%
+    vpc()
+  if (is.null(vpc_plot)) stop("xpose vpc() returned NULL for TTE")
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
+
+        # ══ Categorical VPC ══════════════════════════════════════════════════════
+        elif _vpc_type == 2:
+            _ci_vec = f'c({ci_lo}, {ci_hi})'
+            _dv     = _r_col(psn_opts.get('dv') or 'DV')
+
+            if tool == 'vpc':
+                _cols_arg = ''
+                if psn_opts.get('dv') and psn_opts['dv'].upper() != 'DV':
+                    _cols_arg = (f',\n      obs_cols = list(dv = "{_dv}")'
+                                 f',\n      sim_cols = list(dv = "{_dv}")')
+                script = f'''\
+# NMGUI VPC — Categorical — backend: vpc (Ron Keizer)
+# Note: vpc_cat() infers levels from obs DV; stratification not supported.
+Sys.setlocale("LC_NUMERIC", "C")
+library(vpc)
+library(ggplot2)
+tryCatch({{
+  vpc_plot <- withCallingHandlers(
+    vpc_cat(
+      psn_folder = "{r_vpc}",
+      vpcdb      = FALSE,
+      ci         = {_ci_vec}{_cols_arg}
+    ),
+    warning = function(w) {{
+      if (grepl("parsing failure", conditionMessage(w), ignore.case = TRUE))
+        invokeRestart("muffleWarning")
+    }}
+  )
+  if (is.null(vpc_plot)) stop("vpc_cat() returned NULL")
+  if (!inherits(vpc_plot, "gg") && !inherits(vpc_plot, "ggplot")) {{
+    if (is.list(vpc_plot) && inherits(vpc_plot$plot, "gg"))
+      vpc_plot <- vpc_plot$plot
+    else stop("vpc_cat() returned unrecognised type")
+  }}
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            else:  # xpose — supports stratify=
+                lst_path, _lst_warn = self._resolve_xpose_lst(vpc_folder)
+                if _lst_warn:
+                    self.console.appendPlainText(f'[WARNING] {_lst_warn}')
+                r_lst     = _sanitize_r(lst_path) if lst_path else ''
+                xpdb_line = (f'xpdb <- xpose_data(file = "{r_lst}")'
+                             if r_lst else
+                             f'xpdb <- xpose_data(runno = "{runno}", dir = "{r_run}/")')
+                _strat    = _vpc_strat_arg(psn_opts, use_psn, self.stratify_edit)
+                script = f'''\
+# NMGUI VPC — Categorical — backend: xpose
+Sys.setlocale("LC_NUMERIC", "C")
+library(xpose)
+library(ggplot2)
+tryCatch({{
+  {xpdb_line}
+  vpc_plot <- xpdb %>%
+    vpc_data(
+      vpc_type   = "categorical",
+      psn_folder = "{r_vpc}",
+      psn_bins   = TRUE{_strat}
+    ) %>%
+    vpc()
+  if (is.null(vpc_plot)) stop("xpose vpc() returned NULL for categorical")
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
+
+        # ══ Censored VPC (-censor=VAR flag only) ═════════════════════════════════
+        elif _is_censored:
+            _lloq = psn_opts.get('lloq') if use_psn else None
+            if _lloq is None:
+                try: _lloq = float(self.lloq_edit.text().strip())
+                except (ValueError, TypeError): _lloq = 0
+            _uloq = psn_opts.get('uloq') if use_psn else None
+            if _uloq is None:
+                try: _uloq = float(self.uloq_edit.text().strip()) or None
+                except (ValueError, TypeError): _uloq = None
+            _uloq_arg  = f',\n      uloq = {_uloq}' if _uloq is not None else ''
+            _ci_vec    = f'c({ci_lo}, {ci_hi})'
+            _strat     = _vpc_strat_arg(psn_opts, use_psn, self.stratify_edit)
+
+            if tool == 'vpc':
+                script = f'''\
+# NMGUI VPC — Censored (-censor column) — backend: vpc (Ron Keizer)
+Sys.setlocale("LC_NUMERIC", "C")
+library(vpc)
+library(ggplot2)
+tryCatch({{
+  vpc_plot <- withCallingHandlers(
+    vpc_cens(
+      psn_folder = "{r_vpc}",
+      lloq       = {_lloq}{_uloq_arg},
+      ci         = {_ci_vec}{_strat}
+    ),
+    warning = function(w) {{
+      if (grepl("parsing failure", conditionMessage(w), ignore.case = TRUE))
+        invokeRestart("muffleWarning")
+    }}
+  )
+  if (is.null(vpc_plot)) stop("vpc_cens() returned NULL")
+  if (!inherits(vpc_plot, "gg") && !inherits(vpc_plot, "ggplot")) {{
+    if (is.list(vpc_plot) && inherits(vpc_plot$plot, "gg"))
+      vpc_plot <- vpc_plot$plot
+    else stop("vpc_cens() returned unrecognised type")
+  }}
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            else:  # xpose
+                lst_path, _lst_warn = self._resolve_xpose_lst(vpc_folder)
+                if _lst_warn:
+                    self.console.appendPlainText(f'[WARNING] {_lst_warn}')
+                r_lst     = _sanitize_r(lst_path) if lst_path else ''
+                xpdb_line = (f'xpdb <- xpose_data(file = "{r_lst}")'
+                             if r_lst else
+                             f'xpdb <- xpose_data(runno = "{runno}", dir = "{r_run}/")')
+                _uloq_opt = f', uloq = {_uloq}' if _uloq is not None else ''
+                _strat    = _vpc_strat_arg(psn_opts, use_psn, self.stratify_edit)
+                script = f'''\
+# NMGUI VPC — Censored (-censor column) — backend: xpose
+Sys.setlocale("LC_NUMERIC", "C")
+library(xpose)
+library(ggplot2)
+tryCatch({{
+  {xpdb_line}
+  vpc_plot <- xpdb %>%
+    vpc_data(
+      vpc_type   = "censored",
+      psn_folder = "{r_vpc}",
+      psn_bins   = TRUE,
+      opt        = vpc_opt(lloq = {_lloq}{_uloq_opt}){_strat}
+    ) %>%
+    vpc()
+  if (is.null(vpc_plot)) stop("xpose vpc() returned NULL for censored")
+  ggsave("{r_out}", vpc_plot, width = 8, height = 6, dpi = 150)
+  cat("NMGUI_VPC_OK\\n")
+}}, error = function(e) {{
+  cat("NMGUI_VPC_ERROR:", conditionMessage(e), "\\n")
+}})
+'''
+            return script, str(Path(vpc_folder) / 'nmgui_vpc.png')
+
+        # ══ Continuous VPC — fall through to existing code (unchanged) ═══════════
+
         if tool == 'vpc':
             args = {'psn_folder': f'"{r_vpc}"'}
             # obs_cols/sim_cols: forward non-default IDV and/or DV
@@ -905,13 +1330,6 @@ tryCatch({{
             QMessageBox.warning(self, 'm1.zip extraction failed', err)
             return
 
-        # Warn if vpc_results.csv is absent (PsN -no_results=1 or aborted run)
-        if not (Path(vpc_folder) / 'vpc_results.csv').is_file():
-            self.console.appendPlainText(
-                '[WARNING] vpc_results.csv not found in the VPC folder.\n'
-                'PsN may have been run with -no_results=1, or the run did not complete.\n'
-                'The R backend may fail or produce an incomplete plot.')
-
         # Log the PsN options recovered from meta.yaml / command.txt — visibility
         # for users debugging "wrong column" issues.
         psn_opts = self._parse_psn_meta(vpc_folder)
@@ -922,23 +1340,49 @@ tryCatch({{
         if psn_opts.get('stratify_on'): parts.append(f'stratify_on={psn_opts["stratify_on"]}')
         if psn_opts.get('samples'):     parts.append(f'samples={psn_opts["samples"]}')
         if psn_opts.get('lloq') is not None: parts.append(f'lloq={psn_opts["lloq"]}')
+        if psn_opts.get('tte_var'):    parts.append(f'tte_var={psn_opts["tte_var"]}')
+        if psn_opts.get('levels'):     parts.append(f'levels={psn_opts["levels"]}')
+        if psn_opts.get('censor_var'): parts.append(f'censor={psn_opts["censor_var"]}')
+        if psn_opts.get('uloq') is not None: parts.append(f'uloq={psn_opts["uloq"]}')
         if parts:
             self.console.appendPlainText('Detected PsN options: ' + ', '.join(parts))
         resolved_idv = self._resolve_idv(vpc_folder)
         if resolved_idv:
             self.console.appendPlainText(f'Using IDV column: {resolved_idv}')
 
-        # vpc_type pre-check: abort for unsupported VPC types (GAP 4)
-        vpc_type = psn_opts.get('vpc_type')
-        if vpc_type in (2, 3):
-            type_name = 'categorical' if vpc_type == 2 else 'time-to-event (TTE)'
-            QMessageBox.warning(self, 'VPC type not supported',
-                f'PsN was run with a {type_name} VPC (-vpc_type={vpc_type}).\n\n'
-                f'NMGUI2 currently supports only continuous VPCs. '
-                f'For {type_name} VPCs, please run the R script manually '
-                f'using vpc_cat() or vpc_tte() from the vpc package.\n\n'
-                f'The R script tab will show the generated script as a starting point.')
-            return
+        # Update type badge and control greyouts on every Run press
+        self._update_type_ui(psn_opts)
+        vpc_type = psn_opts.get('vpc_type') or 1
+
+        if vpc_type == 3:
+            m1_dir = Path(vpc_folder) / 'm1'
+            if not m1_dir.is_dir() or not list(m1_dir.glob('simtab*')):
+                QMessageBox.warning(self, 'TTE simulation files missing',
+                    'No simtab* files found in m1/.\n\n'
+                    'PsN TTE runs write simulation tables as simtab1, simtab2, …\n'
+                    'in the m1/ subdirectory. Verify that:\n'
+                    '  • m1.zip was extracted (done automatically above)\n'
+                    '  • The PsN -tte run completed successfully')
+                return
+
+        _is_censored = (vpc_type == 1 and psn_opts.get('censor_var') is not None)
+        if _is_censored:
+            _lloq_auto = psn_opts.get('lloq') if self.use_psn_cb.isChecked() else None
+            if _lloq_auto is None:
+                try: _lloq_auto = float(self.lloq_edit.text().strip())
+                except (ValueError, TypeError): _lloq_auto = None
+            if _lloq_auto is None:
+                QMessageBox.warning(self, 'LLOQ required for censored VPC',
+                    f'PsN was run with -censor={psn_opts["censor_var"]}.\n\n'
+                    'vpc_cens() requires a numeric LLOQ value.\n'
+                    'Enter the LLOQ value in the LLOQ field in the settings panel.')
+                return
+
+        if vpc_type != 3 and not (Path(vpc_folder) / 'vpc_results.csv').is_file():
+            self.console.appendPlainText(
+                '[WARNING] vpc_results.csv not found in the VPC folder.\n'
+                'PsN may have been run with -no_results=1, or the run did not complete.\n'
+                'The R backend may fail or produce an incomplete plot.')
 
         # Auto-enable log Y axis when lnDV detected (GAP 5)
         if self.use_psn_cb.isChecked() and psn_opts.get('lnDV'):
