@@ -637,6 +637,22 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.13 — Parser fix: THETA value/label misalignment when N(thetas) > 12
+
+- **THETA values shifted by 3** in the HTML output, Models tab parameter table, and QC report whenever a model had more than 12 thetas. Root cause was in `_parse_values()` (`parser.py`): NONMEM wraps the `TH 1 ... TH12` header onto a continuation line `TH13 TH14 TH15` with **inconsistent spacing** (no space between prefix and digit on the wrap line). The skip-regex `^(TH|ET|EP|EPS|SE)\s` required a space, missed the wrap line, and the digit-extraction fallback then treated `13`, `14`, `15` as estimate values — prepending three phantom values and shifting everything else by 3.
+- **Correlation matrix labels truncated to 12** in any covariance step that produced more than 12 estimated parameters (i.e. nearly all real models). Same root cause in the correlation-matrix parser — `^(TH|OM|SG)\s` matched only the first header row and ignored every wrap continuation, so `result['cor_labels']` held 12 entries while `result['correlation_matrix']` held the full 50+ rows.
+- **Defensive hardening** of `_parse_matrix_diag` and `_parse_matrix_full`: both now explicitly skip wrap-continuation lines beginning with `TH13`, `OM11`, `SG12`, etc., rather than relying incidentally on the "no decimal point" guard.
+- **Removed dead code** in `widgets/lst_viewer.py` (`parse_theta_from_block`, `parse_omega_sigma_from_block`) that had the same wrap bug and was never called.
+- Verified end-to-end against a real run with 15 thetas and a 54-parameter covariance matrix: parser now returns 15 correctly aligned theta values and 54 matching correlation labels (was 12).
+
+### v2.9.12 — VPC types: categorical, TTE, and censored support
+
+- **New: categorical, TTE, and censored VPCs**, in addition to the existing continuous VPC. Type is auto-detected from the PsN output folder (`meta.yaml` / `command.txt`) on folder load and on every Generate press.
+- **Categorical VPC**: vpc backend uses `vpc_cat()` (levels inferred from observed DV; stratification not supported, tooltip explains why); xpose backend uses `vpc_data(vpc_type="categorical")` and supports stratification.
+- **TTE (time-to-event) VPC**: detected when PsN was run with `-tte=`. All quantile/LLOQ/pred-corr controls are greyed out — they don't apply to KM plots. Pre-run check warns and blocks if `m1/simtab*` files are missing. vpc backend uses `vpc_tte(rtte=FALSE)`; xpose backend uses `vpc_data(vpc_type="time-to-event")`. The `vpc_results.csv` absence warning is suppressed for TTE.
+- **Censored VPC**: detected when PsN was run with `-censor=VAR`. The LLOQ field is force-enabled even when "Use PsN settings" is checked, so the user can supply it if PsN didn't record one. Pre-run check blocks with a clear message if LLOQ is still missing. vpc backend uses `vpc_cens(lloq=, uloq=)`; xpose backend uses `vpc_data(vpc_type="censored", opt=vpc_opt(lloq=))`.
+- The continuous VPC code path is unchanged — the new routing exits early before reaching it.
+
 ### v2.9.11 — Startup warning and TypeError fixes
 
 - **`TypeError: invalid argument to sipBadCatcherResult()`**: The `QPainter.drawText(QRect, flags, str)` overload is broken in some PyQt6 builds (sip binding bug). The NM logo painter now uses `QFontMetrics.horizontalAdvance()` to manually centre the text and calls `drawText(x, y, str)` instead, which has no ambiguous overload.

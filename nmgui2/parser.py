@@ -585,10 +585,12 @@ def parse_lst(lst_path):
                 if row_vals:
                     matrix_rows.append(row_vals)
                 continue
-            # Check if this is a column header (many labels on one line) vs row label (single)
-            if re.match(r'^(TH|OM|SG)\s', line):
+            # Check if this is a column header (many labels on one line) vs row label (single).
+            # Headers may wrap: "TH 1 ... TH12" then "TH13 TH14 TH15 OM11 ... OM22" then more.
+            # Wrap continuations have no space between prefix and digit (TH13, OM11).
+            if re.match(r'^(TH|OM|SG)[\s\d]', line):
                 parts = line.split()
-                # Merge "TH 1" → "TH1" etc.
+                # Merge "TH 1" → "TH1" etc. (only needed for the first, spaced header line)
                 merged = []
                 i = 0
                 while i < len(parts):
@@ -598,11 +600,12 @@ def parse_lst(lst_path):
                     else:
                         merged.append(parts[i])
                         i += 1
-                # Column header: 3+ labels; Row label: 1 label
+                # Column header: 3+ labels (extend across wrap continuations).
+                # Row label: 1 label (signals headers are complete).
                 if len(merged) >= 3 and not labels_done:
-                    labels = merged
+                    labels.extend(merged)
+                elif len(merged) == 1 and labels:
                     labels_done = True
-                # else: it's a row label, skip it
                 continue
 
         if matrix_rows:
@@ -835,8 +838,10 @@ def _parse_values(block, keep_dots=False):
         line = line.strip()
         if not line or line.startswith('+') or line.startswith('-' * 5):
             continue
-        # Skip header lines like "TH 1  TH 2  TH 3" or "ETA1  ETA2"
-        if re.match(r'^(TH|ET|EP|EPS|SE)\s', line):
+        # Skip header lines like "TH 1  TH 2  TH 3" (first row) or
+        # "TH13  TH14  TH15" (wrapped continuation when N > 12 — no space between
+        # prefix and digit). Also handles "ETA1", "EPS1" etc.
+        if re.match(r'^(TH|ET|EP|EPS|SE)[\s\d]', line):
             continue
         if re.match(r'^\*+$', line):
             continue
@@ -869,7 +874,9 @@ def _parse_matrix_diag(block):
         if not line or line.startswith('*'):
             continue
         if not line.startswith('+'):
-            if re.search(r'(ETA|EPS|EP)\d', line, re.IGNORECASE):
+            # Skip header/label lines: ETA1/EPS1 row labels and TH13/OM11/SG12 wrap
+            # continuations from large COVARIANCE/CORRELATION blocks.
+            if re.match(r'^(ETA|EPS|EP|TH|OM|SG)[\s\d]', line, re.IGNORECASE):
                 continue
             if not re.search(r'[-+]?\d+\.\d+', line) and '.........' not in line:
                 continue
@@ -904,7 +911,9 @@ def _parse_matrix_full(block):
         if not line or line.startswith('*'):
             continue
         if not line.startswith('+'):
-            if re.search(r'(ETA|EPS|EP)\d', line, re.IGNORECASE):
+            # Skip header/label lines: ETA1/EPS1 row labels and TH13/OM11/SG12 wrap
+            # continuations from large COVARIANCE/CORRELATION blocks.
+            if re.match(r'^(ETA|EPS|EP|TH|OM|SG)[\s\d]', line, re.IGNORECASE):
                 continue
             if not re.search(r'[-+]?\d+\.\d+', line) and '.........' not in line:
                 continue

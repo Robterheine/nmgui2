@@ -342,37 +342,6 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
         raw_text, _re.DOTALL | _re.IGNORECASE)
     cov_raw_block = cov_raw_m.group(1) if cov_raw_m else ''
 
-    # ── Parse theta/omega/sigma from raw if not in model dict ─────────────────
-    def parse_theta_from_block(block):
-        """Extract THETA values from final parameter block."""
-        th_m = _re.search(r'THETA.*?VECTOR.*?\n\s+(.*?)\n\s+(.*?)\n', block, _re.DOTALL)
-        if not th_m: return [], []
-        labels = th_m.group(1).split()
-        vals_str = th_m.group(2).split()
-        vals = []
-        for v in vals_str:
-            try: vals.append(float(v))
-            except ValueError: vals.append(None)
-        return labels, vals
-
-    def parse_omega_sigma_from_block(blk, name):
-        """Extract OMEGA or SIGMA lower triangular from block."""
-        m = _re.search(name + r'.*?MATRIX.*?\n(.*?)(?=\n\s*\n\s*(?:SIGMA|OMEGA|1\n|\Z))',
-                       blk, _re.DOTALL | _re.IGNORECASE)
-        if not m: return [], []
-        section = m.group(1)
-        labels_m = _re.search(r'^\s+((?:ETA\d+\s+|EPS\d+\s+)+)', section, _re.MULTILINE)
-        if not labels_m: return [], []
-        labels = labels_m.group(0).split()
-        vals = []
-        for row_m in _re.finditer(r'\+?\s*((?:[\d\.\-\+E]+|\.{9})\s*)+', section):
-            row_vals = []
-            for v in row_m.group(0).split():
-                try: row_vals.append(float(v))
-                except ValueError: row_vals.append(None)
-            if row_vals: vals.append(row_vals)
-        return labels, vals
-
     # ── 7. Parameters ──────────────────────────────────────────────────────────
     param_rows = ''
     blocks = [
