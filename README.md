@@ -637,6 +637,19 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.14 — Description field in dialogs and automatic $TABLE rename on duplicate
+
+- **Description field in the New Model dialog**: optional one-line field that becomes the model's description (the same field shown in the Models tab "Description" column and editable later via the Annotation panel). Backed by `meta['comment']` — no schema change.
+- **Description field in the Duplicate dialog**: pre-filled verbatim from the source model's description, with auto-select on focus so a single keystroke replaces the inherited text. Pharmacometricians typically duplicate to test a variant of a base model; pre-filling gives the user the closest-correct answer (and they edit when they need to differentiate) instead of leaving 80% of duplicates with empty descriptions.
+- **Automatic $TABLE / $MSFO rename on duplicate**: when duplicating `run104.mod` → `run105.mod`, NMGUI2 now rewrites output filenames inside the duplicated control stream so the new run does not silently overwrite the source's output tables and MSF files. Visible checkbox in the Duplicate dialog (default checked) for rare cases where downstream R/PsN scripts hard-code the original filenames.
+- **Two-anchor rewrite algorithm** covers both PsN convention and NMGUI's own template:
+  - Strategy A — stem substring: `run104.tab` → `run105.tab`, `path/run104/sdtab104` → `path/run105/sdtab105`, `mymodel104_pk.tab` → `mymodel105_pk.tab`.
+  - Strategy B — trailing-runno digits (PsN): `sdtab104` → `sdtab105`, `patab104.tab` → `patab105.tab`, `msfb104` → `msfb105`.
+  - Strategy C — neither anchor matches: filename is left unchanged and the user is shown a Yes/Cancel modal listing each unanchored filename so they can choose to proceed or edit the .mod manually.
+- **Strict input preservation**: `$MSFI` (input MSF for continuation runs), `$DATA`, `$INCLUDE`, `$SUBR` are NEVER rewritten. The shared-MSF workflow (base → covariate search) continues to work correctly.
+- Path prefixes, file-name case (`SDTAB104` stays uppercase on Linux), quoting (`FILE='sdtab104'`), and inline `;` comments are preserved.
+- Status bar reports what was renamed: `Created run105.mod  ·  renamed sdtab104→sdtab105, patab104→patab105`.
+
 ### v2.9.13 — Parser fix: THETA value/label misalignment when N(thetas) > 12
 
 - **THETA values shifted by 3** in the HTML output, Models tab parameter table, and QC report whenever a model had more than 12 thetas. Root cause was in `_parse_values()` (`parser.py`): NONMEM wraps the `TH 1 ... TH12` header onto a continuation line `TH13 TH14 TH15` with **inconsistent spacing** (no space between prefix and digit on the wrap line). The skip-regex `^(TH|ET|EP|EPS|SE)\s` required a space, missed the wrap line, and the digit-extraction fallback then treated `13`, `14`, `15` as estimate values — prepending three phantom values and shifting everything else by 3.

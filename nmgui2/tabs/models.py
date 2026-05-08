@@ -36,11 +36,12 @@ from ..dialogs.lst_viewer_dialog import LstViewerDialog
 from ..app.model_templates import render as render_template
 
 try:
-    from ..parser import parse_lst, extract_table_files, inject_estimates
+    from ..parser import parse_lst, extract_table_files, inject_estimates, rewrite_output_filenames
     HAS_PARSER = True
 except ImportError:
     HAS_PARSER = False
     inject_estimates = None
+    rewrite_output_filenames = None
 
 _log = logging.getLogger(__name__)
 
@@ -1230,6 +1231,15 @@ class ModelsTab(QWidget):
         except OSError as e:
             QMessageBox.warning(self, 'Could not create file', str(e))
             return
+        # Persist the description (if any) before _scan() so the row renders with it
+        desc = dlg.description()
+        if desc:
+            meta = load_meta()
+            entry = get_meta_entry(meta, str(out_path))
+            entry['comment'] = desc
+            meta[str(out_path)] = entry
+            save_meta(meta)
+            self._meta = meta
         self.status_msg.emit(f'Created {stem}.mod — rescanning…')
         # Store path so _on_scan() can auto-select and open the editor
         self._pending_select_path = str(out_path)
@@ -1238,7 +1248,14 @@ class ModelsTab(QWidget):
     def _duplicate(self):
         m = self._current_model
         if not m: return
-        dlg = DuplicateDialog(m['stem'], self)
+        # Pre-fill description from source's comment field (same field as the
+        # Annotation panel uses; same field shown in the Description column).
+        src_desc = ''
+        try:
+            src_desc = get_meta_entry(self._meta, m['path']).get('comment', '') or ''
+        except Exception:
+            src_desc = ''
+        dlg = DuplicateDialog(m['stem'], src_description=src_desc, parent=self)
         if dlg.exec() != QDialog.DialogCode.Accepted: return
         new_name = dlg.name_edit.text().strip()
         if not new_name.endswith(('.mod','.ctl')): new_name += '.mod'
@@ -1246,12 +1263,56 @@ class ModelsTab(QWidget):
         if dst.exists(): QMessageBox.warning(self,'Exists',f'{new_name} already exists.'); return
         try:
             content = Path(m['path']).read_text('utf-8', errors='replace')
+
+            # ── Rewrite $TABLE / $MSFO output filenames ───────────────────────
+            # Default ON (checkbox in dialog). Prevents the duplicate from silently
+            # overwriting the source's output tables / MSF when both runs share a
+            # directory. If un-anchored filenames are detected (no stem-substring
+            # match and no PsN-style runno suffix), warn the user with a Continue/
+            # Cancel choice so they can edit the .mod manually instead.
+            rename_summary = None
+            if dlg.rename_outputs.isChecked() and rewrite_output_filenames is not None:
+                src_stem = m['stem']
+                dst_stem = Path(new_name).stem
+                content, rename_summary = rewrite_output_filenames(content, src_stem, dst_stem)
+                if rename_summary['unchanged']:
+                    listing = '\n'.join(f'  • {f}' for f in rename_summary['unchanged'])
+                    reply = QMessageBox.warning(
+                        self, 'Some output filenames could not be renamed',
+                        f'These $TABLE/$MSFO filenames in {m["stem"]}.mod have no anchor '
+                        f'(neither contain "{src_stem}" nor end in matching trailing digits) '
+                        f'and will be left unchanged in {new_name}:\n\n{listing}\n\n'
+                        'If you run both models in the same directory, they will overwrite '
+                        'each other\'s output for these files.\n\n'
+                        'Continue with duplication anyway?',
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Cancel,
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+
             if dlg.use_est.isChecked() and m.get('lst_path') and inject_estimates is not None:
                 content = inject_estimates(content, m['lst_path'], jitter=dlg.jitter_sb.value())
             dst.write_text(content, 'utf-8')
+
+            # Persist meta — description (from dialog) + based_on lineage
             meta_e = get_meta_entry(self._meta, dst)
-            meta_e['based_on'] = m['stem']; self._meta[str(dst)] = meta_e; save_meta(self._meta)
-            self.status_msg.emit(f'Created {new_name}'); self._scan()
+            meta_e['based_on'] = m['stem']
+            new_desc = dlg.desc_edit.text().strip()
+            if new_desc:
+                meta_e['comment'] = new_desc
+            self._meta[str(dst)] = meta_e
+            save_meta(self._meta)
+
+            # Status — surface what was renamed (or why nothing was)
+            if rename_summary and rename_summary['renamed']:
+                pairs = ', '.join(f'{a}→{b}' for a, b in rename_summary['renamed'])
+                self.status_msg.emit(f'Created {new_name}  ·  renamed {pairs}')
+            elif rename_summary is not None and not rename_summary['renamed']:
+                self.status_msg.emit(f'Created {new_name}  ·  no $TABLE filenames to rename')
+            else:
+                self.status_msg.emit(f'Created {new_name}')
+            self._scan()
         except Exception as e: QMessageBox.critical(self,'Error',str(e))
 
     # ── Run ──────────────────────────────────────────────────────────────────

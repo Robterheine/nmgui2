@@ -79,6 +79,17 @@ class NewModelDialog(QDialog):
         self._name_edit.textChanged.connect(self._update_path_label)
         form.addRow('', self._path_lbl)
 
+        # ── Description ───────────────────────────────────────────────────────
+        # Optional one-line description shown in the Models tab Description column
+        # and editable later via the Annotation panel (backed by meta['comment']).
+        self._desc_edit = QLineEdit()
+        self._desc_edit.setPlaceholderText('Short description (e.g. "base 2-cmt FOCEI", "covariate WT on CL")')
+        self._desc_edit.setToolTip(
+            'Optional one-line description. Shown in the Description column '
+            'and editable later in the Annotation panel.'
+        )
+        form.addRow('Description:', self._desc_edit)
+
         # ── Template ──────────────────────────────────────────────────────────
         self._template_cb = QComboBox()
         for name in template_names():
@@ -184,3 +195,6 @@ class NewModelDialog(QDialog):
 
     def data_path(self) -> str:
         return self._data_edit.text().strip() or '../data.csv'
+
+    def description(self) -> str:
+        return self._desc_edit.text().strip()

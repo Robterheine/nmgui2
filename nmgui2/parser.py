@@ -1567,6 +1567,143 @@ def extract_table_files(control_text):
     return result
 
 
+def rewrite_output_filenames(text, src_stem, dst_stem):
+    """Rewrite output filenames in a NONMEM control stream so a duplicated
+    model does not overwrite the source's output tables / MSF files.
+
+    Output sinks rewritten:
+      $TABLE FILE=<value>          – output tables (sdtab/patab/...)
+      $EST   FILE=<value>          – raw iteration history (NM 7.4+)
+      $EST   MSFO=<value>          – output MSF (sub-keyword form)
+      $MSFO=<value>                – output MSF (standalone record)
+      $NONP  FILE=<value>          – non-parametric output
+
+    Inputs preserved (NEVER rewritten):
+      $MSFI=<value>                – input MSF for continuation runs
+      $DATA, $INCLUDE, $SUBR ...   – inputs / source code
+
+    Two-anchor rewrite rule (per filename):
+      A. If filename contains src_stem as substring → swap src_stem → dst_stem
+         (handles `run104.tab`, `run104_pred.csv`, `path/run104/sdtab104`, etc.)
+      B. Else if dst_runno is non-empty AND the basename's stem (before extension)
+         ends in src_runno → swap trailing digits to dst_runno
+         (handles PsN convention `sdtab104` → `sdtab105`, `patab104.tab` → `patab105.tab`)
+      C. Otherwise leave filename unchanged and add to 'unchanged' (caller warns).
+
+    Args:
+        text: NM-TRAN control stream content.
+        src_stem: source model stem (filename without extension), e.g. 'run104'.
+        dst_stem: destination model stem, e.g. 'run105'.
+
+    Returns:
+        (new_text, summary) where summary is a dict:
+          'renamed':         list of (old, new) filename tuples actually rewritten
+          'unchanged':       list of filenames the caller should warn the user about
+          'msfi_preserved':  list of $MSFI input filenames (informational only)
+    """
+    summary = {'renamed': [], 'unchanged': [], 'msfi_preserved': []}
+
+    if not text or not src_stem or not dst_stem or src_stem == dst_stem:
+        return text, summary
+
+    src_runno_m = re.search(r'(\d+)$', src_stem)
+    dst_runno_m = re.search(r'(\d+)$', dst_stem)
+    src_runno = src_runno_m.group(1) if src_runno_m else ''
+    dst_runno = dst_runno_m.group(1) if dst_runno_m else ''
+
+    # Record $MSFI inputs (informational; never modified)
+    for m in re.finditer(r'\$MSFI\s*[=\s]\s*["\']?([^\s"\';]+)', text, re.IGNORECASE):
+        val = m.group(1)
+        if val not in summary['msfi_preserved']:
+            summary['msfi_preserved'].append(val)
+
+    def rewrite_one(filename):
+        """Apply two-anchor rule. Returns (new_filename, was_renamed)."""
+        # Strategy A — stem substring (covers run104.tab, run104_x.csv, path/run104/sdtab104)
+        if src_stem in filename:
+            return filename.replace(src_stem, dst_stem), True
+        # Strategy B — trailing runno in basename's stem (PsN: sdtab104, patab104, msfb104)
+        if src_runno and dst_runno:
+            last_sep = max(filename.rfind('/'), filename.rfind('\\'))
+            dir_part = filename[:last_sep + 1] if last_sep >= 0 else ''
+            base = filename[last_sep + 1:] if last_sep >= 0 else filename
+            if '.' in base:
+                bstem, dot, ext = base.rpartition('.')
+            else:
+                bstem, dot, ext = base, '', ''
+            if bstem.endswith(src_runno):
+                new_bstem = bstem[:-len(src_runno)] + dst_runno
+                return dir_part + new_bstem + dot + ext, True
+        return filename, False
+
+    def record_token(value, new_value, renamed):
+        if renamed:
+            if (value, new_value) not in summary['renamed']:
+                summary['renamed'].append((value, new_value))
+        else:
+            if value not in summary['unchanged']:
+                summary['unchanged'].append(value)
+
+    # ── Pass 1: standalone $MSFO record ───────────────────────────────────────
+    # Form: $MSFO=value or $MSFO value (NOT $MSFI — different keyword)
+    def _swap_msfo_record(match):
+        prefix = match.group(1)         # '$MSFO'
+        sep    = match.group(2)         # '=' or whitespace
+        quote  = match.group(3) or ''
+        value  = match.group(4)
+        new_value, renamed = rewrite_one(value)
+        record_token(value, new_value, renamed)
+        return f'{prefix}{sep}{quote}{new_value}{quote}'
+
+    new_text = re.sub(
+        r'(\$MSFO)(\s*=\s*|\s+)(["\']?)([^\s"\';]+)',
+        _swap_msfo_record,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # ── Pass 2: FILE= / MSFO= sub-keywords inside scoped output records ───────
+    token_re = re.compile(
+        r"(?P<prefix>(?:FILE|MSFO)\s*=\s*)"
+        r"(?P<quote>['\"])?"
+        r"(?P<value>[^\s'\"\;]+)",
+        re.IGNORECASE,
+    )
+
+    def _swap_token(match):
+        prefix = match.group('prefix')
+        quote  = match.group('quote') or ''
+        value  = match.group('value')
+        new_value, renamed = rewrite_one(value)
+        record_token(value, new_value, renamed)
+        return f'{prefix}{quote}{new_value}{quote}'
+
+    def _process_block(bmatch):
+        directive = bmatch.group(1)     # e.g. '$TABLE'
+        body      = bmatch.group(2)
+        # Process each line, preserving comments (anything after first ';')
+        out_lines = []
+        for line in body.split('\n'):
+            if ';' in line:
+                code, sep, comment = line.partition(';')
+                out_lines.append(token_re.sub(_swap_token, code) + sep + comment)
+            else:
+                out_lines.append(token_re.sub(_swap_token, line))
+        return directive + '\n'.join(out_lines)
+
+    # Output-emitting record scopes only — leaves $MSFI, $DATA, $INCLUDE alone.
+    # Lookahead requires next $-record to start with a letter (avoids false stops on '$5' in comments).
+    block_re = re.compile(
+        r'(\$(?:TABLE|EST|ESTIMATION|NONP|NONPARAMETRIC)\b)'
+        r'(.*?)'
+        r'(?=\$[A-Za-z]|\Z)',
+        re.IGNORECASE | re.DOTALL,
+    )
+    new_text = block_re.sub(_process_block, new_text)
+
+    return new_text, summary
+
+
 def parse_phi_file(filepath):
     """Parse a NONMEM .phi file containing individual ETAs and OBJ values.
 
