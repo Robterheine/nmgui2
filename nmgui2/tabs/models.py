@@ -1294,8 +1294,16 @@ class ModelsTab(QWidget):
             if dlg.use_est.isChecked() and m.get('lst_path') and inject_estimates is not None:
                 content = inject_estimates(content, m['lst_path'], jitter=dlg.jitter_sb.value())
             dst.write_text(content, 'utf-8')
+        except Exception as e:
+            QMessageBox.critical(self, 'Error', str(e))
+            return
 
-            # Persist meta — description (from dialog) + based_on lineage
+        # File write succeeded. Meta save is best-effort below — a meta failure
+        # must not be reported as if the duplication itself failed (the .mod
+        # exists on disk and is usable; meta would re-populate with defaults on
+        # next scan).
+        meta_warning = ''
+        try:
             meta_e = get_meta_entry(self._meta, dst)
             meta_e['based_on'] = m['stem']
             new_desc = dlg.desc_edit.text().strip()
@@ -1303,17 +1311,18 @@ class ModelsTab(QWidget):
                 meta_e['comment'] = new_desc
             self._meta[str(dst)] = meta_e
             save_meta(self._meta)
+        except Exception as e:
+            meta_warning = f'  ·  meta save failed: {e}'
 
-            # Status — surface what was renamed (or why nothing was)
-            if rename_summary and rename_summary['renamed']:
-                pairs = ', '.join(f'{a}→{b}' for a, b in rename_summary['renamed'])
-                self.status_msg.emit(f'Created {new_name}  ·  renamed {pairs}')
-            elif rename_summary is not None and not rename_summary['renamed']:
-                self.status_msg.emit(f'Created {new_name}  ·  no $TABLE filenames to rename')
-            else:
-                self.status_msg.emit(f'Created {new_name}')
-            self._scan()
-        except Exception as e: QMessageBox.critical(self,'Error',str(e))
+        # Status — surface what was renamed (or why nothing was) + any meta warning
+        if rename_summary and rename_summary['renamed']:
+            pairs = ', '.join(f'{a}→{b}' for a, b in rename_summary['renamed'])
+            self.status_msg.emit(f'Created {new_name}  ·  renamed {pairs}{meta_warning}')
+        elif rename_summary is not None and not rename_summary['renamed']:
+            self.status_msg.emit(f'Created {new_name}  ·  no $TABLE filenames to rename{meta_warning}')
+        else:
+            self.status_msg.emit(f'Created {new_name}{meta_warning}')
+        self._scan()
 
     # ── Run ──────────────────────────────────────────────────────────────────
     def _run_model(self):

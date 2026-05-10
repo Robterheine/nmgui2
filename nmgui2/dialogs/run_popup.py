@@ -1,3 +1,4 @@
+import os
 import re
 import time
 import shlex
@@ -185,7 +186,10 @@ class RunPopup(QDialog):
         _t.Thread(target=patch_versions_async, args=(self._run_record, cwd), daemon=True).start()
 
         runs = load_runs()
-        self._run_history_id = f"{self.stem}_{int(time.time())}"
+        # 4-hex random suffix prevents collisions when two runs are launched in
+        # the same wall-clock second (otherwise IDs are equal and run-record
+        # status updates clobber each other on completion).
+        self._run_history_id = f"{self.stem}_{int(time.time())}_{os.urandom(2).hex()}"
         runs.insert(0, {
             'id': self._run_history_id,
             'run_name': self.stem,

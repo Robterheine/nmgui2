@@ -1,10 +1,19 @@
+import re
+
 from PyQt6.QtWidgets import (
     QDialog, QFormLayout, QLineEdit, QCheckBox, QDoubleSpinBox,
-    QDialogButtonBox,
+    QDialogButtonBox, QLabel,
 )
 from PyQt6.QtCore import QTimer
 
 from ..app.config import load_settings
+
+
+# New filename must start with a letter; allow letters/digits/underscore/hyphen
+# and an optional .mod or .ctl extension. No path separators, no .., no spaces —
+# prevents path traversal (e.g. "../etc/passwd") and shell-quoting surprises.
+# Mirrors NewModelDialog's _STEM_RE pattern with the extension addendum.
+_DUPLICATE_NAME_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_\-]*(?:\.(?:mod|ctl))?$')
 
 
 class DuplicateDialog(QDialog):
@@ -58,10 +67,31 @@ class DuplicateDialog(QDialog):
         f.addRow('Jitter ±fraction:', self.jitter_sb)
         f.addRow('', self.rename_outputs)
 
+        # Inline validation error label (matches NewModelDialog convention)
+        self._error_lbl = QLabel('')
+        self._error_lbl.setStyleSheet('color: #e05252;')
+        self._error_lbl.setWordWrap(True)
+        f.addRow(self._error_lbl)
+
         btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(self.accept)
+        btns.accepted.connect(self._try_accept)
         btns.rejected.connect(self.reject)
         f.addRow(btns)
+
+    def _try_accept(self):
+        name = self.name_edit.text().strip()
+        if not name:
+            self._error_lbl.setText('New filename is required.')
+            return
+        if not _DUPLICATE_NAME_RE.match(name):
+            self._error_lbl.setText(
+                'Filename may only contain letters, digits, underscores and hyphens, '
+                'must start with a letter, and may end in .mod, .ctl, or no extension. '
+                'Path separators and ".." are not allowed.'
+            )
+            return
+        self._error_lbl.setText('')
+        self.accept()
 
     def _select_description_when_focused(self):
         """Wire selectAll() to focus events on the description field so users

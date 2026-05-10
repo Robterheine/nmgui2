@@ -637,6 +637,14 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.15 — Input-validation hardening (safety, no behavior change)
+
+Three small safety improvements found by a senior-developer code review of the dialogs and run-tracking layer.
+
+- **Duplicate dialog now validates the new filename** with the same regex as the New Model dialog (alphanumerics + underscore + hyphen, must start with a letter, optional `.mod`/`.ctl` extension). Previously, a duplicate name like `../foo` was accepted and would have written the file outside the project directory. The new validation refuses path separators, `..` segments, spaces, and other shell-quoting hazards before the dialog accepts.
+- **Run history IDs now include a 4-hex random suffix** (e.g. `run104_1715357893_a3f7`) so two runs launched in the same wall-clock second on the same source model no longer share an ID. Previously the second run's status update would silently clobber the first run's record on completion.
+- **Duplicate flow no longer reports a "meta save failed" error as if the duplication itself failed.** The duplicated `.mod` is now considered the critical-path output: if the file is written successfully but the meta-save step then fails (rare — disk full, permission change), the user sees the file in the model list and a status-bar warning, instead of a blocking error dialog that incorrectly suggests the duplication didn't happen.
+
 ### v2.9.14 — Description field in dialogs and automatic $TABLE rename on duplicate
 
 - **Description field in the New Model dialog**: optional one-line field that becomes the model's description (the same field shown in the Models tab "Description" column and editable later via the Annotation panel). Backed by `meta['comment']` — no schema change.

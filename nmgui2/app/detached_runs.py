@@ -55,7 +55,9 @@ def start_detached(cmd: str, cwd: str, stem: str, tool: str, model_path: str) ->
     if IS_WIN:
         raise RuntimeError('Detached runs are not supported on Windows.')
 
-    run_id = f'{stem}_{int(time.time())}'
+    # 4-hex random suffix prevents collisions when two runs are launched in
+    # the same wall-clock second (otherwise PID files / run records collide).
+    run_id = f'{stem}_{int(time.time())}_{os.urandom(2).hex()}'
     log_path = log_file_path(cwd, run_id)
     pid_path = pid_file_path(cwd, run_id)
 
