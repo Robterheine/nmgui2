@@ -637,6 +637,17 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.16 — Parser fix: $-in-comment no longer truncates parameter blocks
+
+Fixes a silent-correctness bug in `inject_estimates` (used by the Duplicate dialog's "Inject final estimates from .lst" option) and a cosmetic issue in `extract_table_files`.
+
+- **Root cause.** Four regex sites in `parser.py` captured `$THETA` / `$OMEGA` / `$SIGMA` / `$TABLE` record bodies using `[^\$]*` or `(.*?)(?=\$|\Z)`. Both patterns terminate at any literal `$` — including `$` that appears inside a comment (e.g. `; $5 paper Smith et al.`). When that happened, the captured block was truncated and subsequent parameter values (or table-file entries) were silently missed.
+- **Impact when it fired.** In `inject_estimates`, the duplicated `.mod` was written with mixed old/new initial estimates — the user got a model that fits with the wrong starting point and no error message. In `extract_table_files`, the table-file listing for that model was incomplete.
+- **Fix.** All four sites now use `(.*?)(?=\$[A-Za-z]|\Z)` (with `re.DOTALL`). The lookahead requires the next `$` to be followed by a letter — i.e. a real NM-TRAN record like `$OMEGA`, not a `$digit` in a comment.
+- **Residual edge case (deliberately not fixed).** A comment containing `$letter` (e.g. RCS keywords like `$Id$`, or markers like `$Patient`) would still mis-scope the block. These are rare in hand-written NONMEM control streams; the bulletproof fix (enumerating all NM-TRAN keywords or stripping comments before scoping) is held back as a separate change if the residual case ever surfaces in practice.
+- **Pre-existing FIX-counter bug (separate issue, not fixed in this release).** Three sibling regexes at `parser.py:673,682,695` count FIX'd parameters via `\$THETA[^;$]*?FIX`-style patterns. They have a different structural bug (count at most 1 FIX per block, not per parameter) and would need a per-line state-machine rewrite rather than a regex swap. Filed for a future release.
+- Verified with 16 inline checks: bug case fires (4 H1 + 2 M2), regression-clean inputs unchanged (5), end-to-end `parse_lst` against `run19.lst` returns identical results to v2.9.15 (5).
+
 ### v2.9.15 — Input-validation hardening (safety, no behavior change)
 
 Three small safety improvements found by a senior-developer code review of the dialogs and run-tracking layer.

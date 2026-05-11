@@ -1230,9 +1230,14 @@ def inject_estimates(control_text, lst_path, jitter=0):
             )
             return processed
 
+        # Use `(?=\$[A-Za-z]|\Z)` to terminate at the next real NM-TRAN record
+        # rather than at any `$` — otherwise a `$5` (or any `$<digit>`) inside a
+        # comment would prematurely close the block and leave later THETAs with
+        # their original initial estimates after inject. DOTALL makes `.` span
+        # newlines, matching the cross-line behaviour of the previous `[^\$]*`.
         modified = re.sub(
-            r'\$THETA\b[^\$]*',
-            process_theta_block, modified, flags=re.IGNORECASE
+            r'\$THETA\b.*?(?=\$[A-Za-z]|\Z)',
+            process_theta_block, modified, flags=re.IGNORECASE | re.DOTALL
         )
 
     # Replace OMEGA diagonal values
@@ -1283,8 +1288,8 @@ def inject_estimates(control_text, lst_path, jitter=0):
             return '\n'.join(new_lines)
 
         modified = re.sub(
-            r'\$OMEGA\b[^\$]*',
-            process_omega_block, modified, flags=re.IGNORECASE
+            r'\$OMEGA\b.*?(?=\$[A-Za-z]|\Z)',
+            process_omega_block, modified, flags=re.IGNORECASE | re.DOTALL
         )
 
     # Replace SIGMA diagonal values
@@ -1333,8 +1338,8 @@ def inject_estimates(control_text, lst_path, jitter=0):
             return '\n'.join(new_lines)
 
         modified = re.sub(
-            r'\$SIGMA\b[^\$]*',
-            process_sigma_block, modified, flags=re.IGNORECASE
+            r'\$SIGMA\b.*?(?=\$[A-Za-z]|\Z)',
+            process_sigma_block, modified, flags=re.IGNORECASE | re.DOTALL
         )
 
     return modified
@@ -1537,7 +1542,9 @@ def extract_table_files(control_text):
 
     # $TABLE can span multiple lines; collect each $TABLE block
     # Match FILE=name or FILE="name" or FILE='name'
-    for m in re.finditer(r'\$TABLE\b(.*?)(?=\$|\Z)', control_text, re.IGNORECASE | re.DOTALL):
+    # `(?=\$[A-Za-z]|\Z)` — terminate at the next real NM-TRAN record, not at
+    # any literal `$` (which can appear inside a comment, e.g. "; $5 paper").
+    for m in re.finditer(r'\$TABLE\b(.*?)(?=\$[A-Za-z]|\Z)', control_text, re.IGNORECASE | re.DOTALL):
         block = m.group(1)
         # Remove comments
         lines = block.split('\n')
