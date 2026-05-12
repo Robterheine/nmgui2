@@ -13,132 +13,176 @@ from .format import fmt_num
 # Inline SVG so the HTML report stays a single self-contained file —
 # no external assets, no JavaScript, opens correctly in any browser.
 
-_VIZ_WIDTH    = 80   # px
-_VIZ_HEIGHT   = 18   # px
+# v2.9.21 redesign: log-scale ratio bar (replaces v2.9.18 bullet bar that
+# collapsed for the common NONMEM convention `$THETA (0, init, 1e6)`).
+# Same algorithm as the desktop QPainter delegate, rendered in inline SVG.
+
+_VIZ_WIDTH    = 110  # px — bar + inline '×N' label
+_VIZ_HEIGHT   = 18
 _VIZ_PAD_X    = 5
+_VIZ_LABEL_W  = 32   # px reserved on the right for the '×N' text
 _TRACK_HEIGHT = 4
+_DEC_RANGE    = 1.0  # ±1 decade (0.1× to 10×)
 
 # Colors chosen to match the report's existing palette (light theme).
 _C_TRACK       = '#e0e0ea'
 _C_TICK        = '#7a7d9a'
-_C_FIXED       = '#b0b0c0'
-_C_DASH        = '#9090a0'
-_C_BORDER      = '#5a5a70'
+_C_LABEL       = '#5a5a70'
 _C_MOVE_LOW    = '#7a7d9a'
 _C_MOVE_MED    = '#4c8aff'   # accent
 _C_MOVE_HIGH   = '#d97706'   # warn
 _C_BOUND       = '#dc2626'   # bad
 
 
+def _format_ratio_svg(ratio: float) -> str:
+    """Compact '×N' label for the SVG. Cross-OS — Latin-1 × only."""
+    if ratio >= 10:
+        return f'×{ratio:.0f}'
+    if ratio >= 1:
+        return f'×{ratio:.1f}'
+    if ratio >= 0.1:
+        return f'×{ratio:.2f}'
+    return f'×{ratio:.0e}'
+
+
+def _format_compact_svg(v: float) -> str:
+    if v == 0:
+        return '0'
+    av = abs(v)
+    if av >= 1000:
+        return f'{v:.0f}'
+    if av >= 1:
+        return f'{v:.1f}'
+    if av >= 0.01:
+        return f'{v:.2f}'
+    return f'{v:.0e}'
+
+
 def _init_final_svg(initial, final, lower, upper, fixed):
     """Render the Init→Final cell as an inline SVG fragment.
 
-    Args:
-        initial: float or None (initial estimate from .lst echo)
-        final:   float or None (final estimate)
-        lower, upper: float or None (parameter bounds; None when unbounded
-                                     or for FIXED parameters)
-        fixed:   bool
+    v2.9.21 — log-scale ratio bar centered on initial (1× reference).
+    Track spans 0.1× to 10×; marker at log10(final/initial), clamped
+    to ends with a chevron when off-scale. Inline '×N' numeric label.
+    FIXED parameters render as a quiet full-width line, no marker.
+    Sign-change or zero-initial cases fall back to a numeric badge.
 
-    Returns:
-        HTML string with an <svg> element, or '' when no data.
+    Returns HTML SVG string, or '' when no data is available.
     """
+    track_left  = _VIZ_PAD_X
+    track_right = _VIZ_WIDTH - _VIZ_PAD_X - _VIZ_LABEL_W
+    cy          = _VIZ_HEIGHT // 2
+    track_top   = cy - _TRACK_HEIGHT // 2
+    label_x     = track_right + 4
+
+    # ── FIXED: full-width quiet line ────────────────────────────────────────
     if fixed:
-        # Small filled diamond — no track, no movement to show
-        cx, cy = _VIZ_WIDTH // 2, _VIZ_HEIGHT // 2
         return (
             f'<svg width="{_VIZ_WIDTH}" height="{_VIZ_HEIGHT}" '
             f'xmlns="http://www.w3.org/2000/svg">'
-            f'<polygon points="{cx},{cy-3} {cx+3},{cy} {cx},{cy+3} {cx-3},{cy}" '
-            f'fill="{_C_FIXED}"/></svg>'
+            f'<rect x="{track_left}" y="{track_top}" '
+            f'width="{_VIZ_WIDTH - 2 * _VIZ_PAD_X}" height="{_TRACK_HEIGHT}" '
+            f'rx="2" ry="2" fill="{_C_TRACK}"/></svg>'
         )
 
     if initial is None or final is None:
-        return ''   # blank cell — no data
+        return ''
 
-    track_left  = _VIZ_PAD_X
-    track_right = _VIZ_WIDTH - _VIZ_PAD_X
-    cy          = _VIZ_HEIGHT // 2
-    track_top   = cy - _TRACK_HEIGHT // 2
-
-    # Determine scale: bounded if both bounds present and upper > lower
-    if (lower is not None and upper is not None and float(upper) > float(lower)):
-        scale_lo, scale_hi = float(lower), float(upper)
-        extrapolated = False
-    else:
-        extrapolated = True
-        vmin = min(initial, final, 0.0)
-        vmax = max(initial, final, 0.0)
-        scale_lo = float(lower) if lower is not None else vmin
-        scale_hi = float(upper) if upper is not None else max(2.0 * max(abs(initial), abs(final)), 1e-9)
-        if scale_hi <= scale_lo:
-            scale_hi = scale_lo + max(abs(scale_lo) * 0.5, 1e-9)
-
-    def _map(v):
+    # ── Fallback: sign-change or zero initial → numeric badge only ─────────
+    # ASCII-only badges for full cross-OS font compatibility (no glyphs that
+    # might render as boxes on systems with limited Unicode coverage).
+    same_sign_pos = (initial > 0 and final > 0)
+    same_sign_neg = (initial < 0 and final < 0)
+    if not (same_sign_pos or same_sign_neg):
+        if initial == 0:
+            # Just the final value; absence of bar/marker signals "noteworthy"
+            text = _format_compact_svg(final)
+        elif final == 0:
+            text = '0'
+        else:
+            delta = final - initial
+            sign  = '+' if delta >= 0 else ''
+            text  = f'{sign}{_format_compact_svg(delta)}'
+        # Color by relative magnitude
         try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            return (track_left + track_right) // 2
-        if scale_hi == scale_lo:
-            return (track_left + track_right) // 2
-        x = track_left + (fv - scale_lo) / (scale_hi - scale_lo) * (track_right - track_left)
-        return int(round(max(track_left, min(track_right, x))))
+            rel = abs(final - initial) / max(abs(initial), 1e-12)
+        except Exception:
+            rel = 0.0
+        color = (_C_MOVE_HIGH if rel >= 0.5 else
+                 _C_MOVE_MED  if rel >= 0.1 else
+                 _C_MOVE_LOW)
+        return (
+            f'<svg width="{_VIZ_WIDTH}" height="{_VIZ_HEIGHT}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'<text x="{_VIZ_WIDTH // 2}" y="{cy + 3}" '
+            f'text-anchor="middle" font-size="10" '
+            f'font-family="ui-monospace,Menlo,Consolas,monospace" '
+            f'fill="{color}">{text}</text></svg>'
+        )
 
-    # Marker color from movement magnitude + bound-proximity
-    if initial == 0:
-        abs_move = 0.0 if final == 0 else float('inf')
-    else:
-        abs_move = abs(final - initial) / abs(initial)
+    # ── Log-ratio path ──────────────────────────────────────────────────────
+    import math
+    try:
+        ratio = final / initial   # positive for same-sign cases
+        log_ratio = math.log10(ratio)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return ''
 
     at_upper = (
-        upper is not None
-        and abs(upper) > 1e-12
+        upper is not None and abs(upper) > 1e-12
         and final >= upper - abs(upper) * 0.01
     )
     at_lower = (
-        lower is not None
-        and abs(lower) > 1e-12
+        lower is not None and abs(lower) > 1e-12
         and final <= lower + abs(lower) * 0.01
     )
     at_bound = at_upper or at_lower
 
+    abs_log = abs(log_ratio)
     if at_bound:
         marker_color = _C_BOUND
-    elif abs_move >= 0.5:
+    elif abs_log >= 0.18:
         marker_color = _C_MOVE_HIGH
-    elif abs_move >= 0.1:
+    elif abs_log >= 0.04:
         marker_color = _C_MOVE_MED
     else:
         marker_color = _C_MOVE_LOW
 
-    x_init  = _map(initial)
-    x_final = _map(final)
+    x_init = (track_left + track_right) // 2
+
+    off_scale_right = log_ratio > _DEC_RANGE
+    off_scale_left  = log_ratio < -_DEC_RANGE
 
     parts = [
         f'<svg width="{_VIZ_WIDTH}" height="{_VIZ_HEIGHT}" '
         f'xmlns="http://www.w3.org/2000/svg">',
-        # Track (rounded rect)
+        # Track
         f'<rect x="{track_left}" y="{track_top}" '
         f'width="{track_right - track_left}" height="{_TRACK_HEIGHT}" '
         f'rx="2" ry="2" fill="{_C_TRACK}"/>',
-    ]
-    if extrapolated:
-        mid = track_left + (track_right - track_left) * 2 // 3
-        parts.append(
-            f'<line x1="{mid}" y1="{cy}" x2="{track_right}" y2="{cy}" '
-            f'stroke="{_C_DASH}" stroke-width="1" stroke-dasharray="2,2"/>'
-        )
-    # Initial tick (short vertical line)
-    parts.append(
+        # Center tick at 1× (initial)
         f'<line x1="{x_init}" y1="{track_top - 3}" '
         f'x2="{x_init}" y2="{track_top + _TRACK_HEIGHT + 3}" '
-        f'stroke="{_C_TICK}" stroke-width="1"/>'
-    )
-    # Final marker (filled circle)
-    parts.append(
-        f'<circle cx="{x_final}" cy="{cy}" r="3" fill="{marker_color}"/>'
-    )
-    # At-bound wall line
+        f'stroke="{_C_TICK}" stroke-width="1"/>',
+    ]
+    # Marker (circle or chevron)
+    if off_scale_right:
+        parts.append(
+            f'<polygon points="{track_right - 5},{cy - 4} {track_right},{cy} '
+            f'{track_right - 5},{cy + 4}" fill="{marker_color}"/>'
+        )
+    elif off_scale_left:
+        parts.append(
+            f'<polygon points="{track_left + 5},{cy - 4} {track_left},{cy} '
+            f'{track_left + 5},{cy + 4}" fill="{marker_color}"/>'
+        )
+    else:
+        frac = (log_ratio + _DEC_RANGE) / (2 * _DEC_RANGE)
+        x_mark = int(round(track_left + frac * (track_right - track_left)))
+        parts.append(
+            f'<circle cx="{x_mark}" cy="{cy}" r="3" fill="{marker_color}"/>'
+        )
+    # At-bound wall
     if at_bound:
         bound_x = track_right if at_upper else track_left
         parts.append(
@@ -146,6 +190,12 @@ def _init_final_svg(initial, final, lower, upper, fixed):
             f'x2="{bound_x}" y2="{track_top + _TRACK_HEIGHT + 4}" '
             f'stroke="{_C_BOUND}" stroke-width="1"/>'
         )
+    # Inline ratio label
+    parts.append(
+        f'<text x="{label_x}" y="{cy + 3}" font-size="10" '
+        f'font-family="ui-monospace,Menlo,Consolas,monospace" '
+        f'fill="{_C_LABEL}">{_format_ratio_svg(ratio)}</text>'
+    )
     parts.append('</svg>')
     return ''.join(parts)
 
@@ -214,7 +264,7 @@ def generate_html_report(model: dict) -> str:
     .fix{color:#b0b0c0;font-style:italic;font-size:11px;}
     .num{text-align:right;font-variant-numeric:tabular-nums;font-family:
          ui-monospace,Menlo,Consolas,monospace;}
-    .viz{padding:2px 6px;line-height:0;vertical-align:middle;width:90px;}
+    .viz{padding:2px 6px;line-height:0;vertical-align:middle;width:120px;}
     .viz svg{display:block;}
     .summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
     .summary-item{background:#f8f8fc;border:1px solid #e8e8f0;border-radius:8px;padding:12px 14px;}

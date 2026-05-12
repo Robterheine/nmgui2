@@ -637,6 +637,67 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.21 — Init→Final visualization redesign: log-scale ratio bar
+
+A pharmacometrician review of the v2.9.18 bullet bar identified four UX failures:
+
+1. **Wide-bound collapse** — `$THETA (0, init, 1e6)` (the NONMEM default) mapped both the initial tick and final marker into the leftmost ~1px of the track. Most parameters showed a dot on the left edge of empty wasteland.
+2. **FIXED diamond didn't read as "fixed"** — looked like a stray marker that lost its track.
+3. **Initial tick invisible** when init ≈ final — the 1px tick was occluded by the 6px marker exactly in the common "well-behaved fit" case.
+4. **OMEGA/SIGMA marker landed near the middle** regardless of movement.
+
+**v2.9.21 replaces the bullet bar with a log-scale ratio bar** centered on the initial estimate. Same delegate, same SVG helper, same payload — only the paint logic changed.
+
+#### What you see now
+
+For a normal parameter:
+
+```
+[ 0.1×    1× •─●    10× ]   ×2.6
+        center    marker     inline label
+```
+
+- Track always spans `0.1× → 10× initial` (2 decades, log scale) — same scale for every parameter, **independent of bound width**. The wide-bound collapse is impossible by construction.
+- Center tick at `1×` (the initial estimate as reference).
+- Filled circle at `log10(final/initial)`, clamped to track ends.
+- **Chevron** at the clamped end when the movement is off-scale (>10× or <0.1×).
+- **Inline `×N` numeric label** (`×1.6`, `×0.50`, `×12`) removes the visual-translation step. Compact (Latin-1 `×` symbol only — no glyphs that fail on older Windows fonts).
+
+#### FIXED parameters
+
+Render as a **thin uniform grey horizontal line across the full track width, no marker, no tick, no label**. Reads visually as "frozen — nothing to show." Combined with the existing `FIX` italic on the parameter name, FIXED rows are quiet and unambiguous.
+
+#### Boundary proximity
+
+When the final estimate is within 1% of a bound, the marker turns red AND a red wall-line is drawn at the corresponding track edge. **This signal is independent of the log-ratio scale**, so wide bounds no longer suppress it.
+
+#### Color thresholds
+
+Same conceptual tiers as v2.9.18, now driven by `|log10(final/initial)|`:
+- `< 0.04` (within ~10%): subtle grey
+- `< 0.18` (within ~50%): accent blue
+- `>= 0.18`: orange
+- At bound: red
+
+#### Edge cases (rare in PMx but handled correctly)
+
+- **Sign change** (`init < 0, final > 0` or vice versa): log scale undefined. Falls back to a signed delta badge (`+0.8` / `-0.5`) with no bar.
+- **Initial = 0**: ratio undefined. Falls back to the bare final value (`0.5`) with no bar. The absence of a bar IS the visual signal.
+- **Both negative**: log scale of `final/initial` works (positive ratio), marker positioned normally.
+
+#### Cross-OS
+
+Pure QPainter primitives on the desktop and pure SVG primitives in the HTML report. **All glyphs are Latin-1 only** (`×` U+00D7) — no symbols that may render as boxes on older Windows fonts. Verified by encoding every SVG variant as Latin-1.
+
+#### Sizing
+
+- Desktop column width bumped from 70 to 110px to accommodate the bar + inline label.
+- HTML SVG width bumped from 80 to 110px; CSS `.viz` rule widened to 120px.
+
+#### Verified with 30 inline checks across 10 acceptance criteria
+
+Wide-bound case now positions marker meaningfully (not collapsed). FIXED rows render as quiet lines (no spurious markers). No-movement cases show marker at center with `×1.0` label. Off-scale (>10×) cases render a chevron. At-bound cases render red marker + red wall. Negative same-sign ratios work correctly. Sign-change and zero-initial cases fall back gracefully to ASCII numeric badges. Run19.lst regression: all 25 viz cells render meaningfully. Desktop and HTML formatters agree byte-for-byte. All 8 SVG variants encode as Latin-1.
+
 ### v2.9.20 — Fix: Init→Final viz cells were blank (wiring gap in ScanWorker)
 
 The Init→Final visualization shipped in v2.9.18 (desktop) and v2.9.19 (HTML) was silently invisible in real usage. `parser.parse_lst()` populated the five new fields (`theta_initials`, `theta_lowers`, `theta_uppers`, `omega_initials`, `sigma_initials`) correctly, but `ScanWorker` in `app/workers.py` iterates over a hardcoded allowlist of field names to copy from the parser result into each model dict — and the allowlist wasn't extended in v2.9.18.

@@ -21,35 +21,82 @@ _SECTION_ROW_KEY  = 'section_header'   # stored in UserRole to identify header r
 _INIT_FINAL_ROLE  = Qt.ItemDataRole.UserRole + 10   # delegate payload
 
 
+def _format_ratio(ratio: float) -> str:
+    """Compact log-ratio label: '×1.6', '×0.50', '×12'. Cross-OS-safe (Latin-1)."""
+    if ratio >= 10:
+        return f'×{ratio:.0f}'    # ×12, ×100
+    if ratio >= 1:
+        return f'×{ratio:.1f}'    # ×1.0, ×1.3, ×9.8
+    if ratio >= 0.1:
+        return f'×{ratio:.2f}'    # ×0.50, ×0.71
+    return f'×{ratio:.0e}'        # ×1e-02 (rare)
+
+
+def _format_compact(v: float) -> str:
+    """Compact numeric for fallback badges. ~5 chars max."""
+    if v == 0:
+        return '0'
+    av = abs(v)
+    if av >= 1000:
+        return f'{v:.0f}'
+    if av >= 1:
+        return f'{v:.1f}'
+    if av >= 0.01:
+        return f'{v:.2f}'
+    return f'{v:.0e}'
+
+
 class InitialVsFinalDelegate(QStyledItemDelegate):
-    """Paints a small bullet-bar visualization of initial→final estimate.
+    """Log-scale ratio visualization of initial → final estimate.
 
     Reads its payload from item.data(_INIT_FINAL_ROLE) as a dict:
         {'initial': float, 'final': float,
-         'lower': float|None, 'upper': float|None,
-         'fixed': bool}
+         'lower': float|None, 'upper': float|None, 'fixed': bool}
 
-    Rendering:
-      - FIXED parameters: small filled diamond, no track.
-      - Bounded parameters (lower and upper both present): full track
-        from lower→upper with an initial tick and a final marker.
-      - Unbounded (typical OMEGA/SIGMA): auto-scaled track from 0 (or
-        the minimum if either value is negative) up to 2× max(|init|,|final|).
-        Right edge of track drawn dashed to signal "extrapolated".
-      - Final marker color is graded by movement magnitude
-        (subtle / accent / orange) and goes red when at/beyond a bound.
-      - At/beyond bound: a thin red 'wall' line at the bound position.
+    Rendering (cross-OS safe — pure QPainter primitives + Latin-1 '×'):
 
-    No data → blank cell (best-effort degradation when initials are
-    missing, e.g. simulation-only runs).
-    Cross-OS-safe: all drawing via QPainter primitives, no Unicode glyphs.
+      - FIXED: thin full-width grey line, no marker.  Reads visually as
+        "frozen — no movement possible."  (The 'FIX' italic on the
+        parameter name already conveys the FIX state in words.)
+
+      - Same-sign positive parameters (the normal PK case):
+        Track spans 0.1× → 10× initial on a log scale (2 decades).
+        Center tick at 1×.  Filled circle at log10(final/initial),
+        clamped to ends.  Chevron at the clamp when off-scale (>10× or
+        <0.1×).  Inline '×N' numeric label to the right of the bar.
+
+      - Both negative or sign-change: ratio undefined or misleading,
+        fall back to a numeric delta badge 'Δ±X' (no bar).
+
+      - initial == 0: ratio undefined, fall back to absolute final badge.
+
+      - No data (initial or final is None): blank cell.
+
+      - At/within 1% of a bound: red marker + red wall-line at the
+        track edge corresponding to the bound. This signal is
+        independent of the log-ratio scale, so wide bounds no longer
+        suppress it.
+
+    Color (driven by |log10(final/initial)|, matching ratio magnitudes):
+        < 0.04   (within ~10%)  : subtle grey
+        < 0.18   (within ~50%)  : accent blue
+        >= 0.18                 : orange
+        at bound                : red
+
+    v2.9.21 — replaces the v2.9.18 bullet-bar that collapsed for the
+    common NONMEM convention `$THETA (0, init, 1e6)`.
     """
 
-    # Colors are pulled live from the theme `C` singleton inside paint()
-    # so a theme switch repaints correctly via the table's normal refresh.
+    # Layout constants — log-ratio bar plus an inline numeric label
+    _PAD_X         = 6
+    _LABEL_W       = 32           # px reserved on right for '×N' text
+    _TRACK_H       = 4
+    _DEC_RANGE     = 1.0          # ±1 decade (0.1× to 10×)
+    _THRESH_SUBTLE = 0.04         # |log10| < this → grey (~10% move)
+    _THRESH_MID    = 0.18         # |log10| < this → blue (~50% move)
+    _LABEL_FONT_PT = 8
 
     def paint(self, painter, option, index):
-        # Background — let the default delegate paint selection / hover state
         super().paint(painter, option, index)
 
         data = index.data(_INIT_FINAL_ROLE)
@@ -58,7 +105,7 @@ class InitialVsFinalDelegate(QStyledItemDelegate):
         initial = data.get('initial')
         final   = data.get('final')
         if initial is None or final is None:
-            return  # no data → blank cell
+            return
 
         lower = data.get('lower')
         upper = data.get('upper')
@@ -67,116 +114,163 @@ class InitialVsFinalDelegate(QStyledItemDelegate):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        cell   = option.rect
-        cx, cy = cell.center().x(), cell.center().y()
+        cell = option.rect
+        cy   = cell.center().y()
+        track_left  = cell.left() + self._PAD_X
+        track_right = cell.right() - self._PAD_X - self._LABEL_W
+        if track_right <= track_left + 10:
+            painter.restore()
+            return
+        track_top   = cy - self._TRACK_H // 2
+        label_rect  = QRect(track_right + 4, cell.top(),
+                            self._LABEL_W, cell.height())
 
-        # ── FIXED: small grey diamond, no movement to show ───────────────
+        # ── FIXED — quiet full-width line, no marker, no label ──────────
         if fixed:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(C.fg3))
-            painter.drawPolygon(QPolygon([
-                QPoint(cx,     cy - 3),
-                QPoint(cx + 3, cy),
-                QPoint(cx,     cy + 3),
-                QPoint(cx - 3, cy),
-            ]))
+            painter.setBrush(QColor(C.bg3))
+            painter.drawRoundedRect(
+                QRect(track_left, track_top,
+                      (track_right + self._LABEL_W) - track_left, self._TRACK_H),
+                2, 2,
+            )
             painter.restore()
             return
 
-        # ── Geometry ─────────────────────────────────────────────────────
-        pad_x       = 8
-        track_left  = cell.left() + pad_x
-        track_right = cell.right() - pad_x
-        if track_right <= track_left:
-            painter.restore(); return
-        track_h     = 4
-        track_top   = cy - track_h // 2
+        # ── Fallback for ratio-undefined cases ──────────────────────────
+        same_sign_pos = (initial > 0 and final > 0)
+        same_sign_neg = (initial < 0 and final < 0)
+        if not (same_sign_pos or same_sign_neg):
+            # Sign change or zero initial → numeric badge in the cell
+            self._draw_fallback_badge(painter, cell, initial, final)
+            painter.restore()
+            return
 
-        # ── Determine scale (bounded vs auto-scaled) ─────────────────────
-        has_lo = lower is not None
-        has_hi = upper is not None
-        if has_lo and has_hi and upper > lower:
-            scale_lo, scale_hi, extrapolated = float(lower), float(upper), False
-        else:
-            extrapolated = True
-            # Use 0 (or min(initial, final) if negative) as the left anchor,
-            # 2×max(|init|, |final|) as the right anchor. Guarantees > 0 span.
-            vmin = min(initial, final, 0.0)
-            vmax = max(initial, final, 0.0)
-            scale_lo = float(lower) if has_lo else vmin
-            scale_hi = float(upper) if has_hi else max(2.0 * max(abs(initial), abs(final)), 1e-9)
-            if scale_hi <= scale_lo:
-                scale_hi = scale_lo + max(abs(scale_lo) * 0.5, 1e-9)
+        # Use |final| / |initial| so the same-sign-negative case still works
+        ratio = (final / initial) if same_sign_pos else (final / initial)
+        # (For same-sign-negative, final/initial is mathematically positive.)
+        import math
+        try:
+            log_ratio = math.log10(ratio)
+        except (ValueError, ZeroDivisionError):
+            self._draw_fallback_badge(painter, cell, initial, final)
+            painter.restore()
+            return
 
-        def map_x(v: float) -> int:
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                return (track_left + track_right) // 2
-            if scale_hi == scale_lo:
-                return (track_left + track_right) // 2
-            x = track_left + (fv - scale_lo) / (scale_hi - scale_lo) * (track_right - track_left)
-            # Clamp to track
-            return int(round(max(track_left, min(track_right, x))))
-
-        # ── Track ────────────────────────────────────────────────────────
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(C.bg3))
-        painter.drawRoundedRect(QRect(track_left, track_top,
-                                      track_right - track_left, track_h), 2, 2)
-        if extrapolated:
-            # Dashed overlay on the right portion to signal "extrapolated scale"
-            mid = track_left + (track_right - track_left) * 2 // 3
-            pen = QPen(QColor(C.fg3), 1, Qt.PenStyle.DotLine)
-            painter.setPen(pen)
-            painter.drawLine(mid, cy, track_right, cy)
-
-        # ── Movement magnitude → marker color ────────────────────────────
-        if initial == 0:
-            abs_move = 0.0 if final == 0 else float('inf')
-        else:
-            abs_move = abs(final - initial) / abs(initial)
-
-        # At-or-beyond-bound detection (1% tolerance relative to the bound)
+        # ── Bound proximity (independent of log scale) ──────────────────
         at_upper = (
-            has_hi
-            and abs(upper) > 1e-12
+            upper is not None and abs(upper) > 1e-12
             and final >= upper - abs(upper) * 0.01
         )
         at_lower = (
-            has_lo
-            and abs(lower) > 1e-12
+            lower is not None and abs(lower) > 1e-12
             and final <= lower + abs(lower) * 0.01
         )
         at_bound = at_upper or at_lower
 
+        # ── Marker color from |log_ratio| ───────────────────────────────
+        abs_log = abs(log_ratio)
         if at_bound:
             marker_color = QColor(C.red)
-        elif abs_move >= 0.5:
+        elif abs_log >= self._THRESH_MID:
             marker_color = QColor(C.orange)
-        elif abs_move >= 0.1:
+        elif abs_log >= self._THRESH_SUBTLE:
             marker_color = QColor(C.blue)
         else:
             marker_color = QColor(C.fg2)
 
-        # ── Initial tick (short vertical line) ────────────────────────────
-        x_init = map_x(initial)
-        painter.setPen(QPen(QColor(C.fg3), 1))
-        painter.drawLine(x_init, track_top - 3, x_init, track_top + track_h + 3)
+        # ── Track ────────────────────────────────────────────────────────
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(C.bg3))
+        painter.drawRoundedRect(
+            QRect(track_left, track_top, track_right - track_left, self._TRACK_H),
+            2, 2,
+        )
 
-        # ── Final marker (filled circle) ──────────────────────────────────
-        x_final = map_x(final)
+        # ── Center tick at 1× (initial reference) ───────────────────────
+        x_init = (track_left + track_right) // 2
+        painter.setPen(QPen(QColor(C.fg3), 1))
+        painter.drawLine(x_init, track_top - 3, x_init, track_top + self._TRACK_H + 3)
+
+        # ── Marker (circle, or chevron if off-scale) ────────────────────
+        off_scale_right = log_ratio > self._DEC_RANGE
+        off_scale_left  = log_ratio < -self._DEC_RANGE
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(marker_color)
-        painter.drawEllipse(QPoint(x_final, cy), 3, 3)
+        if off_scale_right:
+            painter.drawPolygon(QPolygon([
+                QPoint(track_right - 5, cy - 4),
+                QPoint(track_right,     cy),
+                QPoint(track_right - 5, cy + 4),
+            ]))
+        elif off_scale_left:
+            painter.drawPolygon(QPolygon([
+                QPoint(track_left + 5, cy - 4),
+                QPoint(track_left,     cy),
+                QPoint(track_left + 5, cy + 4),
+            ]))
+        else:
+            # Map log_ratio in [-DEC_RANGE, +DEC_RANGE] to track x
+            frac = (log_ratio + self._DEC_RANGE) / (2 * self._DEC_RANGE)
+            x_mark = int(round(track_left + frac * (track_right - track_left)))
+            painter.drawEllipse(QPoint(x_mark, cy), 3, 3)
 
-        # ── At-bound wall (red vertical line) ─────────────────────────────
+        # ── At-bound red wall ────────────────────────────────────────────
         if at_bound:
             bound_x = track_right if at_upper else track_left
             painter.setPen(QPen(QColor(C.red), 1))
-            painter.drawLine(bound_x, track_top - 4, bound_x, track_top + track_h + 4)
+            painter.drawLine(bound_x, track_top - 4, bound_x, track_top + self._TRACK_H + 4)
+
+        # ── Numeric ratio label ──────────────────────────────────────────
+        font = painter.font()
+        font.setPointSize(self._LABEL_FONT_PT)
+        painter.setFont(font)
+        painter.setPen(QColor(C.fg2))
+        painter.drawText(
+            label_rect,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            _format_ratio(ratio),
+        )
 
         painter.restore()
+
+    def _draw_fallback_badge(self, painter, cell, initial, final):
+        """Render a numeric badge for sign-change / zero-initial cases.
+
+        ASCII-only (no →, Δ, or other non-Latin-1 glyphs) for full cross-OS
+        font compatibility. The absence of a track/marker IS the signal
+        that this is a noteworthy edge case.
+        """
+        if initial == 0:
+            text = _format_compact(final)            # bare final value
+        elif final == 0:
+            text = '0'
+        else:
+            delta = final - initial
+            sign  = '+' if delta >= 0 else ''
+            text  = f'{sign}{_format_compact(delta)}'   # '+0.5' / '-0.3'
+
+        # Color by relative magnitude
+        try:
+            rel = abs(final - initial) / max(abs(initial), 1e-12)
+        except Exception:
+            rel = 0.0
+        if rel >= 0.5:
+            color = QColor(C.orange)
+        elif rel >= 0.1:
+            color = QColor(C.blue)
+        else:
+            color = QColor(C.fg2)
+
+        font = painter.font()
+        font.setPointSize(self._LABEL_FONT_PT)
+        painter.setFont(font)
+        painter.setPen(color)
+        painter.drawText(
+            cell.adjusted(self._PAD_X, 0, -self._PAD_X, 0),
+            Qt.AlignmentFlag.AlignCenter,
+            text,
+        )
 
 
 class ParameterTable(QWidget):
@@ -217,7 +311,7 @@ class ParameterTable(QWidget):
         hh.resizeSection(0, 85)
         hh.resizeSection(1, 140)
         hh.resizeSection(2, 85)
-        hh.resizeSection(3, 70)   # new — Init→Final viz column
+        hh.resizeSection(3, 110)  # Init→Final viz column (log-ratio bar + ×N label)
         hh.resizeSection(4, 65)
         hh.resizeSection(5, 55)
         hh.resizeSection(6, 55)
