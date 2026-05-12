@@ -5,9 +5,10 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QFileDialog, QMessageBox,
+    QStyledItemDelegate, QStyle,
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPen, QPolygon
 
 from ..app.theme import C, T
 from ..app.format import fmt_num, fmt_rse
@@ -16,7 +17,166 @@ from ..app.html_report import generate_html_report
 from ..app.constants import HOME
 
 
-_SECTION_ROW_KEY = 'section_header'   # stored in UserRole to identify header rows
+_SECTION_ROW_KEY  = 'section_header'   # stored in UserRole to identify header rows
+_INIT_FINAL_ROLE  = Qt.ItemDataRole.UserRole + 10   # delegate payload
+
+
+class InitialVsFinalDelegate(QStyledItemDelegate):
+    """Paints a small bullet-bar visualization of initial→final estimate.
+
+    Reads its payload from item.data(_INIT_FINAL_ROLE) as a dict:
+        {'initial': float, 'final': float,
+         'lower': float|None, 'upper': float|None,
+         'fixed': bool}
+
+    Rendering:
+      - FIXED parameters: small filled diamond, no track.
+      - Bounded parameters (lower and upper both present): full track
+        from lower→upper with an initial tick and a final marker.
+      - Unbounded (typical OMEGA/SIGMA): auto-scaled track from 0 (or
+        the minimum if either value is negative) up to 2× max(|init|,|final|).
+        Right edge of track drawn dashed to signal "extrapolated".
+      - Final marker color is graded by movement magnitude
+        (subtle / accent / orange) and goes red when at/beyond a bound.
+      - At/beyond bound: a thin red 'wall' line at the bound position.
+
+    No data → blank cell (best-effort degradation when initials are
+    missing, e.g. simulation-only runs).
+    Cross-OS-safe: all drawing via QPainter primitives, no Unicode glyphs.
+    """
+
+    # Colors are pulled live from the theme `C` singleton inside paint()
+    # so a theme switch repaints correctly via the table's normal refresh.
+
+    def paint(self, painter, option, index):
+        # Background — let the default delegate paint selection / hover state
+        super().paint(painter, option, index)
+
+        data = index.data(_INIT_FINAL_ROLE)
+        if not isinstance(data, dict):
+            return
+        initial = data.get('initial')
+        final   = data.get('final')
+        if initial is None or final is None:
+            return  # no data → blank cell
+
+        lower = data.get('lower')
+        upper = data.get('upper')
+        fixed = bool(data.get('fixed', False))
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        cell   = option.rect
+        cx, cy = cell.center().x(), cell.center().y()
+
+        # ── FIXED: small grey diamond, no movement to show ───────────────
+        if fixed:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(C.fg3))
+            painter.drawPolygon(QPolygon([
+                QPoint(cx,     cy - 3),
+                QPoint(cx + 3, cy),
+                QPoint(cx,     cy + 3),
+                QPoint(cx - 3, cy),
+            ]))
+            painter.restore()
+            return
+
+        # ── Geometry ─────────────────────────────────────────────────────
+        pad_x       = 8
+        track_left  = cell.left() + pad_x
+        track_right = cell.right() - pad_x
+        if track_right <= track_left:
+            painter.restore(); return
+        track_h     = 4
+        track_top   = cy - track_h // 2
+
+        # ── Determine scale (bounded vs auto-scaled) ─────────────────────
+        has_lo = lower is not None
+        has_hi = upper is not None
+        if has_lo and has_hi and upper > lower:
+            scale_lo, scale_hi, extrapolated = float(lower), float(upper), False
+        else:
+            extrapolated = True
+            # Use 0 (or min(initial, final) if negative) as the left anchor,
+            # 2×max(|init|, |final|) as the right anchor. Guarantees > 0 span.
+            vmin = min(initial, final, 0.0)
+            vmax = max(initial, final, 0.0)
+            scale_lo = float(lower) if has_lo else vmin
+            scale_hi = float(upper) if has_hi else max(2.0 * max(abs(initial), abs(final)), 1e-9)
+            if scale_hi <= scale_lo:
+                scale_hi = scale_lo + max(abs(scale_lo) * 0.5, 1e-9)
+
+        def map_x(v: float) -> int:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                return (track_left + track_right) // 2
+            if scale_hi == scale_lo:
+                return (track_left + track_right) // 2
+            x = track_left + (fv - scale_lo) / (scale_hi - scale_lo) * (track_right - track_left)
+            # Clamp to track
+            return int(round(max(track_left, min(track_right, x))))
+
+        # ── Track ────────────────────────────────────────────────────────
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(C.bg3))
+        painter.drawRoundedRect(QRect(track_left, track_top,
+                                      track_right - track_left, track_h), 2, 2)
+        if extrapolated:
+            # Dashed overlay on the right portion to signal "extrapolated scale"
+            mid = track_left + (track_right - track_left) * 2 // 3
+            pen = QPen(QColor(C.fg3), 1, Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.drawLine(mid, cy, track_right, cy)
+
+        # ── Movement magnitude → marker color ────────────────────────────
+        if initial == 0:
+            abs_move = 0.0 if final == 0 else float('inf')
+        else:
+            abs_move = abs(final - initial) / abs(initial)
+
+        # At-or-beyond-bound detection (1% tolerance relative to the bound)
+        at_upper = (
+            has_hi
+            and abs(upper) > 1e-12
+            and final >= upper - abs(upper) * 0.01
+        )
+        at_lower = (
+            has_lo
+            and abs(lower) > 1e-12
+            and final <= lower + abs(lower) * 0.01
+        )
+        at_bound = at_upper or at_lower
+
+        if at_bound:
+            marker_color = QColor(C.red)
+        elif abs_move >= 0.5:
+            marker_color = QColor(C.orange)
+        elif abs_move >= 0.1:
+            marker_color = QColor(C.blue)
+        else:
+            marker_color = QColor(C.fg2)
+
+        # ── Initial tick (short vertical line) ────────────────────────────
+        x_init = map_x(initial)
+        painter.setPen(QPen(QColor(C.fg3), 1))
+        painter.drawLine(x_init, track_top - 3, x_init, track_top + track_h + 3)
+
+        # ── Final marker (filled circle) ──────────────────────────────────
+        x_final = map_x(final)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(marker_color)
+        painter.drawEllipse(QPoint(x_final, cy), 3, 3)
+
+        # ── At-bound wall (red vertical line) ─────────────────────────────
+        if at_bound:
+            bound_x = track_right if at_upper else track_left
+            painter.setPen(QPen(QColor(C.red), 1))
+            painter.drawLine(bound_x, track_top - 4, bound_x, track_top + track_h + 4)
+
+        painter.restore()
 
 
 class ParameterTable(QWidget):
@@ -46,18 +206,23 @@ class ParameterTable(QWidget):
         tl.addWidget(self.open_report_btn); tl.addWidget(self.save_report_btn)
         tl.addWidget(self.csv_btn)
         v.addWidget(toolbar)
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(['Param', 'Name', 'Estimate', 'SE', 'RSE%', 'Shrink%', 'Etabar', 'Units'])
+        # Column layout (post v2.9.18 — new "Init→Final" viz column at index 3):
+        #   0=Param  1=Name  2=Estimate  3=Init→Final  4=SE  5=RSE%
+        #   6=Shrink%  7=Etabar  8=Units
+        self.table = QTableWidget(0, 9)
+        self.table.setHorizontalHeaderLabels(
+            ['Param', 'Name', 'Estimate', 'Init→Final', 'SE', 'RSE%', 'Shrink%', 'Etabar', 'Units'])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         hh.resizeSection(0, 85)
         hh.resizeSection(1, 140)
         hh.resizeSection(2, 85)
-        hh.resizeSection(3, 65)
-        hh.resizeSection(4, 55)
+        hh.resizeSection(3, 70)   # new — Init→Final viz column
+        hh.resizeSection(4, 65)
         hh.resizeSection(5, 55)
         hh.resizeSection(6, 55)
-        hh.resizeSection(7, 50)
+        hh.resizeSection(7, 55)
+        hh.resizeSection(8, 50)
         hh.setStretchLastSection(False)
         hh.setMinimumSectionSize(40)
         self.table.setAlternatingRowColors(True)
@@ -65,6 +230,9 @@ class ParameterTable(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setShowGrid(False)
         self.table.itemClicked.connect(self._on_item_clicked)
+        # Attach the Init→Final visualization delegate to column 3
+        self._init_final_delegate = InitialVsFinalDelegate(self.table)
+        self.table.setItemDelegateForColumn(3, self._init_final_delegate)
         v.addWidget(self.table)
 
     def _on_item_clicked(self, item):
@@ -164,18 +332,29 @@ class ParameterTable(QWidget):
                 for i, val in enumerate(parent_model.get(key, [])):
                     parent_params[f'{block}({i+1})'] = val
 
+        # Initial estimates and bounds (parsed from the .lst echo block).
+        # Empty lists when the model has never been run or the .lst lacks the echo.
+        theta_inits  = model.get('theta_initials', [])
+        theta_lowers = model.get('theta_lowers',   [])
+        theta_uppers = model.get('theta_uppers',   [])
+        omega_inits  = model.get('omega_initials', [])
+        sigma_inits  = model.get('sigma_initials', [])
+
         blocks = [
             ('THETA', model.get('thetas',[]), model.get('theta_ses',[]),
-             model.get('theta_names',[]), model.get('theta_units',[]), model.get('theta_fixed',[]), [], []),
+             model.get('theta_names',[]), model.get('theta_units',[]), model.get('theta_fixed',[]), [], [],
+             theta_inits, theta_lowers, theta_uppers),
             ('OMEGA', model.get('omegas',[]), model.get('omega_ses',[]),
-             model.get('omega_names',[]), model.get('omega_units',[]), model.get('omega_fixed',[]), eta_shr, etabar_pval),
+             model.get('omega_names',[]), model.get('omega_units',[]), model.get('omega_fixed',[]), eta_shr, etabar_pval,
+             omega_inits, [], []),
             ('SIGMA', model.get('sigmas',[]), model.get('sigma_ses',[]),
-             model.get('sigma_names',[]), model.get('sigma_units',[]), model.get('sigma_fixed',[]), eps_shr, []),
+             model.get('sigma_names',[]), model.get('sigma_units',[]), model.get('sigma_fixed',[]), eps_shr, [],
+             sigma_inits, [], []),
         ]
 
         # Build flat list with section header sentinels
         row_specs = []   # each entry: ('header', block) or ('data', block, ...)
-        for block, ests, ses, names, units, fixed, shrinkage, etabar in blocks:
+        for block, ests, ses, names, units, fixed, shrinkage, etabar, inits, lowers, uppers in blocks:
             if not ests:
                 continue
             row_specs.append(('header', block, len(ests)))
@@ -186,11 +365,15 @@ class ParameterTable(QWidget):
                 fx  = fixed[i] if i < len(fixed) else False
                 shr = shrinkage[i] if i < len(shrinkage) else None
                 ebp = etabar[i]    if i < len(etabar)    else None
+                init  = inits[i]  if i < len(inits)  else None
+                lower = lowers[i] if i < len(lowers) else None
+                upper = uppers[i] if i < len(uppers) else None
                 pk  = f'{block}({i+1})'
                 row_specs.append(('data', block, pk, nm, est,
                                   fmt_num(est), fmt_num(se) if se is not None else '...',
                                   fmt_rse(est, se), shr, ebp, un, fx,
-                                  parent_params.get(pk)))
+                                  parent_params.get(pk),
+                                  init, lower, upper))
 
         self._section_rows = {}
         self.table.setRowCount(len(row_specs))
@@ -212,7 +395,7 @@ class ParameterTable(QWidget):
             hdr_item.setForeground(QBrush(QColor(C.blue)))
             f = hdr_item.font(); f.setBold(True); f.setPointSize(10); hdr_item.setFont(f)
             self.table.setItem(ri, 0, hdr_item)
-            self.table.setSpan(ri, 0, 1, 8)
+            self.table.setSpan(ri, 0, 1, 9)
             self.table.setRowHeight(ri, 24)
             self._section_rows[block] = (ri, [])
 
@@ -220,7 +403,7 @@ class ParameterTable(QWidget):
         for ri, spec in enumerate(row_specs):
             if spec[0] != 'data':
                 continue
-            _, block, lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val = spec
+            _, block, lbl, nm, est_raw, est, se, rse, shr, ebp, un, fx, parent_val, init, lower, upper = spec
             self._section_rows[block][1].append(ri)
 
             changed_from_parent = False
@@ -245,9 +428,59 @@ class ParameterTable(QWidget):
             else:
                 ebp_txt = ''; ebp_color = None
 
-            for col, (txt, align) in enumerate([(lbl,L),(nm,L),(est,R),(se,R),(rse,R),(shr_txt,R),(ebp_txt,R),(un,L)]):
+            # Column 3 is the Init→Final viz column; populated separately below
+            # with an empty item carrying _INIT_FINAL_ROLE payload (the delegate
+            # paints from that role, ignoring the item's text).
+            col_layout = [
+                (lbl, L),        # 0 Param
+                (nm,  L),        # 1 Name
+                (est, R),        # 2 Estimate
+                ('',  R),        # 3 Init→Final (painted by delegate)
+                (se,  R),        # 4 SE
+                (rse, R),        # 5 RSE%
+                (shr_txt, R),    # 6 Shrink%
+                (ebp_txt, R),    # 7 Etabar
+                (un,  L),        # 8 Units
+            ]
+            for col, (txt, align) in enumerate(col_layout):
                 item = QTableWidgetItem(txt)
                 item.setTextAlignment(align)
+                if col == 3:
+                    # Init→Final viz cell — attach payload for the delegate.
+                    # initial / final are floats; lower / upper may be None.
+                    item.setData(_INIT_FINAL_ROLE, {
+                        'initial': init,
+                        'final':   est_raw,
+                        'lower':   lower,
+                        'upper':   upper,
+                        'fixed':   fx,
+                    })
+                    # Tooltip with numeric detail
+                    if init is not None and est_raw is not None:
+                        try:
+                            delta_pct = ((est_raw - init) / init * 100) if init else 0.0
+                            delta_str = f'  ({delta_pct:+.1f}%)' if init else ''
+                        except (TypeError, ZeroDivisionError):
+                            delta_str = ''
+                        bounds_str = (
+                            f'[{fmt_num(lower)}, {fmt_num(upper)}]'
+                            if (lower is not None and upper is not None)
+                            else '(no upper bound)'
+                            if (lower is None or upper is None)
+                            else '—'
+                        )
+                        if fx:
+                            item.setToolTip(f'FIXED at {fmt_num(init)}')
+                        else:
+                            item.setToolTip(
+                                f'Initial: {fmt_num(init)}\n'
+                                f'Final:   {fmt_num(est_raw)}{delta_str}\n'
+                                f'Bounds:  {bounds_str}'
+                            )
+                    elif fx:
+                        item.setToolTip('FIXED')
+                    self.table.setItem(ri, col, item)
+                    continue
                 if fx:
                     item.setForeground(grey)
                     item.setToolTip('FIXED')
@@ -256,15 +489,15 @@ class ParameterTable(QWidget):
                     item.setText(f'* {est}')
                     item.setForeground(QBrush(changed_color))
                     item.setToolTip(parent_tooltip)
-                # Apply shrinkage color
-                elif col == 5 and shr_color:
+                # Apply shrinkage color (Shrink% is now at column 6 after viz insertion)
+                elif col == 6 and shr_color:
                     item.setForeground(QBrush(shr_color))
                     if shr is not None and shr >= 30:
                         item.setToolTip(f'High shrinkage ({shr:.1f}%) — parameter poorly estimated')
                     elif shr is not None and shr >= 20:
                         item.setToolTip(f'Moderate shrinkage ({shr:.1f}%)')
-                # Apply etabar color
-                elif col == 6 and ebp is not None:
+                # Apply etabar color (Etabar is now at column 7 after viz insertion)
+                elif col == 7 and ebp is not None:
                     if ebp_color:
                         item.setForeground(QBrush(ebp_color))
                     if ebp < 0.01:

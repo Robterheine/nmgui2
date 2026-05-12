@@ -637,6 +637,22 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.18 — Init→Final visualization in the parameter table
+
+- **New column "Init→Final"** in the Models-tab parameter table (column index 3, between Estimate and SE). Inspired by Pirana — shows where each parameter's final estimate sits relative to its initial estimate and bounds.
+- **Visualization**: a small bullet bar with a tick at the initial estimate and a filled circle at the final estimate. Track spans the user-specified bounds for THETAs that have them; auto-scaled (and dashed on the right) for OMEGAs / SIGMAs that don't have an upper bound.
+- **Diagnostic color cues** on the final marker:
+  - Subtle grey: parameter moved < 10% from initial
+  - Blue (accent): 10–50% movement
+  - Orange: > 50% movement (initials may have been off, worth a glance)
+  - Red + red wall-line at the bound: final is at or beyond a bound (within 1%) — the optimizer is pushing against the constraint; structural model or bounds need re-examination.
+- **FIXED parameters**: small filled diamond, no track, no movement (visually distinct from "parameter that happens to land near its initial").
+- **No data** (model never run, or .lst lacks the INITIAL ESTIMATE echo): cell stays blank and the rest of the table works normally.
+- **Cross-OS bulletproof**: every visual element drawn with `QPainter` primitives (`drawRoundedRect`, `drawLine`, `drawEllipse`, `drawPolygon`). No Unicode glyphs, no SVG, no font fallback issues on Windows / Linux / macOS.
+- **Tooltip** on each viz cell shows the numbers: `Initial / Final (Δ%) / Bounds`.
+- **New parser function** `_parse_initial_estimates()` in `parser.py` extracts initial estimates and bounds from NONMEM's `0INITIAL ESTIMATE OF THETA/OMEGA/SIGMA:` echo block. Authoritative — it's exactly what NONMEM ran with, regardless of post-run edits to the .mod.
+- **Tested against 51 cases**: real run19.lst (15 THETAs / 8 OMEGAs / 2 SIGMAs), synthetic models with extreme values (1e-12, 1e10, negative bounds, equal bounds), D-notation Fortran doubles, OMEGA block matrices (3×3 with 6 elements), missing INITIAL echo, models with no .lst, large models (200 THETAs load in ~7ms), and a delegate-stress matrix of 16 payload shapes including zero-initial, zero-final, lower>upper bad data, and None-valued fields. All 51 pass.
+
 ### v2.9.17 — Line-number gutter in the model editor
 
 - **Line numbers** now appear in a left-edge gutter alongside the Models-tab editor. Removes the manual counting step when NONMEM reports an error like `ERROR ENCOUNTERED IN LINE 47 OF THE CONTROL STATEMENTS`.

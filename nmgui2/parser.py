@@ -284,6 +284,17 @@ def parse_lst(lst_path):
         'estimation_method': '',
         'subproblems': [],
         'raw_text': '',
+        # Initial estimates and bounds parsed from the .lst echo block.
+        # Used by the Init→Final visualization in the parameter table.
+        # All lists are parallel to 'thetas' / 'omegas' / 'sigmas'.
+        # theta_lowers / theta_uppers: None when the parameter is fixed
+        # (lower==init==upper in the echo) or echo missing.
+        # omega/sigma have no user-specifiable upper bound in NONMEM.
+        'theta_initials': [],
+        'theta_lowers':   [],
+        'theta_uppers':   [],
+        'omega_initials': [],
+        'sigma_initials': [],
     }
 
     if not os.path.exists(lst_path):
@@ -806,6 +817,131 @@ def parse_lst(lst_path):
                 'sigma_se_matrix': result.get('sigma_se_matrix', []),
                 'boundary': result.get('boundary', False),
             }]
+
+    # Parse the INITIAL ESTIMATE echo blocks (used by the Init→Final viz).
+    # This is best-effort — older/simulation-only runs may not echo initials.
+    try:
+        inits = _parse_initial_estimates(text)
+        result['theta_initials'] = inits.get('theta_initials', [])
+        result['theta_lowers']   = inits.get('theta_lowers', [])
+        result['theta_uppers']   = inits.get('theta_uppers', [])
+        result['omega_initials'] = inits.get('omega_initials', [])
+        result['sigma_initials'] = inits.get('sigma_initials', [])
+    except Exception as e:
+        _log.warning(f'Could not parse INITIAL ESTIMATE block: {e}')
+
+    return result
+
+
+def _parse_initial_estimates(text):
+    """Parse the NONMEM '0INITIAL ESTIMATE OF {THETA,OMEGA,SIGMA}' echo blocks.
+
+    Returns dict with parallel lists:
+      theta_initials, theta_lowers, theta_uppers  (lengths match $THETA count)
+      omega_initials, sigma_initials              (diagonals only)
+
+    For THETA:
+      Each echo line has three columns: LOWER, INITIAL, UPPER.
+      If lower == init == upper, the parameter is fixed (no real bounds);
+      we record initial but leave lower/upper as None so the visualization
+      treats it as bounded-by-fixed.
+
+    For OMEGA and SIGMA:
+      Echo is block-structured (BLOCK 1 / BLOCK 2 / ...). We extract the
+      diagonal element of each block (NONMEM-convention diag for diag
+      blocks; for full BLOCK(n), the n-th value on the n-th row).
+
+    Returns empty lists if the block is missing (graceful degradation).
+    """
+    result = {
+        'theta_initials': [], 'theta_lowers': [], 'theta_uppers': [],
+        'omega_initials': [], 'sigma_initials': [],
+    }
+    if not text:
+        return result
+
+    # ── THETA ─────────────────────────────────────────────────────────────────
+    th_match = re.search(r'0INITIAL ESTIMATE OF THETA:', text)
+    if th_match:
+        # Scope: from header to next '0'-prefixed line or blank-line block end
+        after = text[th_match.end():]
+        end_m = re.search(r'^0', after, re.MULTILINE)
+        block = after[:end_m.start()] if end_m else after[:4000]
+        # Skip the "LOWER BOUND INITIAL EST UPPER BOUND" header line
+        for line in block.split('\n'):
+            s = line.strip()
+            if not s or 'LOWER' in s.upper() or 'BOUND' in s.upper() or 'INITIAL' in s.upper():
+                continue
+            # Tolerate D-notation (Fortran double) as well as E-notation
+            nums = re.findall(r'[-+]?\d*\.?\d+(?:[eEdD][-+]?\d+)?', s)
+            if len(nums) >= 3:
+                try:
+                    lo = float(nums[0].replace('D','E').replace('d','e'))
+                    it = float(nums[1].replace('D','E').replace('d','e'))
+                    hi = float(nums[2].replace('D','E').replace('d','e'))
+                    result['theta_initials'].append(it)
+                    # When lower == init == upper, NONMEM is echoing a FIX'd
+                    # parameter; record bounds as None so the viz doesn't draw
+                    # a degenerate zero-width range.
+                    if lo == it == hi:
+                        result['theta_lowers'].append(None)
+                        result['theta_uppers'].append(None)
+                    else:
+                        result['theta_lowers'].append(lo)
+                        result['theta_uppers'].append(hi)
+                except ValueError:
+                    pass
+            elif len(nums) == 1:
+                # Some echoes only show the initial value (no bounds line)
+                try:
+                    it = float(nums[0].replace('D','E').replace('d','e'))
+                    result['theta_initials'].append(it)
+                    result['theta_lowers'].append(None)
+                    result['theta_uppers'].append(None)
+                except ValueError:
+                    pass
+
+    # ── OMEGA and SIGMA: block-structured echo, extract diagonals ────────────
+    for kind, key in (('OMEGA', 'omega_initials'), ('SIGMA', 'sigma_initials')):
+        m = re.search(rf'0INITIAL ESTIMATE OF {kind}:', text)
+        if not m:
+            continue
+        after = text[m.end():]
+        end_m = re.search(r'^0', after, re.MULTILINE)
+        block = after[:end_m.start()] if end_m else after[:4000]
+
+        # Walk block. Each "BLOCK SET NO." line starts a new sub-block.
+        # Within a sub-block, the values are echoed as a lower-triangular
+        # matrix; the diagonals are the last value on each value-row.
+        current_row_idx = 0  # 1-based index within current sub-block
+        for line in block.split('\n'):
+            s = line.strip()
+            if not s:
+                continue
+            # Skip header / column-name lines
+            if re.search(r'BLOCK\s+SET\s+NO\.', s, re.IGNORECASE):
+                current_row_idx = 0
+                continue
+            if re.match(r'^\d+\s+(YES|NO)\s*$', s, re.IGNORECASE):
+                # "1   YES" — per-block index + fixed flag, no values.
+                # Each sub-block restarts row numbering, so reset here.
+                current_row_idx = 0
+                continue
+            # A value-row contains numeric tokens only
+            nums = re.findall(r'[-+]?\d*\.?\d+(?:[eEdD][-+]?\d+)?', s)
+            if nums and all(
+                re.fullmatch(r'[-+]?\d*\.?\d+(?:[eEdD][-+]?\d+)?', tok)
+                for tok in s.split()
+            ):
+                # row index 1 has 1 value, row 2 has 2 values, etc.
+                # diagonal is at position (1-based row == column count of values)
+                current_row_idx += 1
+                if current_row_idx <= len(nums):
+                    try:
+                        diag = float(nums[current_row_idx - 1].replace('D','E').replace('d','e'))
+                        result[key].append(diag)
+                    except ValueError:
+                        pass
 
     return result
 
