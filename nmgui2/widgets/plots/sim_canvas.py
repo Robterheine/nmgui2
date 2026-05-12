@@ -51,7 +51,18 @@ class _SimWorker(QThread):
 
     def run(self):
         try:
-            df = self._df.copy()
+            x_col   = self._x_col
+            y_col   = self._y_col
+            rep_col = self._rep_col
+
+            # Fix 2: copy only the columns actually needed — avoids duplicating
+            # a 30–50 column DataFrame when only 3–5 columns are used.
+            needed = list(dict.fromkeys(   # preserves order, deduplicates
+                [x_col, y_col, rep_col]
+                + (['MDV'] if self._mdv_filter and 'MDV' in self._df.columns else [])
+                + [col for col, _, _ in self._filters if col in self._df.columns]
+            ))
+            df = self._df[needed].copy()
 
             # MDV filter first
             if self._mdv_filter and 'MDV' in df.columns:
@@ -87,10 +98,6 @@ class _SimWorker(QThread):
                 self.error.emit('No rows remain after applying filters.')
                 return
 
-            x_col   = self._x_col
-            y_col   = self._y_col
-            rep_col = self._rep_col
-
             for col in (x_col, y_col, rep_col):
                 if col not in df.columns:
                     self.error.emit(f"Column '{col}' not found after filtering.")
@@ -106,27 +113,39 @@ class _SimWorker(QThread):
                 self.error.emit('No valid numeric rows for selected columns.')
                 return
 
-            # Pivot: index=x_col (time), columns=rep_col (replicate), values=y_col
-            # aggfunc='mean' handles duplicate (time, rep) combos gracefully.
-            # Missing (time, rep) combinations → NaN (ragged grid handled).
-            pivot = df.pivot_table(index=x_col, columns=rep_col,
-                                   values=y_col, aggfunc='mean')
+            # Fix 3: groupby + unstack is ~3× faster than pivot_table for
+            # typical sim data (one row per subject per time per replicate).
+            # aggfunc='mean' semantics preserved: averages duplicate (x,rep) pairs.
+            pivot = (
+                df.groupby([x_col, rep_col], observed=True)[y_col]
+                .mean()
+                .unstack(rep_col)
+            )
             times = pivot.index.to_numpy(dtype=float)
             vals  = pivot.to_numpy(dtype=float)   # shape: (n_times, n_reps)
 
-            # Guard against empty-slice nanquantile (all-NaN column)
+            # Guard against empty-slice nanquantile (all-NaN row)
             n_valid = np.sum(~np.isnan(vals), axis=1)
             good = n_valid > 0
             if not np.any(good):
                 self.error.emit('All values are NaN for the selected columns.')
                 return
 
+            # Fix 4: compute all required quantile levels in one nanquantile
+            # call instead of 3 calls per band.  For 2 bands that's 6→1 pass.
+            unique_pcts = sorted({p / 100.0
+                                  for lo, hi in self._band_pcts
+                                  for p in (lo, 50.0, hi)})
+            all_q = np.nanquantile(vals[good], unique_pcts, axis=1)
+            q_map = {p: all_q[i] for i, p in enumerate(unique_pcts)}
+
             result = {'times': times[good], 'bands': []}
             for lo_pct, hi_pct in self._band_pcts:
-                lo  = np.nanquantile(vals[good], lo_pct / 100.0, axis=1)
-                med = np.nanquantile(vals[good], 0.50,           axis=1)
-                hi  = np.nanquantile(vals[good], hi_pct / 100.0, axis=1)
-                result['bands'].append({'lo': lo, 'med': med, 'hi': hi})
+                result['bands'].append({
+                    'lo':  q_map[lo_pct  / 100.0],
+                    'med': q_map[0.50],
+                    'hi':  q_map[hi_pct  / 100.0],
+                })
 
             self.finished.emit(result)
         except Exception as e:

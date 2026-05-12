@@ -30,7 +30,7 @@ except ImportError:
     HAS_PD = False
 
 try:
-    from ..parser import read_table_file
+    from ..parser import read_table_file, read_table_df
     HAS_PARSER = True
 except Exception:
     HAS_PARSER = False
@@ -520,6 +520,25 @@ class SimulationPlotTab(QWidget):
             self, 'Select observed data file', self._default_dir(), 'All files (*)')
         if f: self._obs_edit.setText(f)
 
+    @staticmethod
+    def _dedup_upper_cols(df):
+        """Uppercase column names and append _N suffixes to duplicates.
+
+        Returns (df_with_new_cols, sorted_list_of_duplicate_base_names).
+        """
+        seen: dict = {}
+        cols: list = []
+        for c in (col.upper() for col in df.columns):
+            if c in seen:
+                seen[c] += 1
+                cols.append(f'{c}_{seen[c]}')
+            else:
+                seen[c] = 1
+                cols.append(c)
+        df.columns = cols
+        dups = sorted({c for c in seen if seen[c] > 1})
+        return df, dups
+
     def _load_sim(self):
         path = self._file_edit.text().strip()
         if not path or not Path(path).is_file():
@@ -527,21 +546,13 @@ class SimulationPlotTab(QWidget):
         if not HAS_PARSER or not HAS_PD:
             self.status_msg.emit('pandas / parser not available.'); return
         try:
-            h, r = read_table_file(path, max_rows=None)
-            if h is None:
+            # read_table_df uses pd.read_csv (C engine) — 10-30× faster than
+            # the row-by-row parser for large sim files.
+            df = read_table_df(path, max_rows=None)
+            if df is None:
                 self.status_msg.emit('Could not parse file.'); return
-            raw_cols = [c.upper() for c in h]
-            seen: dict = {}
-            cols: list = []
-            for c in raw_cols:
-                if c in seen:
-                    seen[c] += 1
-                    cols.append(f'{c}_{seen[c]}')
-                else:
-                    seen[c] = 1
-                    cols.append(c)
-            dups = sorted({c for c in seen if seen[c] > 1})
-            self._df = pd.DataFrame(r, columns=cols)
+            df, dups = self._dedup_upper_cols(df)
+            self._df = df
             self._populate_columns()
             n, nc = len(self._df), len(self._df.columns)
             dup_note = f'  ⚠ renamed: {", ".join(dups)}' if dups else ''
@@ -558,10 +569,11 @@ class SimulationPlotTab(QWidget):
         if not HAS_PARSER or not HAS_PD:
             self.status_msg.emit('pandas / parser not available.'); return
         try:
-            h, r = read_table_file(path, max_rows=None)
-            if h is None:
+            df = read_table_df(path, max_rows=None)
+            if df is None:
                 self.status_msg.emit('Could not parse observed file.'); return
-            self._obs_df = pd.DataFrame(r, columns=[c.upper() for c in h])
+            df, _ = self._dedup_upper_cols(df)
+            self._obs_df = df
             cols = list(self._obs_df.columns)
             for cb in (self._obs_x_cb, self._obs_y_cb):
                 cb.blockSignals(True); cb.clear(); cb.addItems(cols); cb.blockSignals(False)

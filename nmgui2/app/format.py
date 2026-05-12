@@ -33,10 +33,11 @@ def loess(x, y, frac=0.4, n_out=80):
             d = np.abs(xs - xi); idx = np.argsort(d)[:k]
             h = d[idx[-1]] or 1e-10
             w = np.clip(1-(d[idx]/h)**3, 0, None)**3
+            # Fix 5: use element-wise weighting instead of np.diag(w) which
+            # allocates a full k×k matrix just for a diagonal multiply.
             A = np.column_stack([np.ones(k), xs[idx]])
             try:
-                W = np.diag(w)
-                b = np.linalg.lstsq(W @ A, W @ ys[idx], rcond=None)[0]
+                b = np.linalg.lstsq(A * w[:, None], ys[idx] * w, rcond=None)[0]
                 yo[i] = b[0] + b[1]*xi
             except Exception:
                 yo[i] = np.average(ys[idx], weights=w+1e-12)
