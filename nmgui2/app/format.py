@@ -19,13 +19,24 @@ def fmt_rse(est, se):
     return f'{abs(se/est)*100:.1f}%'
 
 
-def loess(x, y, frac=0.4, n_out=80):
+def loess(x, y, frac=0.4, n_out=80, max_pts=2000):
+    """Locally-weighted regression smoother.
+
+    max_pts: subsample the input to at most this many points before fitting.
+    LOESS is O(n·k) per output point (k ≈ frac·n); without a cap, 50 000+
+    rows block the Qt event loop for tens of seconds.  2 000 evenly-spaced
+    points produce an indistinguishable trend curve.
+    """
     if not HAS_NP: return None, None
     try:
         x = np.asarray(x, float); y = np.asarray(y, float)
         ok = np.isfinite(x) & np.isfinite(y)
         x, y = x[ok], y[ok]
         if len(x) < 6: return None, None
+        # Subsample for performance: take evenly-spaced indices
+        if len(x) > max_pts:
+            idx = np.round(np.linspace(0, len(x) - 1, max_pts)).astype(int)
+            x, y = x[idx], y[idx]
         order = np.argsort(x); xs, ys = x[order], y[order]
         k = max(5, int(frac * len(xs)))
         xo = np.linspace(xs[0], xs[-1], n_out); yo = np.empty(n_out)
@@ -33,8 +44,6 @@ def loess(x, y, frac=0.4, n_out=80):
             d = np.abs(xs - xi); idx = np.argsort(d)[:k]
             h = d[idx[-1]] or 1e-10
             w = np.clip(1-(d[idx]/h)**3, 0, None)**3
-            # Fix 5: use element-wise weighting instead of np.diag(w) which
-            # allocates a full k×k matrix just for a diagonal multiply.
             A = np.column_stack([np.ones(k), xs[idx]])
             try:
                 b = np.linalg.lstsq(A * w[:, None], ys[idx] * w, rcond=None)[0]

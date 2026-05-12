@@ -465,3 +465,6 @@ class DataExplorerWidget(QWidget):
             for fr in self._filter_rows
             if fr.col_cb.currentText() and fr.val_cb.currentText())
         self.pw.setTitle(f'{ycol} vs {xcol}  {filt_desc}')
+        # Reset view range to fit new data; otherwise switching axes can leave
+        # the viewport stuck on the previous column's scale.
+        self.pw.autoRange()

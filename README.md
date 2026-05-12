@@ -637,6 +637,13 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.25 — Fix: axis change did not update plot (LOESS blocking main thread)
+
+Two fixes for the Plot view in the Files tab and data explorer:
+
+- **LOESS blocked the UI**: `loess()` is O(n·k) per output point where `k ≈ frac × n`. With 50 000 rows (raised in v2.9.24) and the default `frac=0.4`, each of 80 output points ran `np.argsort` on 50 000 elements — ~30–60 s of blocking. The Qt event loop was frozen; the user saw no response to axis changes. Fix: subsample the input to at most 2 000 evenly-spaced points before fitting. A LOESS trend curve is indistinguishable between 2 000 and 50 000 points. The `sim_canvas` LOESS (operating on 20–100 quantile values) is unaffected.
+- **View range stuck after axis change**: added `pw.autoRange()` at the end of `_plot()` so the viewport resets to fit the new data when columns are switched.
+
 ### v2.9.24 — Fix: Plot tab blank in Files tab viewer; smarter axis auto-selection
 
 Two fixes for the Plot view in the Files tab:
