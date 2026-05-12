@@ -129,7 +129,13 @@ class ScanWorker(QThread):
                                   'condition_number', 'boundary', 'etabar', 'etabar_se',
                                   'etabar_pval', 'cov_failure_reason', 'eta_shrinkage',
                                   'eps_shrinkage', 'correlation_matrix', 'cor_labels',
-                                  'subproblems'):
+                                  'subproblems',
+                                  # Init→Final visualization fields (v2.9.18). These
+                                  # MUST be copied here or the UI will show blank
+                                  # cells in the parameter table viz column despite
+                                  # the parser populating them correctly.
+                                  'theta_initials', 'theta_lowers', 'theta_uppers',
+                                  'omega_initials', 'sigma_initials'):
                             m[k] = r.get(k)
                         m['n_thetas'] = len(r.get('thetas', [])); m['n_omegas'] = len(r.get('omegas', []))
                         lst_mtime = lst_path.stat().st_mtime

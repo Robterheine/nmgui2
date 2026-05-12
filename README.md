@@ -637,6 +637,14 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.20 — Fix: Init→Final viz cells were blank (wiring gap in ScanWorker)
+
+The Init→Final visualization shipped in v2.9.18 (desktop) and v2.9.19 (HTML) was silently invisible in real usage. `parser.parse_lst()` populated the five new fields (`theta_initials`, `theta_lowers`, `theta_uppers`, `omega_initials`, `sigma_initials`) correctly, but `ScanWorker` in `app/workers.py` iterates over a hardcoded allowlist of field names to copy from the parser result into each model dict — and the allowlist wasn't extended in v2.9.18.
+
+Result: the field-copy loop dropped all five fields on the floor; the parameter table and HTML report saw empty lists; every viz cell rendered blank with no error message. The bug only manifested in the actual app flow; my v2.9.18 test suite called `parse_lst()` directly, bypassing the worker.
+
+Fix: five new field names added to the `ScanWorker` allowlist. End-to-end regression test now simulates the worker → model-dict → ParameterTable → HTML report pipeline, confirming all 25 viz cells in a real run19.lst model are populated correctly (18 diamonds for FIXED params, 7 tracks for non-FIXED).
+
 ### v2.9.19 — Init→Final visualization in the HTML report
 
 Mirrors the v2.9.18 desktop Init→Final column into the HTML run report. Inline SVG primitives — the report stays a single self-contained file with no external assets.
