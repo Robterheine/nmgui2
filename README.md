@@ -637,6 +637,14 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.23 — Fix: "Convert to CSV" in Files tab truncated multi-subproblem tables
+
+**Bug**: Converting a NONMEM table file to CSV (right-click → Convert to CSV) produced an output containing only the first subproblem / first set of individuals. Root cause: `_read_nonmem_table()` used `break` when it encountered an embedded `TABLE NO.` banner, stopping at the end of the first replicate block.
+
+**Fix**: Changed `break` → `continue` so the parser skips embedded banners and reads all sections. Repeated column-header rows between sections are also filtered out. The table viewer now passes `max_rows=5000` to keep the interactive display responsive; the converter still reads the full file with no row cap.
+
+Affects any multi-subproblem `$SIMULATE` output or `FIRSTONLY` table file. Single-table files were unaffected.
+
 ### v2.9.22 — Sim Plot performance: 10-30× faster file loading for large simulations
 
 Five targeted performance fixes for the Sim Plot tab, most impactful on Linux with large simulation datasets (1 000 virtual subjects, many replicates):

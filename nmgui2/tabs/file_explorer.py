@@ -76,8 +76,14 @@ def _fmt_size(n: int) -> str:
     return f'{n / 1_048_576:.1f} MB'
 
 
-def _read_nonmem_table(path: Path):
-    """Parse a NONMEM TABLE file. Returns (headers, rows)."""
+def _read_nonmem_table(path: Path, max_rows=None):
+    """Parse a NONMEM TABLE file. Returns (headers, rows).
+
+    Handles multi-subproblem and firstonly tables that embed repeated
+    'TABLE NO.' banners and duplicate header rows between sections.
+    Pass max_rows to cap the number of data rows returned (useful for the
+    interactive table viewer; leave None for full conversion to CSV).
+    """
     lines = path.read_text('utf-8', errors='replace').splitlines()
     if not lines:
         return [], []
@@ -87,12 +93,17 @@ def _read_nonmem_table(path: Path):
     headers = lines[start].split()
     rows = []
     for line in lines[start + 1:]:
+        if max_rows is not None and len(rows) >= max_rows:
+            break
         stripped = line.strip()
         if not stripped:
             continue
         if stripped.upper().startswith('TABLE NO'):
-            break
-        rows.append(stripped.split())
+            continue          # skip embedded TABLE NO. banners — do NOT stop
+        parts = stripped.split()
+        if parts == headers:
+            continue          # skip repeated column-header rows between sections
+        rows.append(parts)
     return headers, rows
 
 
@@ -909,7 +920,7 @@ class FileExplorerTab(QWidget):
     def _load_table_file(self, path: Path, ext: str):
         try:
             if ext in _NONMEM_TABLE_EXTS:
-                headers, rows = _read_nonmem_table(path)
+                headers, rows = _read_nonmem_table(path, max_rows=5000)
                 self._current_delim = None
             else:
                 headers, rows, self._current_delim = _read_csv_file(path)
