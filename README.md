@@ -637,6 +637,13 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.24 — Fix: Plot tab blank in Files tab viewer; smarter axis auto-selection
+
+Two fixes for the Plot view in the Files tab:
+
+- **Blank plot on load**: `_load_data()` only auto-selected axes when columns were named exactly `PRED` and `DV`. Tables with `TIME`/`IPRED` (typical sim output) left both dropdowns empty and `_plot()` was never called. Fixed: extended auto-selection with ordered fallback lists `TIME→TAD→PRED→IPRED` (X) and `DV→IPRED→PRED→CWRES→...` (Y), plus an explicit `_plot()` call at the end of `_load_data()` to guarantee a render regardless of which columns fired the signal.
+- **Row cap too low for plot**: v2.9.23 introduced a 5 000-row cap for the table viewer; the same cap was passed to the plot, making a 2M-row sim table visible as only 0.25% of the data. Raised to 50 000 rows — meaningful for any typical run.
+
 ### v2.9.23 — Fix: "Convert to CSV" in Files tab truncated multi-subproblem tables
 
 **Bug**: Converting a NONMEM table file to CSV (right-click → Convert to CSV) produced an output containing only the first subproblem / first set of individuals. Root cause: `_read_nonmem_table()` used `break` when it encountered an embedded `TABLE NO.` banner, stopping at the end of the first replicate block.

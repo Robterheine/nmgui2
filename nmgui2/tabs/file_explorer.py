@@ -920,7 +920,7 @@ class FileExplorerTab(QWidget):
     def _load_table_file(self, path: Path, ext: str):
         try:
             if ext in _NONMEM_TABLE_EXTS:
-                headers, rows = _read_nonmem_table(path, max_rows=5000)
+                headers, rows = _read_nonmem_table(path, max_rows=50000)
                 self._current_delim = None
             else:
                 headers, rows, self._current_delim = _read_csv_file(path)

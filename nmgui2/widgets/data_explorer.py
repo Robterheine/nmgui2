@@ -296,13 +296,30 @@ class DataExplorerWidget(QWidget):
                 cur = fr.col_cb.currentText(); fr.col_cb.blockSignals(True); fr.col_cb.clear()
                 fr.col_cb.addItems(cols); fr.col_cb.setCurrentIndex(max(0, fr.col_cb.findText(cur)))
                 fr.col_cb.blockSignals(False); fr.set_rows(rows, self._header)
-            if self.x_cb.currentIndex()==0 and 'PRED' in self._header: self.x_cb.setCurrentText('PRED')
-            if self.y_cb.currentIndex()==0  and 'DV'   in self._header: self.y_cb.setCurrentText('DV')
+            # Auto-select sensible defaults.  Try several common NONMEM column
+            # names so sim tables (TIME/IPRED) and sdtab (TIME/DV/PRED) both
+            # get a meaningful initial plot without manual axis selection.
+            _X_PREF = ['TIME', 'TAD', 'PRED', 'IPRED']
+            _Y_PREF = ['DV', 'IPRED', 'PRED', 'CWRES', 'IWRES', 'RES']
+            if self.x_cb.currentIndex() == 0:
+                for col in _X_PREF:
+                    if col in self._header:
+                        self.x_cb.setCurrentText(col)
+                        break
+            if self.y_cb.currentIndex() == 0:
+                for col in _Y_PREF:
+                    if col in self._header:
+                        self.y_cb.setCurrentText(col)
+                        break
         self._render_table()
         if truncated:
             self.info_lbl.setText(f'{name}  ·  {len(rows):,} rows, {len(header)} columns [TRUNCATED]')
         else:
             self.info_lbl.setText(f'{name}  ·  {len(rows):,} rows, {len(header)} columns')
+        # Explicitly refresh plot in case neither axis combo changed (both
+        # already had valid selections, or no matching default was found).
+        if HAS_PG and HAS_NP:
+            self._plot()
 
     # Also accept (header, rows) directly (called from EvaluationTab for sdtab auto-load)
     def load(self, header, rows):
