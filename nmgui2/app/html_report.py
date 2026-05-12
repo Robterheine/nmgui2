@@ -4,6 +4,173 @@ from .constants import APP_VERSION
 from .format import fmt_num
 
 
+# ── Init→Final visualization (HTML report side) ─────────────────────────────
+# Mirrors the QPainter delegate in widgets/parameter_table.py:
+#   - FIXED params: small grey diamond, no track
+#   - Bounded params: track + initial tick + final marker
+#   - Unbounded params: auto-scaled, right segment dashed
+#   - Marker color graded by movement magnitude; red wall-line at-bound
+# Inline SVG so the HTML report stays a single self-contained file —
+# no external assets, no JavaScript, opens correctly in any browser.
+
+_VIZ_WIDTH    = 80   # px
+_VIZ_HEIGHT   = 18   # px
+_VIZ_PAD_X    = 5
+_TRACK_HEIGHT = 4
+
+# Colors chosen to match the report's existing palette (light theme).
+_C_TRACK       = '#e0e0ea'
+_C_TICK        = '#7a7d9a'
+_C_FIXED       = '#b0b0c0'
+_C_DASH        = '#9090a0'
+_C_BORDER      = '#5a5a70'
+_C_MOVE_LOW    = '#7a7d9a'
+_C_MOVE_MED    = '#4c8aff'   # accent
+_C_MOVE_HIGH   = '#d97706'   # warn
+_C_BOUND       = '#dc2626'   # bad
+
+
+def _init_final_svg(initial, final, lower, upper, fixed):
+    """Render the Init→Final cell as an inline SVG fragment.
+
+    Args:
+        initial: float or None (initial estimate from .lst echo)
+        final:   float or None (final estimate)
+        lower, upper: float or None (parameter bounds; None when unbounded
+                                     or for FIXED parameters)
+        fixed:   bool
+
+    Returns:
+        HTML string with an <svg> element, or '' when no data.
+    """
+    if fixed:
+        # Small filled diamond — no track, no movement to show
+        cx, cy = _VIZ_WIDTH // 2, _VIZ_HEIGHT // 2
+        return (
+            f'<svg width="{_VIZ_WIDTH}" height="{_VIZ_HEIGHT}" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'<polygon points="{cx},{cy-3} {cx+3},{cy} {cx},{cy+3} {cx-3},{cy}" '
+            f'fill="{_C_FIXED}"/></svg>'
+        )
+
+    if initial is None or final is None:
+        return ''   # blank cell — no data
+
+    track_left  = _VIZ_PAD_X
+    track_right = _VIZ_WIDTH - _VIZ_PAD_X
+    cy          = _VIZ_HEIGHT // 2
+    track_top   = cy - _TRACK_HEIGHT // 2
+
+    # Determine scale: bounded if both bounds present and upper > lower
+    if (lower is not None and upper is not None and float(upper) > float(lower)):
+        scale_lo, scale_hi = float(lower), float(upper)
+        extrapolated = False
+    else:
+        extrapolated = True
+        vmin = min(initial, final, 0.0)
+        vmax = max(initial, final, 0.0)
+        scale_lo = float(lower) if lower is not None else vmin
+        scale_hi = float(upper) if upper is not None else max(2.0 * max(abs(initial), abs(final)), 1e-9)
+        if scale_hi <= scale_lo:
+            scale_hi = scale_lo + max(abs(scale_lo) * 0.5, 1e-9)
+
+    def _map(v):
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            return (track_left + track_right) // 2
+        if scale_hi == scale_lo:
+            return (track_left + track_right) // 2
+        x = track_left + (fv - scale_lo) / (scale_hi - scale_lo) * (track_right - track_left)
+        return int(round(max(track_left, min(track_right, x))))
+
+    # Marker color from movement magnitude + bound-proximity
+    if initial == 0:
+        abs_move = 0.0 if final == 0 else float('inf')
+    else:
+        abs_move = abs(final - initial) / abs(initial)
+
+    at_upper = (
+        upper is not None
+        and abs(upper) > 1e-12
+        and final >= upper - abs(upper) * 0.01
+    )
+    at_lower = (
+        lower is not None
+        and abs(lower) > 1e-12
+        and final <= lower + abs(lower) * 0.01
+    )
+    at_bound = at_upper or at_lower
+
+    if at_bound:
+        marker_color = _C_BOUND
+    elif abs_move >= 0.5:
+        marker_color = _C_MOVE_HIGH
+    elif abs_move >= 0.1:
+        marker_color = _C_MOVE_MED
+    else:
+        marker_color = _C_MOVE_LOW
+
+    x_init  = _map(initial)
+    x_final = _map(final)
+
+    parts = [
+        f'<svg width="{_VIZ_WIDTH}" height="{_VIZ_HEIGHT}" '
+        f'xmlns="http://www.w3.org/2000/svg">',
+        # Track (rounded rect)
+        f'<rect x="{track_left}" y="{track_top}" '
+        f'width="{track_right - track_left}" height="{_TRACK_HEIGHT}" '
+        f'rx="2" ry="2" fill="{_C_TRACK}"/>',
+    ]
+    if extrapolated:
+        mid = track_left + (track_right - track_left) * 2 // 3
+        parts.append(
+            f'<line x1="{mid}" y1="{cy}" x2="{track_right}" y2="{cy}" '
+            f'stroke="{_C_DASH}" stroke-width="1" stroke-dasharray="2,2"/>'
+        )
+    # Initial tick (short vertical line)
+    parts.append(
+        f'<line x1="{x_init}" y1="{track_top - 3}" '
+        f'x2="{x_init}" y2="{track_top + _TRACK_HEIGHT + 3}" '
+        f'stroke="{_C_TICK}" stroke-width="1"/>'
+    )
+    # Final marker (filled circle)
+    parts.append(
+        f'<circle cx="{x_final}" cy="{cy}" r="3" fill="{marker_color}"/>'
+    )
+    # At-bound wall line
+    if at_bound:
+        bound_x = track_right if at_upper else track_left
+        parts.append(
+            f'<line x1="{bound_x}" y1="{track_top - 4}" '
+            f'x2="{bound_x}" y2="{track_top + _TRACK_HEIGHT + 4}" '
+            f'stroke="{_C_BOUND}" stroke-width="1"/>'
+        )
+    parts.append('</svg>')
+    return ''.join(parts)
+
+
+def _init_final_tooltip(initial, final, lower, upper, fixed):
+    """Title attribute for the HTML cell — shown on hover in browsers."""
+    if fixed:
+        return f'FIXED at {fmt_num(initial)}' if initial is not None else 'FIXED'
+    if initial is None or final is None:
+        return ''
+    try:
+        delta_pct = (final - initial) / initial * 100 if initial else 0.0
+        delta_str = f'  ({delta_pct:+.1f}%)' if initial else ''
+    except (TypeError, ZeroDivisionError):
+        delta_str = ''
+    if lower is not None and upper is not None:
+        bounds = f'[{fmt_num(lower)}, {fmt_num(upper)}]'
+    else:
+        bounds = '(no upper bound)'
+    # HTML title attribute uses literal newlines as spaces; use ' • ' for clarity
+    return (
+        f'Initial: {fmt_num(initial)} • Final: {fmt_num(final)}{delta_str} • Bounds: {bounds}'
+    )
+
+
 def generate_html_report(model: dict) -> str:
     """Generate a self-contained HTML run report for a model."""
     from datetime import datetime as _dt
@@ -47,6 +214,8 @@ def generate_html_report(model: dict) -> str:
     .fix{color:#b0b0c0;font-style:italic;font-size:11px;}
     .num{text-align:right;font-variant-numeric:tabular-nums;font-family:
          ui-monospace,Menlo,Consolas,monospace;}
+    .viz{padding:2px 6px;line-height:0;vertical-align:middle;width:90px;}
+    .viz svg{display:block;}
     .summary-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;}
     .summary-item{background:#f8f8fc;border:1px solid #e8e8f0;border-radius:8px;padding:12px 14px;}
     .summary-label{font-size:10px;color:#9090a0;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
@@ -103,27 +272,36 @@ def generate_html_report(model: dict) -> str:
         for lbl, val, cls in summary_items) + '</div>'
 
     # ── Parameter table ───────────────────────────────────────────────────────
+    # Each block carries initial estimates and bounds (parsed from the .lst echo)
+    # in parallel arrays for the Init→Final visualization column. OMEGA/SIGMA
+    # don't have user-specifiable upper bounds — pass empty lists.
     blocks = [
         ('THETA', model.get('thetas', []),  model.get('theta_ses', []),
-         model.get('theta_names', []), model.get('theta_units', []), model.get('theta_fixed', [])),
+         model.get('theta_names', []), model.get('theta_units', []), model.get('theta_fixed', []),
+         model.get('theta_initials', []), model.get('theta_lowers', []), model.get('theta_uppers', [])),
         ('OMEGA', model.get('omegas', []),  model.get('omega_ses', []),
-         model.get('omega_names', []), model.get('omega_units', []), model.get('omega_fixed', [])),
+         model.get('omega_names', []), model.get('omega_units', []), model.get('omega_fixed', []),
+         model.get('omega_initials', []), [], []),
         ('SIGMA', model.get('sigmas', []),  model.get('sigma_ses', []),
-         model.get('sigma_names', []), model.get('sigma_units', []), model.get('sigma_fixed', [])),
+         model.get('sigma_names', []), model.get('sigma_units', []), model.get('sigma_fixed', []),
+         model.get('sigma_initials', []), [], []),
     ]
     param_rows = ''
     current_block = None
-    for block, ests, ses, names, units, fixed in blocks:
+    for block, ests, ses, names, units, fixed, inits, lowers, uppers in blocks:
         if ests:
             if block != current_block:
                 current_block = block
                 param_rows += (f'<tr class="block-sep">'
-                               f'<td colspan="6">{block}</td></tr>')
+                               f'<td colspan="7">{block}</td></tr>')
             for i, est in enumerate(ests):
                 se   = ses[i]   if i < len(ses)   else None
                 nm   = names[i] if i < len(names) else ''
                 un   = units[i] if i < len(units) else ''
                 fx   = fixed[i] if i < len(fixed) else False
+                init  = inits[i]  if i < len(inits)  else None
+                lower = lowers[i] if i < len(lowers) else None
+                upper = uppers[i] if i < len(uppers) else None
                 rse  = f'{abs(se/est)*100:.1f}%' if se is not None and est and abs(est)>1e-12 else ('...' if se is None else '—')
                 lbl  = f'{block}({i+1})'
                 fix_badge = ' <span class="fix">FIX</span>' if fx else ''
@@ -131,16 +309,20 @@ def generate_html_report(model: dict) -> str:
                 if se is not None and est and abs(est)>1e-12:
                     pct = abs(se/est)*100
                     rse_cls = 'good' if pct<25 else ('warn' if pct<50 else 'bad')
+                viz_svg  = _init_final_svg(init, est, lower, upper, fx)
+                viz_tip  = _init_final_tooltip(init, est, lower, upper, fx)
+                viz_cell = f'<td class="viz" title="{viz_tip}">{viz_svg}</td>'
                 param_rows += (
                     f'<tr><td>{lbl}{fix_badge}</td><td>{nm}</td>'
                     f'<td class="num">{fmt_num(est)}</td>'
+                    f'{viz_cell}'
                     f'<td class="num">{fmt_num(se) if se is not None else "..."}</td>'
                     f'<td class="num {rse_cls}">{rse}</td>'
                     f'<td class="num">{un}</td></tr>')
 
     param_html = f'''<div class="card-scroll">
     <table><thead><tr>
-    <th>Parameter</th><th>Name</th><th>Estimate</th><th>SE</th><th>RSE%</th><th>Units</th>
+    <th>Parameter</th><th>Name</th><th>Estimate</th><th>Init&rarr;Final</th><th>SE</th><th>RSE%</th><th>Units</th>
     </tr></thead><tbody>{param_rows}</tbody></table></div>'''
 
     # ── Correlation matrix ────────────────────────────────────────────────────

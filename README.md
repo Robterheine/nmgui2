@@ -637,6 +637,18 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.19 — Init→Final visualization in the HTML report
+
+Mirrors the v2.9.18 desktop Init→Final column into the HTML run report. Inline SVG primitives — the report stays a single self-contained file with no external assets.
+
+- **New "Init→Final" column** in the parameter table of generated HTML reports, between Estimate and SE.
+- **Same visualization logic** as the desktop delegate: track + initial tick + final marker for bounded params, diamond for FIXED, auto-scaled-with-dashed-right for unbounded (OMEGA/SIGMA).
+- **Same color thresholds**: subtle grey (<10% movement), accent blue (10-50%), orange (>50%), red marker + red wall-line at bound (within 1%).
+- **Tooltip on hover**: `Initial: X • Final: Y (+Z%) • Bounds: [lo, hi]` via the HTML `title` attribute.
+- **Implementation**: a single `_init_final_svg()` helper produces an inline `<svg>` per row using `<rect>`, `<line>`, `<circle>`, `<polygon>` primitives. Mirrors the QPainter rendering in `widgets/parameter_table.py` byte-for-byte. CSS rule `.viz {padding:2px 6px; line-height:0; vertical-align:middle;}` keeps the SVG aligned in the table.
+- **Cross-browser**: tested HTML opens in Safari / Chrome / Firefox without external dependencies. No JavaScript. No web fonts.
+- **Verified** with 50 inline checks across SVG helper extremes (14 payload shapes including zero-init/zero-final/lower>upper/None values), full report generation against real run19.lst with `extract_param_names` + `parse_lst` merged (18 diamonds for FIXED params, 7 tracks for non-fixed, structural HTML well-formedness), and color-threshold verification across each tier.
+
 ### v2.9.18 — Init→Final visualization in the parameter table
 
 - **New column "Init→Final"** in the Models-tab parameter table (column index 3, between Estimate and SE). Inspired by Pirana — shows where each parameter's final estimate sits relative to its initial estimate and bounds.
