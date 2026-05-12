@@ -637,6 +637,14 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.17 — Line-number gutter in the model editor
+
+- **Line numbers** now appear in a left-edge gutter alongside the Models-tab editor. Removes the manual counting step when NONMEM reports an error like `ERROR ENCOUNTERED IN LINE 47 OF THE CONTROL STATEMENTS`.
+- **Cursor-position indicator** `Ln X, Col Y` shown right-aligned in the editor's toolbar row.
+- Implemented as a new `CodeEditor` (subclass of `QPlainTextEdit`) using Qt's canonical line-number-area pattern. The existing `NMHighlighter` syntax highlighting, palette, font, and all editor operations (Save, View .lst, model load) are unchanged.
+- Gutter width is dynamic with a 3-digit minimum reservation to prevent jitter on small files. Numbers right-aligned in a muted color; the current line's number is brighter. Theme-aware — repaints correctly on light/dark switch.
+- **Hook for future error-jumping:** `editor.goto_line(n)` is a public method that scrolls to line N and briefly highlights it, plus a `lineJumped(int)` signal. Click-to-jump from NMTRAN error output is intentionally deferred to a separate release — it needs `$INCLUDE` handling, error-panel UI design, and lifecycle plumbing that don't belong in the gutter PR.
+
 ### v2.9.16 — Parser fix: $-in-comment no longer truncates parameter blocks
 
 Fixes a silent-correctness bug in `inject_estimates` (used by the Duplicate dialog's "Inject final estimates from .lst" option) and a cosmetic issue in `extract_table_files`.

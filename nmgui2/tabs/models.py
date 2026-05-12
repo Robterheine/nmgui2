@@ -24,6 +24,7 @@ from ..app.html_report import generate_html_report
 from ..app.qc_report import generate_qc_html, open_report_in_browser
 from ..widgets.parameter_table import ParameterTable
 from ..widgets.highlighter import NMHighlighter
+from ..widgets.code_editor import CodeEditor
 from ..widgets.lst_viewer import LstOutputWidget
 from ..dialogs.duplicate import DuplicateDialog
 from ..dialogs.comparison import ModelComparisonDialog
@@ -384,10 +385,15 @@ class ModelsTab(QWidget):
         self.save_btn.clicked.connect(self._save_model)
         self.lst_btn  = QPushButton('View .lst'); self.lst_btn.clicked.connect(self._view_lst)
         ed_top.addWidget(self.save_btn); ed_top.addWidget(self.lst_btn); ed_top.addStretch()
-        self.editor = QPlainTextEdit()
+        # Cursor-position indicator on the right side of the toolbar
+        self.line_col_lbl = QLabel('Ln 1, Col 1')
+        self.line_col_lbl.setObjectName('muted')
+        ed_top.addWidget(self.line_col_lbl)
+        self.editor = CodeEditor()
         self.editor.setFont(monospace_font(11))
         self._apply_editor_palette()
         self._hl = NMHighlighter(self.editor.document())
+        self.editor.cursorPositionChanged.connect(self._update_line_col)
         ed_v.addLayout(ed_top); ed_v.addWidget(self.editor)
         self._detail_stack.addWidget(ed_w)
 
@@ -578,6 +584,15 @@ class ModelsTab(QWidget):
         Called from MainWindow._apply_theme()."""
         self._apply_editor_palette()
         self._apply_notes_palette()
+        # Editor's line-number gutter pulls colors live from theme tokens;
+        # ask it to repaint so the new colors take effect.
+        if hasattr(self.editor, 'refresh_theme'):
+            self.editor.refresh_theme()
+
+    def _update_line_col(self):
+        """Update the 'Ln X, Col Y' indicator from the editor's cursor."""
+        cur = self.editor.textCursor()
+        self.line_col_lbl.setText(f'Ln {cur.blockNumber() + 1}, Col {cur.columnNumber() + 1}')
 
     # ── Bookmarks ──────────────────────────────────────────────────────────────
     def _refresh_bookmarks(self):
