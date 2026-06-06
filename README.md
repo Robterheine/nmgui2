@@ -637,6 +637,22 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.26 — Fix: Windows path quoting error when running NONMEM models
+
+**Bug**: Launching a NONMEM run on Windows produced a path syntax error in the terminal.
+The generated command wrapped both the PsN tool path and the model path in single quotes
+(e.g. `'D:\PsN-5.7.0\...\execute.BAT' 'I:\001.mod'`).
+`cmd.exe` does not recognise single-quoted strings, so the command failed immediately.
+
+**Root cause**: `shlex.quote()` is a POSIX-only function that always produces single-quoted
+output. On Windows, `RunWorker` passes the command string to `subprocess.Popen` with
+`shell=True`, which routes through `cmd.exe`. The fix introduces a `_shell_quote()` helper
+in `models.py` that uses double-quoted strings on Windows (the `cmd.exe` convention) and
+falls back to `shlex.quote` on macOS/Linux.
+
+Only `_run_model()` in the Models tab was affected. The bootstrap/SIR worker in the
+Uncertainty tab already passed a `list` to `Popen` without `shell=True` and was unaffected.
+
 ### v2.9.25 — Fix: axis change did not update plot (LOESS blocking main thread)
 
 Two fixes for the Plot view in the Files tab and data explorer:

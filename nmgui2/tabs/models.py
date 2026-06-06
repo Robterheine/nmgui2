@@ -46,6 +46,19 @@ except ImportError:
 
 _log = logging.getLogger(__name__)
 
+
+def _shell_quote(s: str) -> str:
+    """Quote a path token for the current platform's shell.
+
+    ``shlex.quote`` produces POSIX single-quoted strings, which bash/zsh accept
+    but Windows ``cmd.exe`` does not.  On Windows we wrap in double quotes and
+    escape embedded double-quotes by doubling them (the ``cmd.exe`` convention).
+    """
+    if IS_WIN:
+        return '"' + s.replace('"', '""') + '"'
+    return shlex.quote(s)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Model table
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1346,7 +1359,7 @@ class ModelsTab(QWidget):
         tool = self.tool_combo.currentText(); tool_path = find_tool(tool)
         if not tool_path: QMessageBox.warning(self,'Not found',f'"{tool}" not found. Is PsN on PATH?'); return
         model_path = m['path']; cwd = str(Path(model_path).parent)
-        q = shlex.quote; cmd = f'{q(tool_path)} {q(model_path)}'
+        cmd = f'{_shell_quote(tool_path)} {_shell_quote(model_path)}'
         if tool == 'execute': cmd += f' -directory={m["stem"]}'
         extra = self.args_edit.text().strip()
         if extra: cmd += ' ' + extra
