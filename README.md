@@ -637,6 +637,37 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.28 — Fixes: statistical & parser correctness
+
+A code audit surfaced several correctness bugs in the diagnostics. All are fixed and
+unit-verified:
+
+- **Shapiro-Wilk normality test (CWRES QQ plot) was computed wrong.** The weight vector
+  was not antisymmetric — only the largest half of the sorted data contributed, so the W
+  statistic and its colored pass/fail verdict were meaningless. Now uses
+  `scipy.stats.shapiro` when available, with a corrected antisymmetric (Shapiro-Francia)
+  approximation as a numpy-only fallback.
+- **Condition number was truncated for models with more than ~12 parameters.** NONMEM
+  prints eigenvalues ascending, wrapped across multiple lines; the parser stopped after the
+  first line, reading only the smallest eigenvalues and computing a far-too-small condition
+  number — silently disabling the CN>1000 collinearity warning on exactly the large models
+  where it matters. Now reads all eigenvalue lines before computing max/min.
+- **Correlation matrix of the estimates was malformed for wide models.** NONMEM prints it
+  in horizontal column-panels, repeating each row label per panel; the parser appended each
+  value line as a new row. Rows are now keyed by label and concatenated across panels (also
+  fixes the new v2.9.27 correlation table for >12-parameter models).
+- **NPDE and CWRES distribution overlays fitted the data's own mean/SD**, drawing a normal
+  curve that hugged the histogram and hid bias/over-dispersion. The reference is now fixed at
+  N(0,1) — the actual diagnostic target — with the empirical fit shown as a faint secondary line.
+- **SIR effective sample size used the wrong quantity** (count of unique resampled vectors).
+  Now computes the Kish ESS = (Σw)²/Σw² from the proposal importance weights, which correctly
+  captures weight concentration; falls back to the unique-vector count only when weights are
+  unavailable.
+- **Bootstrap/SIR percentile CIs used `int(n·q)` truncation**, biasing both bounds low for
+  small sample counts. Replaced with linear-interpolation percentiles (R type 7 / numpy default).
+- **Bootstrap correlation check silently dropped zero-variance parameters** (`nanmax` ignored
+  the NaN columns a fixed/boundary-pinned parameter produces). These are now flagged explicitly.
+
 ### v2.9.27 — New: Parameter correlation table in the Evaluation tab
 
 The Evaluation tab gains a fifth view, **Parameter Correlations**, showing the correlation

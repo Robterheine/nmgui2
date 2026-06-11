@@ -56,6 +56,25 @@ def _is_param_col(col: str) -> bool:
             and not cl.startswith('shrinkage')
             and not col.strip().upper().startswith('EI'))
 
+
+def _percentile(sorted_vals, q):
+    """Linear-interpolation percentile (R type 7 / numpy default).
+
+    `sorted_vals` must be sorted ascending, `q` in [0, 1]. Replaces the
+    earlier `sorted_vals[int(n*q)]` indexing, which truncated toward zero and
+    biased both CI bounds low for the small sample counts common in bootstrap.
+    """
+    if not sorted_vals:
+        return float('nan')
+    n = len(sorted_vals)
+    if n == 1:
+        return sorted_vals[0]
+    pos = q * (n - 1)
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, n - 1)
+    frac = pos - lo
+    return sorted_vals[lo] * (1.0 - frac) + sorted_vals[hi] * frac
+
 try:
     import numpy as np; HAS_NP = True
 except ImportError:
@@ -296,25 +315,39 @@ class BootstrapParser:
                 for s in self.samples_df
             ])
             try:
+                # Columns that are constant across resamples (fixed or pinned at
+                # a boundary) have zero variance → np.corrcoef yields all-NaN for
+                # them. nanmax would silently ignore these; instead flag them
+                # explicitly, since a degenerate parameter is exactly what a
+                # modeler wants surfaced.
+                col_std = np.nanstd(data_matrix, axis=0)
+                degenerate = [self.param_cols[i] for i in range(len(self.param_cols))
+                              if not np.isfinite(col_std[i]) or col_std[i] < 1e-12]
+
                 corr_matrix = np.corrcoef(data_matrix, rowvar=False)
                 np.fill_diagonal(corr_matrix, 0)
                 max_corr = float(np.nanmax(np.abs(corr_matrix)))
+                deg_note = ''
+                if degenerate:
+                    deg_note = (' Constant across resamples (likely fixed or at '
+                                'a boundary): ' + ', '.join(degenerate[:3])
+                                + ('…' if len(degenerate) > 3 else '') + '.')
                 if max_corr < BOOT_CORR_WARN:              # <0.90
-                    status = 'pass'
-                    interp = 'Parameters adequately distinguished.'
+                    status = 'pass' if not degenerate else 'warning'
+                    interp = 'Parameters adequately distinguished.' + deg_note
                 elif max_corr < BOOT_CORR_FAIL:            # <0.99
                     status = 'warning'
                     interp = ('Strong correlation between some parameters. '
                               'Suggests overparameterization — model '
                               'reduction (fixing or merging parameters) '
-                              'may improve identifiability.')
+                              'may improve identifiability.' + deg_note)
                 else:
                     status = 'warning'
                     interp = ('Near-perfect correlations detected — '
                               'genuine identifiability issue. Bootstrap is '
                               'doing its job by surfacing this; consider '
                               'simplifying the model before final '
-                              'reporting.')
+                              'reporting.' + deg_note)
                 checks.append({
                     'name': 'Parameter correlations',
                     'status': status,
@@ -331,8 +364,8 @@ class BootstrapParser:
             sample_vals = sorted([s[col] for s in self.samples_df if col in s])
             if len(sample_vals) < 20:
                 continue
-            lo = sample_vals[int(len(sample_vals) * 0.025)]
-            hi = sample_vals[int(len(sample_vals) * 0.975)]
+            lo = _percentile(sample_vals, 0.025)
+            hi = _percentile(sample_vals, 0.975)
             if not (lo <= orig_val <= hi):
                 ci_issues.append(col)
 
@@ -536,8 +569,8 @@ class BootstrapParser:
                 if not sample_vals:
                     continue
                 median = statistics.median(sample_vals)
-                ci_lo  = sample_vals[int(len(sample_vals) * 0.025)]
-                ci_hi  = sample_vals[int(len(sample_vals) * 0.975)]
+                ci_lo  = _percentile(sample_vals, 0.025)
+                ci_hi  = _percentile(sample_vals, 0.975)
                 rse    = ((ci_hi - ci_lo) / (2 * 1.96 * abs(median)) * 100
                           if abs(median) > 1e-10 else float('nan'))
 
@@ -563,6 +596,7 @@ class SIRParser:
         self.samples = []
         self.original = {}
         self.n_resamples = 0
+        self.importance_ratios = []
 
     def parse(self) -> dict:
         # PsN ≥ 5 writes raw_results_<modelname>.csv (older PsN used
@@ -642,6 +676,21 @@ class SIRParser:
                 # downstream histograms / quantile checks.
                 self.samples.extend([param_vals] * n_res)
         self.n_resamples = len(self.samples)
+
+        # ── Importance weights of the proposal samples (for Kish ESS) ──────
+        # Every proposal row carries an importance_ratio; the effective sample
+        # size of the resampled posterior is governed by how concentrated
+        # these weights are, not by how many distinct vectors were drawn.
+        self.importance_ratios = []
+        for row in rows:
+            if row.get('model', '').strip() in ('input', '0'):
+                continue
+            try:
+                w = float(row.get('importance_ratio', 'nan'))
+            except (ValueError, TypeError):
+                continue
+            if not math.isnan(w) and w > 0:
+                self.importance_ratios.append(w)
 
         # If no resamples column was populated, fall back to all valid rows
         if not self.samples:
@@ -768,7 +817,63 @@ class SIRParser:
         checks = []
 
         # ── 1. ESS — most important indicator of CI reliability ─────────
-        if self.samples:
+        # The proper metric is the Kish effective sample size of the
+        # importance weights, ESS = (Σw)² / Σw², computed over the proposal
+        # samples. It captures weight concentration — a handful of dominant
+        # weights yields a low ESS even when many distinct vectors were drawn.
+        # When importance weights are unavailable, fall back to counting
+        # unique resampled vectors as a rough proxy.
+        ess = None
+        n_proposals = len(self.importance_ratios)
+        if n_proposals >= 2:
+            w = self.importance_ratios
+            sw = sum(w)
+            sw2 = sum(x * x for x in w)
+            if sw2 > 0:
+                ess = (sw * sw) / sw2
+
+        if ess is not None:
+            ess_int   = int(round(ess))
+            ess_ratio = ess / max(1, n_proposals)
+            n_unique  = len(set(tuple(sorted(s.items())) for s in self.samples)) \
+                        if self.samples else 0
+
+            if ess_ratio > SIR_ESS_PASS and ess_int >= SIR_ESS_ABS_WARN:
+                status = 'pass'
+                interp = ('High effective sample size — importance weights are '
+                          'well spread, CIs are well supported.')
+            elif ess_ratio > SIR_ESS_WARN and ess_int >= SIR_ESS_ABS_WARN:
+                status = 'pass'
+                interp = 'Good effective sample size. CIs reliable.'
+            elif ess_ratio > SIR_ESS_FAIL and ess_int >= SIR_ESS_ABS_FAIL:
+                status = 'warning'
+                interp = ('Moderate effective sample size. Central CI quantiles '
+                          'reliable; tail estimates rest on relatively few '
+                          'effective points. More samples or a refined proposal '
+                          'could tighten estimates.')
+            elif ess_int >= 50:
+                status = 'warning'
+                interp = ('Low effective sample size — importance weights are '
+                          'concentrated on few samples. CIs convey direction '
+                          'and rough magnitude; refine the proposal before '
+                          'reporting precise quantiles.')
+            else:
+                status = 'fail'
+                interp = ('Very low effective sample size — the posterior is '
+                          'dominated by a handful of high-weight samples. '
+                          'Re-run with more samples or a refined proposal '
+                          'before reporting CIs.')
+
+            checks.append({
+                'name':           'Effective sample size',
+                'status':         status,
+                'value':          f'Kish ESS ≈ {ess_int} / {n_proposals} '
+                                  f'proposals ({ess_ratio*100:.0f}%); '
+                                  f'{n_unique} unique resampled vectors',
+                'interpretation': interp,
+            })
+        elif self.samples:
+            # Fallback: importance weights unavailable — use unique-vector count.
             n_unique  = len(set(tuple(sorted(s.items())) for s in self.samples))
             ess_ratio = n_unique / max(1, self.n_resamples)
 
@@ -802,7 +907,7 @@ class SIRParser:
                 'name':           'Effective sample size',
                 'status':         status,
                 'value':          f'~{n_unique} unique / {self.n_resamples} '
-                                  f'({ess_ratio*100:.0f}%)',
+                                  f'(importance weights unavailable; {ess_ratio*100:.0f}%)',
                 'interpretation': interp,
             })
 
@@ -1036,9 +1141,9 @@ class SIRParser:
                     if math.isnan(median):
                         median = statistics.median(sample_vals)
                     if math.isnan(ci_lo):
-                        ci_lo = sample_vals[int(len(sample_vals) * 0.025)]
+                        ci_lo = _percentile(sample_vals, 0.025)
                     if math.isnan(ci_hi):
-                        ci_hi = sample_vals[int(len(sample_vals) * 0.975)]
+                        ci_hi = _percentile(sample_vals, 0.975)
                     if math.isnan(rse) and abs(median) > 1e-10:
                         rse = (ci_hi - ci_lo) / (2 * 1.96 * abs(median)) * 100
 
@@ -1948,8 +2053,8 @@ class ParameterUncertaintyTab(QWidget):
         median = BootstrapParser._br_get(br, 'medians', '', param)
 
         sv = sorted(vals); n = len(sv)
-        if math.isnan(ci_lo): ci_lo  = sv[max(0, int(n * 0.025))]
-        if math.isnan(ci_hi): ci_hi  = sv[min(n - 1, int(n * 0.975))]
+        if math.isnan(ci_lo): ci_lo  = _percentile(sv, 0.025)
+        if math.isnan(ci_hi): ci_hi  = _percentile(sv, 0.975)
         if math.isnan(median): median = statistics.median(vals)
 
         orig = original.get(param)
@@ -2060,8 +2165,8 @@ class ParameterUncertaintyTab(QWidget):
         ci_hi  = SIRParser._sr_get(sr, QUANT,   '97.5%',  param)
 
         sv = sorted(vals); n = len(sv)
-        if math.isnan(ci_lo): ci_lo  = sv[max(0, int(n * 0.025))]
-        if math.isnan(ci_hi): ci_hi  = sv[min(n - 1, int(n * 0.975))]
+        if math.isnan(ci_lo): ci_lo  = _percentile(sv, 0.025)
+        if math.isnan(ci_hi): ci_hi  = _percentile(sv, 0.975)
         if math.isnan(median): median = statistics.median(vals)
 
         orig = original.get(param)

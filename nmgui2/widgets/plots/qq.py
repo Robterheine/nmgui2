@@ -69,20 +69,27 @@ class QQPlotWidget(QWidget):
     @staticmethod
     def _shapiro_wilk_approx(x):
         """
-        Approximate Shapiro-Wilk W statistic (numpy only, no scipy).
-        Returns (W, p_value). Valid for n=3..5000.
-        Uses the Royston (1992) approximation.
+        Shapiro-Wilk / Shapiro-Francia W statistic.  Returns (W, p_value).
+
+        Uses scipy.stats.shapiro when available (exact Royston weights). Falls
+        back to a numpy-only Shapiro-Francia approximation: W = (a·x)^2 / Σ(x-x̄)^2
+        with the antisymmetric weight vector a = m / ||m||, where m are the
+        expected normal order statistics. The weight vector must be antisymmetric
+        (a[i] = -a[n-1-i]) so that both tails of the sorted sample contribute.
         """
         n = len(x)
         if n < 3: return None, None
         x = np.sort(x)
+        try:
+            from scipy.stats import shapiro
+            res = shapiro(x)
+            return float(res.statistic), float(res.pvalue)
+        except Exception:
+            pass
         m = np.arange(1, n+1, dtype=float)
         mi = (m - 3/8) / (n + 1/4)
         c = QQPlotWidget._norm_ppf(mi)
-        c = c / np.sqrt((c**2).sum())
-        a = np.zeros(n)
-        half = n // 2
-        a[-half:] = c[-half:]
+        a = c / np.sqrt((c**2).sum())   # already antisymmetric: mi is symmetric
         b = np.dot(a, x)
         W = b**2 / ((x - x.mean())**2).sum()
         W = min(max(W, 0.0), 1.0)

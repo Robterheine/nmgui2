@@ -539,25 +539,45 @@ def parse_lst(lst_path):
         # Find the EIGENVALUES section — skip ** decoration lines and column headers
         eig_match = re.search(r'EIGENVALUES OF COR MATRIX OF ESTIMATE', text)
         if eig_match:
-            eig_after = text[eig_match.end():eig_match.end() + 500]
+            # NONMEM prints eigenvalues in ascending order, wrapped across
+            # multiple column-blocks (12 per block) for models with many
+            # parameters. Accumulate values from every value line until the
+            # section ends — taking only the first line truncates to the
+            # smallest eigenvalues and makes the condition number far too small.
+            eig_after = text[eig_match.end():eig_match.end() + 4000]
             eigs = []
+            started = False
             for line in eig_after.split('\n'):
                 line = line.strip()
                 if not line or line.startswith('*') or line.startswith('#'):
+                    if started:
+                        # Blank line after values may separate wrapped blocks;
+                        # keep going (the next block has more eigenvalues).
+                        continue
                     continue
+                # A line with alphabetic content (other than the E/D of
+                # scientific notation) after we've started collecting signals
+                # the next section — stop. Strip numeric tokens first so the
+                # exponent letters in e.g. "1.20E+00" don't count.
+                if started:
+                    non_num = re.sub(r'[-+]?\d*\.?\d+(?:[eEdD][+-]?\d+)?', '', line)
+                    if re.search(r'[A-Za-z]', non_num):
+                        break
                 # Skip column number header lines (just integers)
                 if re.match(r'^[\d\s]+$', line) and not re.search(r'[.eEdD]', line):
                     continue
                 # Extract floating point values
+                found_here = False
                 for val in re.findall(r'([-+]?\d*\.?\d+(?:[eEdD][+-]?\d+)?)', line):
                     try:
                         v = float(val.replace('D', 'E').replace('d', 'e'))
                         if v > 0:
                             eigs.append(v)
+                            found_here = True
                     except ValueError:
                         pass
-                if eigs:
-                    break  # Eigenvalues are typically on one or two lines
+                if found_here:
+                    started = True
             if len(eigs) >= 2:
                 try:
                     result['condition_number'] = max(eigs) / min(eigs)
@@ -574,34 +594,45 @@ def parse_lst(lst_path):
         )
         cor_text = text[cor_match.end():cor_match.end() + (cor_end.start() if cor_end else 2000)]
 
-        labels = []
-        labels_done = False
-        matrix_rows = []
+        # NONMEM prints the correlation matrix in horizontal panels of up to
+        # ~12 columns each for wide models, repeating every row label in each
+        # panel. Rows must therefore be keyed by their label and concatenated
+        # across panels — appending each '+' line as a new row corrupts the
+        # shape for >12-parameter models.
+        col_labels = []          # ordered unique labels (full column ordering)
+        row_data = {}            # label -> list of (float | None), across panels
+        row_order = []           # order in which row labels first appear
+        current_row = None
+
+        def _parse_vals(vals_line):
+            out = []
+            for token in vals_line.split():
+                if token.startswith('.') and '..' in token:
+                    out.append(None)
+                else:
+                    try:
+                        out.append(float(token.replace('D', 'E').replace('d', 'e')))
+                    except ValueError:
+                        out.append(None)
+            return out
+
         for line in cor_text.strip().split('\n'):
             line = line.strip()
             if not line or line.startswith('*') or (line.startswith('1') and len(line) <= 2):
                 continue
-            # Value line starts with +
+            # Value line starts with + (one row within the current panel)
             if line.startswith('+'):
-                vals_line = line[1:].strip()
-                row_vals = []
-                for token in vals_line.split():
-                    if token.startswith('.') and '..' in token:
-                        row_vals.append(None)
-                    else:
-                        try:
-                            row_vals.append(float(token.replace('D', 'E').replace('d', 'e')))
-                        except ValueError:
-                            row_vals.append(None)
-                if row_vals:
-                    matrix_rows.append(row_vals)
+                vals = _parse_vals(line[1:].strip())
+                if vals and current_row is not None:
+                    if current_row not in row_data:
+                        row_data[current_row] = []
+                        row_order.append(current_row)
+                    row_data[current_row].extend(vals)
                 continue
-            # Check if this is a column header (many labels on one line) vs row label (single).
-            # Headers may wrap: "TH 1 ... TH12" then "TH13 TH14 TH15 OM11 ... OM22" then more.
-            # Wrap continuations have no space between prefix and digit (TH13, OM11).
+            # Label line: column header (>=2 labels) or row label (1 label).
             if re.match(r'^(TH|OM|SG)[\s\d]', line):
                 parts = line.split()
-                # Merge "TH 1" → "TH1" etc. (only needed for the first, spaced header line)
+                # Merge spaced forms "TH 1" → "TH1".
                 merged = []
                 i = 0
                 while i < len(parts):
@@ -611,17 +642,24 @@ def parse_lst(lst_path):
                     else:
                         merged.append(parts[i])
                         i += 1
-                # Column header: 3+ labels (extend across wrap continuations).
-                # Row label: 1 label (signals headers are complete).
-                if len(merged) >= 3 and not labels_done:
-                    labels.extend(merged)
-                elif len(merged) == 1 and labels:
-                    labels_done = True
+                if len(merged) >= 2:
+                    for lbl in merged:
+                        if lbl not in col_labels:
+                            col_labels.append(lbl)
+                elif len(merged) == 1:
+                    current_row = merged[0]
                 continue
 
-        if matrix_rows:
+        # Column headers define the ordering; append any row labels not seen in
+        # a header (a final panel with a single column reads as a row label).
+        ordering = list(col_labels)
+        for lbl in row_order:
+            if lbl not in ordering:
+                ordering.append(lbl)
+        if row_data:
+            matrix_rows = [row_data.get(lbl, []) for lbl in ordering]
             result['correlation_matrix'] = matrix_rows
-            result['cor_labels'] = labels
+            result['cor_labels'] = ordering
 
     # Shrinkage — multiple formats: "ETAShrinkSD(%):  12.5" or "ETAShrinkSD(%)  12.5"
     eta_shr = re.findall(

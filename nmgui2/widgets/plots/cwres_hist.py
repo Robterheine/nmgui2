@@ -66,10 +66,18 @@ class CWRESHistWidget(QWidget):
             for sp in self.ax.spines.values(): sp.set_color(fg2)
             self.ax.hist(cwres, bins=30, density=True,
                          color=t['accent'], alpha=0.6, edgecolor='none')
-            x = np.linspace(cwres.min(), cwres.max(), 200)
             mu, sigma = cwres.mean(), cwres.std()
-            pdf = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
-            self.ax.plot(x, pdf, color=t['red'], linewidth=2, label='Normal')
+            # Reference N(0,1): under correct conditional weighting CWRES should
+            # follow the standard normal. Fitting the data's own mean/SD would
+            # mask miscalibration, so the reference is fixed at N(0,1).
+            xr = max(abs(cwres.min()), abs(cwres.max()), 3.0)
+            x = np.linspace(-xr, xr, 200)
+            ref = np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
+            self.ax.plot(x, ref, color=t['red'], linewidth=2, label='N(0, 1) reference')
+            if sigma > 0:
+                emp = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+                self.ax.plot(x, emp, color=fg2, linewidth=1, linestyle=':',
+                             label=f'Empirical fit (μ={mu:.2f}, σ={sigma:.2f})')
             self.ax.axvline(0, color=fg2, linewidth=1, linestyle='--')
             self.ax.set_xlabel('CWRES'); self.ax.set_ylabel('Density')
             self.ax.set_title(

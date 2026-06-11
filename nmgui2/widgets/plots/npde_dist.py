@@ -82,10 +82,19 @@ class NPDEDistWidget(QWidget):
             self.ax.yaxis.label.set_color(fg2); self.ax.title.set_color(fg)
             self.ax.hist(npde, bins=30, density=True,
                          color=t['accent'], alpha=0.6, edgecolor='none')
-            x = np.linspace(npde.min(), npde.max(), 200)
             mu, sigma = npde.mean(), npde.std()
-            pdf = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
-            self.ax.plot(x, pdf, color=t['red'], linewidth=2, label='Normal')
+            # Reference N(0,1): NPDE should follow the standard normal under a
+            # correct model. Fitting the data's own mean/SD would hide bias and
+            # over/under-dispersion, so the reference curve is fixed at N(0,1).
+            xr = max(abs(npde.min()), abs(npde.max()), 3.0)
+            x = np.linspace(-xr, xr, 200)
+            ref = np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
+            self.ax.plot(x, ref, color=t['red'], linewidth=2, label='N(0, 1) reference')
+            # Empirical fit shown as a faint secondary line for comparison.
+            if sigma > 0:
+                emp = np.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
+                self.ax.plot(x, emp, color=fg2, linewidth=1, linestyle=':',
+                             label=f'Empirical fit (μ={mu:.2f}, σ={sigma:.2f})')
             self.ax.axvline(0, color=fg2, linewidth=1, linestyle='--')
             self.ax.set_xlabel('NPDE'); self.ax.set_ylabel('Density')
             self.ax.set_title(
