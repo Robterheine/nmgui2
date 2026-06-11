@@ -377,7 +377,7 @@ class MainWindow(QMainWindow):
             if hasattr(w, 'set_theme'):
                 w.set_theme(bg, fg)
         # Theme-dependent palettes/widgets that don't take (bg, fg) signature
-        for w in (self.models_tab,):
+        for w in (self.models_tab, self.eval_tab.corr):
             if hasattr(w, 'refresh_theme'):
                 w.refresh_theme()
         # Top-level run-popup / watch-log dialogs are not in the widget hierarchy;

@@ -14,6 +14,7 @@ from ..widgets.plots.cwres_hist import CWRESHistWidget
 from ..widgets.plots.qq import QQPlotWidget
 from ..widgets.plots.eta_cov import ETACovWidget
 from ..widgets.plots.npde_dist import NPDEDistWidget
+from ..widgets.correlation_table import CorrelationWidget
 
 import logging
 _log = logging.getLogger(__name__)
@@ -56,6 +57,7 @@ class EvaluationTab(QWidget):
     SEC_INDF  = 1
     SEC_WFALL = 2
     SEC_CONV  = 3
+    SEC_CORR  = 4
 
     # Inner GOF sub-section key names (parallel to _gof_stack indices)
     _GOF_INNER = ('gof', 'cwres', 'qq', 'etacov', 'npde')
@@ -104,7 +106,8 @@ class EvaluationTab(QWidget):
         pl = QHBoxLayout(pill_bar); pl.setContentsMargins(12, 6, 12, 6); pl.setSpacing(4)
 
         self._pill_btns = []
-        pill_labels = ['GOF', 'Individual Fits', 'OFV Waterfall', 'Convergence']
+        pill_labels = ['GOF', 'Individual Fits', 'OFV Waterfall', 'Convergence',
+                       'Parameter Correlations']
         for i, lbl in enumerate(pill_labels):
             btn = QPushButton(lbl)
             btn.setObjectName('pillBtn')
@@ -162,6 +165,10 @@ class EvaluationTab(QWidget):
         # 3 — Convergence
         self.conv = ConvergenceWidget()
         self._stack.addWidget(self.conv)
+
+        # 4 — Parameter Correlations
+        self.corr = CorrelationWidget()
+        self._stack.addWidget(self.corr)
 
         v.addWidget(self._stack, 1)
 
@@ -297,6 +304,7 @@ class EvaluationTab(QWidget):
         self._model = model
         self._model_lbl.setText(f'Model: {model.get("stem", "")}')
         self._table_lbl.setText('')
+        self.corr.load(model.get('correlation_matrix'), model.get('cor_labels'))
         if not model.get('lst_path'): return
 
         # Search for sdtab in both lst directory AND model directory

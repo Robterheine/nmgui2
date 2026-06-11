@@ -637,6 +637,21 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.27 — New: Parameter correlation table in the Evaluation tab
+
+The Evaluation tab gains a fifth view, **Parameter Correlations**, showing the correlation
+matrix of the estimates from the NONMEM `$COVARIANCE` step as a color-coded table.
+
+Cells are colored by correlation magnitude: |r| ≥ 0.9 red (identifiability concern),
+0.7–0.9 orange, 0.3–0.7 yellow, below 0.3 uncolored. Text color is computed per cell from
+the background's relative luminance (WCAG contrast ≥ 4.5:1), so numbers stay legible in
+both dark and light mode, and the table re-colors live on theme switch. Models run without
+`$COV` show an explanatory empty state. Unestimated parameters (`.........` in the `.lst`)
+display as a dash.
+
+The matrix was already parsed from the `.lst` file (`CORRELATION MATRIX OF ESTIMATE`
+block); this release adds the display widget and wiring only.
+
 ### v2.9.26 — Fix: Windows path quoting error when running NONMEM models
 
 **Bug**: Launching a NONMEM run on Windows produced a path syntax error in the terminal.
