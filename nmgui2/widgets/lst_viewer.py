@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QTextCharFormat, QColor
 
-from ..app.constants import APP_VERSION
+from ..app.constants import APP_VERSION, CORR_CELL_HIGH, CORR_CELL_MODERATE
 from ..app.theme import T, C, THEMES, _active_theme
 from ..app.format import fmt_num, fmt_rse, fmt_ofv
 
@@ -311,7 +311,8 @@ def render_lst_html(model: dict, raw_text: str, embed: bool = False) -> str:
                     cls = ''
                     if is_correlation and i != j:
                         a = abs(v)
-                        cls = 'red' if a > 0.95 else ('or' if a > 0.7 else '')
+                        cls = ('red' if a > CORR_CELL_HIGH
+                               else ('or' if a > CORR_CELL_MODERATE else ''))
                     cells += f'<td class="num {cls}">{v:.4g}</td>'
             crows += (f'<tr><th style="text-align:left;font-weight:700;'
                       f'padding:5px 10px;white-space:nowrap;background:{bg3};">'

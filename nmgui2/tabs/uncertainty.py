@@ -1185,6 +1185,8 @@ class PsNWorker(QThread):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 bufsize=1,
                 env=self._env,
                 cwd=str(Path(self._output_dir).parent) if self._output_dir else None,

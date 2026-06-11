@@ -7,7 +7,7 @@ open_in_browser(html)            (writes temp file and opens system browser)
 """
 from dataclasses import dataclass
 from pathlib import Path
-from .constants import APP_VERSION
+from .constants import APP_VERSION, CORR_CELL_HIGH, CORR_CELL_MODERATE
 from .format import fmt_num
 
 PASS = 'pass'
@@ -373,7 +373,8 @@ tr:last-child td{border-bottom:none;}
                     cls = ''
                     if i != j:
                         a = abs(v)
-                        cls = 'bad' if a > 0.9 else ('warn-col' if a > 0.7 else '')
+                        cls = ('bad' if a > CORR_CELL_HIGH
+                               else ('warn-col' if a > CORR_CELL_MODERATE else ''))
                     cells += f'<td class="num {cls}">{v:.3f}</td>'
             cor_rows += f'<tr><th style="background:#f0f0f8;font-weight:700;padding:6px 10px;white-space:nowrap;">{lbl}</th>{cells}</tr>'
         cor_html = (f'<div class="card-scroll"><table><thead>'

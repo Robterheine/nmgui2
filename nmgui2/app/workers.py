@@ -189,10 +189,22 @@ class RunWorker(QThread):
     def run(self):
         try:
             kw = dict(shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                      cwd=self.cwd, text=True, bufsize=1, env=self._env)
-            if not IS_WIN: kw['start_new_session'] = True
-            else: kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
-            self._proc = subprocess.Popen(self.cmd, **kw)
+                      cwd=self.cwd, text=True, encoding='utf-8', errors='replace',
+                      bufsize=1, env=self._env)
+            cmd = self.cmd
+            if not IS_WIN:
+                kw['start_new_session'] = True
+            else:
+                kw['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+                # shell=True runs `cmd.exe /c <cmd>`. When the command contains
+                # more than one quoted token (e.g. both the PsN tool path AND the
+                # model path have spaces), cmd.exe strips the first and last
+                # quote, corrupting the command. Wrapping the whole string in an
+                # extra outer pair makes cmd strip only those wrappers, leaving
+                # the inner quotes intact.
+                if '"' in cmd:
+                    cmd = '"' + cmd + '"'
+            self._proc = subprocess.Popen(cmd, **kw)
             for line in iter(self._proc.stdout.readline, ''):
                 self.line_out.emit(line.rstrip())
             self._proc.wait()
@@ -213,9 +225,13 @@ class RunWorker(QThread):
             return
         try:
             if IS_WIN:
-                subprocess.run(
-                    ['taskkill', '/T', '/F', '/PID', str(self._proc.pid)],
-                    capture_output=True)
+                # Gentle stop omits /F so the process tree can exit cleanly and
+                # PsN can finish writing output; force kill adds /F. (Previously
+                # both used /F, so 'gentle' was actually a hard kill on Windows.)
+                cmd = ['taskkill', '/T', '/PID', str(self._proc.pid)]
+                if force:
+                    cmd.insert(1, '/F')
+                subprocess.run(cmd, capture_output=True)
             else:
                 os.killpg(os.getpgid(self._proc.pid), sig)
         except Exception as e:

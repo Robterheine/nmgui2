@@ -334,9 +334,10 @@ class ModelsTab(QWidget):
             COL_DOFV:   'ΔOFV relative to the best model in this directory',
             COL_AIC:    'Akaike Information Criterion  =  OFV + 2k',
             COL_CN:     'Condition number — ratio of largest to smallest eigenvalue '
-                        'of the correlation matrix.\nRequires $COV with PRINT=E or '
-                        'a NONMEM version that outputs it directly.\nValues > 1000 '
-                        'may indicate near-collinearity.',
+                        'of the correlation matrix of the estimates.\nRequires $COV '
+                        'with PRINT=E or a NONMEM version that outputs it directly.\n'
+                        'Values > 1000 may indicate near-collinearity (compare only '
+                        'against other correlation-matrix condition numbers).',
             COL_METHOD: 'Estimation method  (FO, FOCE, FOCE-I, SAEM, SAEM→IMP, BAYES…)',
             COL_INDOBS: 'Number of individuals / observations',
         }
@@ -677,7 +678,10 @@ class ModelsTab(QWidget):
         if self._scan_worker and self._scan_worker.isRunning():
             self._scan_worker.cancel()  # Cooperative cancellation
             retire_worker(self._retired_workers, self._scan_worker)
-        w = ScanWorker(d, self._meta)
+        # Pass a snapshot so the worker can't observe a half-updated _meta dict
+        # if the GUI thread edits it (star/comment) mid-scan.
+        import copy
+        w = ScanWorker(d, copy.deepcopy(self._meta))
         w.result.connect(self._on_scan)
         w.error.connect(self._on_scan_error)
         self._scan_worker = w; w.start()

@@ -637,6 +637,27 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.31 — Fixes: subprocess robustness & platform
+
+- **Non-UTF-8 output no longer aborts a run.** The NONMEM/PsN/Rscript output streams were
+  decoded strictly with the locale encoding; one undecodable byte raised `UnicodeDecodeError`
+  and the run was reported as failed. They now decode as UTF-8 with `errors='replace'`.
+- **Login-shell PATH is resolved once and cached.** `get_login_env()`/`find_tool()` spawned a
+  `$SHELL -l -c` subprocess on the GUI thread on every call, freezing the UI for seconds on
+  hosts with slow login shells (networked/SSH home dirs). It is now computed once per session.
+- **Covariate table (patab/cotab) loads off the GUI thread**, matching the main table — large
+  covariate tables no longer freeze the Evaluation tab.
+- **Windows: "gentle stop" is now actually gentle.** Both stop buttons used `taskkill /F` (a
+  force kill); the gentle path now omits `/F` so PsN can finish writing output.
+- **Windows: command quoting for two spaced paths.** When both the PsN tool path and the model
+  path contain spaces, `cmd.exe` mangled the command; the whole command is now wrapped so the
+  inner quotes survive. (Reasoned fix; this environment is macOS, so Windows behaviour should
+  be confirmed on a Windows host.)
+- Minor: condition-number tooltip clarified to "correlation matrix of the estimates";
+  correlation-cell color thresholds centralized so the `.lst` viewer and QC report flag the
+  same correlation identically; the directory-scan worker now gets a snapshot of the metadata
+  dict to avoid a half-updated view.
+
 ### v2.9.30 — Fixes: VPC R-script generation
 
 Several bugs in the generated VPC R scripts caused silent failures. All fixed and verified

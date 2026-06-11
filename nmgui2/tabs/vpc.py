@@ -42,7 +42,7 @@ class VPCWorker(QThread):
             self._proc = subprocess.Popen(
                 [self._rs, self._script],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, env=self._env,
+                text=True, encoding='utf-8', errors='replace', bufsize=1, env=self._env,
                 cwd=str(Path(self._script).parent), **_pkw)
             proc = self._proc
             stdout_lines = []

@@ -13,7 +13,7 @@ META_FILE      = CONFIG_DIR / 'model_meta.json'
 SETTINGS_FILE  = CONFIG_DIR / 'settings.json'
 BOOKMARKS_FILE = CONFIG_DIR / 'bookmarks.json'
 RUNS_FILE      = CONFIG_DIR / 'runs.json'
-APP_VERSION    = '2.9.30'
+APP_VERSION    = '2.9.31'
 _cfg_lock      = threading.Lock()
 
 # Bootstrap diagnostic thresholds
@@ -25,6 +25,11 @@ BOOT_BIAS_WARN = 0.20
 BOOT_BIAS_FAIL = 0.50
 BOOT_CORR_WARN = 0.90
 BOOT_CORR_FAIL = 0.99
+
+# Correlation-matrix off-diagonal |r| cell-coloring thresholds (shared by the
+# .lst viewer and the QC report so the same correlation is flagged identically).
+CORR_CELL_HIGH     = 0.95   # red / "bad" — likely identifiability concern
+CORR_CELL_MODERATE = 0.70   # orange / "warn" — worth a look
 
 # SIR diagnostic thresholds
 SIR_KS_PASS = 0.05

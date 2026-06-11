@@ -69,6 +69,7 @@ class EvaluationTab(QWidget):
         self._cov_header = None; self._cov_rows = None
         self._dirty: set = set()
         self._load_worker: _TableLoadWorker | None = None
+        self._cov_worker: _TableLoadWorker | None = None
         self._retired_workers: list = []
         self._build_ui()
 
@@ -283,7 +284,11 @@ class EvaluationTab(QWidget):
         self._dirty.discard(key)
 
     def _try_cov_table(self, sdtab_path: str):
-        """Search for patab/cotab alongside the loaded sdtab and pass it to ETACovWidget."""
+        """Search for patab/cotab alongside the loaded sdtab and load it.
+
+        Parsing runs in a background worker (same as the main table) so a large
+        covariate table does not freeze the UI.
+        """
         if not HAS_PARSER: return
         import re as _re
         p = Path(sdtab_path)
@@ -296,15 +301,19 @@ class EvaluationTab(QWidget):
             for fname in candidates:
                 p2 = stem_dir / fname
                 if p2.is_file():
-                    try:
-                        ch, cr = read_table_file(str(p2), max_rows=_MAX_ROWS)
-                        if ch:
-                            self._cov_header = ch; self._cov_rows = cr
-                            self._dirty.add('etacov')
-                            self._reload_visible()
-                    except Exception as e:
-                        _log.debug('Failed to load cov table %s: %s', p2, e)
+                    retire_worker(self._retired_workers, self._cov_worker)
+                    self._cov_worker = _TableLoadWorker(str(p2))
+                    self._cov_worker.done.connect(self._on_cov_loaded)
+                    self._cov_worker.start()
                     return
+
+    def _on_cov_loaded(self, ch, cr):
+        if self.sender() is not self._cov_worker:
+            return  # stale cov table from a superseded load
+        if ch:
+            self._cov_header = ch; self._cov_rows = cr
+            self._dirty.add('etacov')
+            self._reload_visible()
 
     def load_model(self, model):
         self._model = model

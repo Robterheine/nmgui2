@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
         et = getattr(self, 'eval_tab', None)
         if et:
             _stop_and_wait(getattr(et, '_load_worker', None))
+            _stop_and_wait(getattr(et, '_cov_worker', None))
             for w in list(getattr(et, '_retired_workers', [])):
                 _stop_and_wait(w)
         vt = getattr(self, 'vpc_tab', None)

@@ -5,15 +5,37 @@ from .constants import IS_WIN, IS_MAC, HOME
 _log = logging.getLogger(__name__)
 
 
-def get_login_env():
-    env = os.environ.copy()
+_login_path_cache = None   # resolved once per session (login PATH can't change mid-run)
+
+
+def _login_path():
+    """Return the login shell's PATH, spawning the shell at most once.
+
+    The login PATH does not change during a session, so the (potentially slow,
+    on networked/SSH home dirs) `$SHELL -l -c` call is cached. Returns '' on
+    Windows or on failure.
+    """
+    global _login_path_cache
+    if _login_path_cache is not None:
+        return _login_path_cache
+    _login_path_cache = ''
     if not IS_WIN:
         try:
             shell = os.environ.get('SHELL', '/bin/sh')
             r = subprocess.run([shell, '-l', '-c', 'echo $PATH'],
                                capture_output=True, text=True, timeout=5)
-            if r.stdout.strip(): env['PATH'] = r.stdout.strip()
-        except Exception as e: _log.debug(f'Could not get login shell PATH: {e}')
+            if r.stdout.strip():
+                _login_path_cache = r.stdout.strip()
+        except Exception as e:
+            _log.debug(f'Could not get login shell PATH: {e}')
+    return _login_path_cache
+
+
+def get_login_env():
+    env = os.environ.copy()
+    p = _login_path()
+    if p:
+        env['PATH'] = p
     return env
 
 
@@ -22,13 +44,13 @@ def find_tool(name):
     t = sh.which(name)
     if t: return t
     if not IS_WIN:
-        try:
-            shell = os.environ.get('SHELL', '/bin/sh')
-            r = subprocess.run([shell, '-l', '-c', f'which {name}'],
-                               capture_output=True, text=True, timeout=5)
-            found = r.stdout.strip()
-            if found and Path(found).is_file(): return found
-        except Exception as e: _log.debug(f'Could not find tool {name}: {e}')
+        # Search the cached login PATH instead of spawning a login shell per
+        # lookup (which blocks the GUI thread on slow login shells).
+        p = _login_path()
+        if p:
+            found = sh.which(name, path=p)
+            if found and Path(found).is_file():
+                return found
     return None
 
 
