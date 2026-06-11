@@ -637,6 +637,25 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.30 — Fixes: VPC R-script generation
+
+Several bugs in the generated VPC R scripts caused silent failures. All fixed and verified
+against the installed `vpc`/`xpose` packages:
+
+- **xpose continuous VPC with PsN stratification always failed.** The script emitted
+  `vpc_data(…, stratify_on=c("SEX"))`, but `xpose::vpc_data()` takes `stratify` (not
+  `stratify_on`) and has no `...`, so it aborted with "unused argument". Now emits `stratify=`.
+- **Multi-column PsN stratification was never split.** A PsN `-stratify_on=SEX,RACE` was passed
+  as one column name `"SEX,RACE"` → "column not found". Comma-separated columns are now split
+  into a proper `c("SEX", "RACE")` vector (both backends).
+- **LLOQ/ULOQ text was injected unvalidated.** A European-locale entry like `0,5` produced
+  `lloq=0,5` — an R syntax error. Values are now parsed and re-emitted with a dot decimal;
+  non-numeric input is ignored.
+- **`lloq_method` (M1/M2/M3) was an invalid argument.** `vpc::vpc` dispatches to `vpc_vpc`,
+  which has neither an `lloq_method` parameter nor `...`, so setting a manual LLOQ aborted with
+  "unused argument". The argument is dropped (LLOQ censoring is driven by `lloq`/`uloq`), and
+  the non-functional M1/M2/M3 selector was removed from the UI.
+
 ### v2.9.29 — Fixes: background-thread crash safety
 
 A code audit found several ways the app could abort (especially on exit or when

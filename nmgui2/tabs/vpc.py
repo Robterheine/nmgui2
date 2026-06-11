@@ -81,15 +81,37 @@ def _vpc_strat_arg(psn_opts, use_psn, stratify_edit):
       ', stratify = "COL"'  or  ', stratify = c("COL1", "COL2")'
     """
     if use_psn and psn_opts.get('stratify_on'):
-        col = _r_col(psn_opts['stratify_on'])
-        return f', stratify = "{col}"'
-    strat = stratify_edit.text().strip()
-    if strat and not use_psn:
-        vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
-        if len(vars_) == 1:
-            return f', stratify = "{vars_[0]}"'
-        return ', stratify = c(' + ', '.join(f'"{v}"' for v in vars_) + ')'
-    return ''
+        strat = psn_opts['stratify_on']
+    elif not use_psn:
+        strat = stratify_edit.text().strip()
+    else:
+        strat = ''
+    if not strat:
+        return ''
+    # PsN -stratify_on (and the manual field) may list several comma-separated
+    # columns; each must be a separate quoted element, not one literal name.
+    vars_ = [_r_col(v.strip()) for v in strat.split(',') if v.strip()]
+    if not vars_:
+        return ''
+    if len(vars_) == 1:
+        return f', stratify = "{vars_[0]}"'
+    return ', stratify = c(' + ', '.join(f'"{v}"' for v in vars_) + ')'
+
+
+def _r_num(text):
+    """Parse user numeric input into a canonical R numeric literal, or None.
+
+    Accepts a comma decimal separator (European locale) so that e.g. '0,5'
+    becomes '0.5'. Returns None for empty or non-numeric input — interpolating
+    raw text like '0,5' into the generated R would produce a syntax error.
+    """
+    t = (text or '').strip().replace(',', '.')
+    if not t:
+        return None
+    try:
+        return repr(float(t))
+    except ValueError:
+        return None
 
 
 class VPCTab(QWidget):
@@ -181,14 +203,6 @@ class VPCTab(QWidget):
             'vpc/xpose backends do not auto-detect IDV from PsN output.')
         self.lloq_edit = QLineEdit(); self.lloq_edit.setPlaceholderText('LLOQ (optional)')
         self.lloq_edit.setFixedWidth(100)
-        self.lloq_method_cb = QComboBox()
-        self.lloq_method_cb.addItems(['M1', 'M2', 'M3'])
-        self.lloq_method_cb.setFixedWidth(60)
-        self.lloq_method_cb.setToolTip(
-            'LLOQ censoring method passed to vpc::vpc(lloq_method=).\n'
-            'M1: BLQ imputed as LLOQ/2 (default)\n'
-            'M2: BLQ imputed as 0\n'
-            'M3: Kaplan-Meier (requires survival package)')
         self.uloq_edit = QLineEdit(); self.uloq_edit.setPlaceholderText('ULOQ (optional)')
         self.uloq_edit.setFixedWidth(100)
         self.nbins_sb  = _spin(3, 50, 10, 1, 0, w=70)
@@ -306,7 +320,7 @@ class VPCTab(QWidget):
         # Row 5 — Column overrides (IDV / LLOQ / ULOQ)
         sg.addLayout(_hrow(
             _lbl('IDV:'), self.idv_edit, 20,
-            QLabel('LLOQ:'), self.lloq_edit, self.lloq_method_cb, 10,
+            QLabel('LLOQ:'), self.lloq_edit, 10,
             QLabel('ULOQ:'), self.uloq_edit, None))
 
         # Row 6 — Numerics (Bins / Timeout)
@@ -468,7 +482,7 @@ class VPCTab(QWidget):
     def _on_psn_inherit_change(self, _state=None):
         """Enable/disable manual-override widgets based on 'Use PsN settings' checkbox."""
         override = not self.use_psn_cb.isChecked()
-        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.lloq_method_cb, self.uloq_edit, self.nbins_sb):
+        for w in (self.pred_corr_cb, self.stratify_edit, self.lloq_edit, self.uloq_edit, self.nbins_sb):
             w.setEnabled(override)
 
     def _on_vpc_folder_changed(self, text):
@@ -532,7 +546,7 @@ class VPCTab(QWidget):
         # TTE-disabled widgets and re-disabled the force-enabled censored lloq_edit.
 
         _type_widgets = (self.pred_corr_cb, self.log_y_cb, self.lloq_edit,
-                         self.uloq_edit, self.lloq_method_cb,
+                         self.uloq_edit,
                          self.pi_lo, self.pi_hi, self.ci_lo, self.ci_hi,
                          self.stratify_edit)
 
@@ -546,7 +560,7 @@ class VPCTab(QWidget):
                 w.setEnabled(False)
         elif is_cat:
             for w in (self.pred_corr_cb, self.log_y_cb,
-                      self.lloq_edit, self.uloq_edit, self.lloq_method_cb):
+                      self.lloq_edit, self.uloq_edit):
                 w.setEnabled(False)
             self.stratify_edit.setEnabled(tool == 'xpose')
             if tool == 'vpc':
@@ -1200,17 +1214,22 @@ tryCatch({{
             if use_psn and psn_opts.get('predcorr'):
                 args['pred_corr'] = 'TRUE'
             if use_psn and psn_opts.get('stratify_on'):
-                args['stratify'] = f'"{psn_opts["stratify_on"]}"'
+                psn_vars = [_r_col(v.strip()) for v in psn_opts['stratify_on'].split(',') if v.strip()]
+                if psn_vars:
+                    args['stratify'] = (f'"{psn_vars[0]}"' if len(psn_vars) == 1
+                                        else 'c(' + ', '.join(f'"{v}"' for v in psn_vars) + ')')
             if not use_psn:
-                lloq_raw = self.lloq_edit.text().strip()
-                uloq_raw = self.uloq_edit.text().strip()
+                lloq_val = _r_num(self.lloq_edit.text())
+                uloq_val = _r_num(self.uloq_edit.text())
                 strat    = self.stratify_edit.text().strip()
                 args['pred_corr'] = 'TRUE' if self.pred_corr_cb.isChecked() else 'FALSE'
-                if lloq_raw:
-                    args['lloq'] = lloq_raw
-                    args['lloq_method'] = f'"{self.lloq_method_cb.currentText().lower()}"'
-                if uloq_raw:
-                    args['uloq'] = uloq_raw
+                # vpc::vpc handles LLOQ/ULOQ censoring via lloq/uloq; there is no
+                # lloq_method argument (vpc_vpc has neither it nor `...`), so
+                # passing one would raise "unused argument".
+                if lloq_val is not None:
+                    args['lloq'] = lloq_val
+                if uloq_val is not None:
+                    args['uloq'] = uloq_val
                 args['bins']   = '"jenks"'
                 args['n_bins'] = int(self.nbins_sb.value())
                 if strat:
@@ -1268,15 +1287,21 @@ tryCatch({{
                 opt_str = f', opt=vpc_opt({", ".join(opt_items)})' if opt_items else ''
                 stratify_arg = ''
                 if psn_opts.get('stratify_on'):
-                    stratify_arg = f', stratify_on=c("{psn_opts["stratify_on"]}")'
+                    # xpose::vpc_data() takes `stratify` (not `stratify_on`) and
+                    # has no `...`, so the wrong name raises "unused argument".
+                    psn_vars = [_r_col(v.strip()) for v in psn_opts['stratify_on'].split(',') if v.strip()]
+                    if psn_vars:
+                        strat_val = (f'"{psn_vars[0]}"' if len(psn_vars) == 1
+                                     else 'c(' + ', '.join(f'"{v}"' for v in psn_vars) + ')')
+                        stratify_arg = f', stratify={strat_val}'
                 vpc_data_call = f'vpc_data(psn_folder="{r_vpc}", psn_bins=TRUE{opt_str}{stratify_arg})'
             else:
-                lloq_raw = self.lloq_edit.text().strip()
-                uloq_raw = self.uloq_edit.text().strip()
+                lloq_val = _r_num(self.lloq_edit.text())
+                uloq_val = _r_num(self.uloq_edit.text())
                 strat    = self.stratify_edit.text().strip()
                 opt_parts = [f'bins="jenks"', f'n_bins={int(self.nbins_sb.value())}']
-                if lloq_raw: opt_parts.append(f'lloq={lloq_raw}')
-                if uloq_raw: opt_parts.append(f'uloq={uloq_raw}')
+                if lloq_val is not None: opt_parts.append(f'lloq={lloq_val}')
+                if uloq_val is not None: opt_parts.append(f'uloq={uloq_val}')
                 if self.pred_corr_cb.isChecked(): opt_parts.append('pred_corr=TRUE')
                 vpc_data_args = [f'opt=vpc_opt({",".join(opt_parts)})',
                                  f'psn_folder="{r_vpc}"']
