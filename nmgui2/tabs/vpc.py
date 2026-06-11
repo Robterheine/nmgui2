@@ -11,6 +11,7 @@ from PyQt6.QtGui import QFont, QPixmap, QPalette, QColor
 from ..app.theme import C, T
 from ..app.constants import IS_WIN, IS_MAC
 from ..app.tools import _find_rscript, _sanitize_r, _r_col, _check_r_packages, get_login_env
+from ..app.workers import retire_worker
 
 _log = logging.getLogger(__name__)
 HOME = Path.home()
@@ -18,7 +19,7 @@ HOME = Path.home()
 
 class VPCWorker(QThread):
     line_out  = pyqtSignal(str)
-    finished  = pyqtSignal(bool, str)   # success, image_path_or_error
+    done      = pyqtSignal(bool, str)   # success, image_path_or_error (renamed to not shadow QThread.finished)
 
     def __init__(self, script_path, output_png, rscript, env, timeout_sec=1800):
         super().__init__()
@@ -52,15 +53,15 @@ class VPCWorker(QThread):
                 proc.wait(timeout=self._timeout)
             except subprocess.TimeoutExpired:
                 proc.kill(); proc.wait()
-                self.finished.emit(False, f'R script timed out after {self._timeout // 60} minutes')
+                self.done.emit(False, f'R script timed out after {self._timeout // 60} minutes')
                 return
             stdout_all = ''.join(stdout_lines)
             png_ok = Path(self._png).is_file() and Path(self._png).stat().st_size > 1000
             if 'NMGUI_VPC_OK' in stdout_all and png_ok:
-                self.finished.emit(True, self._png)
+                self.done.emit(True, self._png)
             elif png_ok:
                 # Script succeeded but didn't print protocol token (some R setups)
-                self.finished.emit(True, self._png)
+                self.done.emit(True, self._png)
             else:
                 # Extract error
                 err = ''
@@ -68,9 +69,9 @@ class VPCWorker(QThread):
                     if 'NMGUI_VPC_ERROR:' in line:
                         err = line.split('NMGUI_VPC_ERROR:', 1)[1].strip(); break
                 if not err: err = 'R script did not produce a valid image'
-                self.finished.emit(False, err)
+                self.done.emit(False, err)
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
 
 def _vpc_strat_arg(psn_opts, use_psn, stratify_edit):
@@ -100,6 +101,7 @@ class VPCTab(QWidget):
         self._model          = None
         self._worker         = None
         self._export_worker  = None
+        self._retired_workers: list = []
         self._rscript        = None
         self._pkg_avail = {'vpc': False, 'xpose': False}
         self._r_check_done.connect(self._on_r_check_done)
@@ -1439,15 +1441,15 @@ tryCatch({{
             f'{"  [custom script]" if self.custom_script_cb.isChecked() else ""}…\n')
         self.run_btn.setEnabled(False); self.stop_btn.setEnabled(True)
         self.tool_lbl.setText(f'Backend: {self.tool_cb.currentText()}')
-        if self._worker:
-            try: self._worker.line_out.disconnect()
-            except Exception: pass  # Signal may not be connected
-            try: self._worker.finished.disconnect()
-            except Exception: pass  # Signal may not be connected
+        # Supersede any in-flight VPC run: kill its subprocess so run() returns,
+        # then park the worker so its reference is retained until it finishes.
+        if self._worker and self._worker.isRunning():
+            self._worker.stop_subprocess()
+            retire_worker(self._retired_workers, self._worker)
         self._worker = VPCWorker(script_path, output_png, self._rscript, get_login_env(),
                                   timeout_sec=self.timeout_sb.value() * 60)
         self._worker.line_out.connect(self._on_line)
-        self._worker.finished.connect(self._on_done)
+        self._worker.done.connect(self._on_done)
         self._worker.start()
 
     def _reset_r_script(self):
@@ -1467,11 +1469,15 @@ tryCatch({{
             btn.setChecked(i == index)
 
     def _on_line(self, line):
+        if self.sender() is not self._worker:
+            return  # stale output from a superseded VPC run
         self.console.appendPlainText(line)
         if 'NMGUI_VPC_ERROR' in line:
             self._vpc_panel_switch(0)
 
     def _on_done(self, success, path_or_err):
+        if self.sender() is not self._worker:
+            return  # stale result from a superseded VPC run
         self.run_btn.setEnabled(True); self.stop_btn.setEnabled(False)
         if success:
             self._last_png = path_or_err
@@ -1547,7 +1553,7 @@ tryCatch({{
             self.run_btn.setEnabled(False)
             worker = VPCWorker(str(tmp), dst, self._rscript, get_login_env())
             worker.line_out.connect(self.console.appendPlainText)
-            worker.finished.connect(lambda ok, p: self._on_export_done(ok, p, 'PNG', dst, tmp))
+            worker.done.connect(lambda ok, p: self._on_export_done(ok, p, 'PNG', dst, tmp))
             self._export_worker = worker
             worker.start()
         except Exception as e:
@@ -1575,7 +1581,7 @@ tryCatch({{
             self.run_btn.setEnabled(False)
             worker = VPCWorker(str(tmp), dst, self._rscript, get_login_env())
             worker.line_out.connect(self.console.appendPlainText)
-            worker.finished.connect(lambda ok, p: self._on_export_done(ok, p, 'PDF', dst, tmp))
+            worker.done.connect(lambda ok, p: self._on_export_done(ok, p, 'PDF', dst, tmp))
             self._export_worker = worker
             worker.start()
         except Exception as e:
@@ -1605,10 +1611,11 @@ tryCatch({{
         except Exception as e: _log.debug(f'Could not open file {path}: {e}')
 
     def _stop(self):
-        if self._worker:
+        # Killing the Rscript subprocess makes the worker's run() return on its
+        # own. QThread.terminate() is unsafe (it can kill the thread mid-I/O
+        # with locks held → deadlock/crash) and is unnecessary here.
+        if self._worker and self._worker.isRunning():
             self._worker.stop_subprocess()
-            self._worker.terminate()
         if self._export_worker and self._export_worker.isRunning():
             self._export_worker.stop_subprocess()
-            self._export_worker.terminate()
         self.run_btn.setEnabled(True); self.stop_btn.setEnabled(False)

@@ -689,7 +689,7 @@ class SimulationPlotTab(QWidget):
             filters    = filters,
             mdv_filter = self._mdv_cb.isChecked(),
         )
-        self._worker.finished.connect(
+        self._worker.done.connect(
             lambda res: self._on_worker_done(res, specs, x_col, y_col,
                                              smooth, smooth_frac))
         self._worker.error.connect(self._on_worker_error)

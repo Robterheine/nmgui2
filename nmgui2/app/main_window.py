@@ -81,7 +81,54 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         save_settings(s)
+        self._shutdown_workers()
         super().closeEvent(event)
+
+    def _shutdown_workers(self):
+        """Stop and join background QThreads before teardown.
+
+        A running QThread destroyed during interpreter/QApplication teardown
+        aborts the process. Ask each recomputable analysis worker to stop, then
+        wait (bounded) for it to finish. Long NONMEM/PsN run popups are separate
+        top-level windows that keep the app alive on their own, so they are not
+        torn down here.
+        """
+        import contextlib
+
+        def _stop_and_wait(w, stop=None):
+            if w is None:
+                return
+            with contextlib.suppress(Exception):
+                if not w.isRunning():
+                    return
+                if stop:
+                    stop(w)
+                w.wait(3000)
+
+        mt = getattr(self, 'models_tab', None)
+        if mt:
+            _stop_and_wait(getattr(mt, '_scan_worker', None), lambda w: w.cancel())
+            for w in list(getattr(mt, '_retired_workers', [])):
+                _stop_and_wait(w)
+        et = getattr(self, 'eval_tab', None)
+        if et:
+            _stop_and_wait(getattr(et, '_load_worker', None))
+            for w in list(getattr(et, '_retired_workers', [])):
+                _stop_and_wait(w)
+        vt = getattr(self, 'vpc_tab', None)
+        if vt:
+            _stop_and_wait(getattr(vt, '_worker', None), lambda w: w.stop_subprocess())
+            _stop_and_wait(getattr(vt, '_export_worker', None), lambda w: w.stop_subprocess())
+            for w in list(getattr(vt, '_retired_workers', [])):
+                _stop_and_wait(w)
+        ut = getattr(self, 'uncertainty_tab', None)
+        if ut:
+            _stop_and_wait(getattr(ut, '_worker', None), lambda w: w.cancel())
+            for w in list(getattr(ut, '_retired_workers', [])):
+                _stop_and_wait(w)
+        sp = getattr(self, 'sim_plot_tab', None)
+        if sp:
+            _stop_and_wait(getattr(sp, '_worker', None))
 
     def _build_menu(self):
         mb = self.menuBar()

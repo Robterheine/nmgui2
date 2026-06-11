@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QThread
 
 from ..app.theme import C, T
 from ..app.constants import IS_WIN, IS_MAC
+from ..app.workers import retire_worker
 from ..widgets.plots.gof import GOFWidget
 from ..widgets.plots.indfit import IndFitWidget
 from ..widgets.plots.waterfall import WaterfallWidget
@@ -31,8 +32,8 @@ _MAX_ROWS = 15_000
 
 class _TableLoadWorker(QThread):
     """Load a NONMEM table file in the background so the UI stays responsive."""
-    finished = pyqtSignal(list, list)   # header, rows
-    error    = pyqtSignal(str)
+    done  = pyqtSignal(list, list)   # header, rows (renamed to not shadow QThread.finished)
+    error = pyqtSignal(str)
 
     def __init__(self, path: str):
         super().__init__()
@@ -44,7 +45,7 @@ class _TableLoadWorker(QThread):
             if h is None:
                 self.error.emit('Could not parse file')
             else:
-                self.finished.emit(h, r)
+                self.done.emit(h, r)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -68,6 +69,7 @@ class EvaluationTab(QWidget):
         self._cov_header = None; self._cov_rows = None
         self._dirty: set = set()
         self._load_worker: _TableLoadWorker | None = None
+        self._retired_workers: list = []
         self._build_ui()
 
     def _build_ui(self):
@@ -200,21 +202,23 @@ class EvaluationTab(QWidget):
             self.status_msg.emit('File not found'); return
         if not HAS_PARSER:
             self.status_msg.emit('parser.py not available'); return
-        # Cancel any in-progress load
-        if self._load_worker and self._load_worker.isRunning():
-            self._load_worker.finished.disconnect()
-            self._load_worker.error.disconnect()
-            self._load_worker.quit()
+        # Supersede any in-progress load. The old worker keeps running until
+        # its thread returns — park it so its reference is not dropped mid-run
+        # (which would crash); its stale results are ignored via the sender
+        # identity check in the handlers below.
+        retire_worker(self._retired_workers, self._load_worker)
         fname = Path(path).name
         self._load_btn.setEnabled(False)
         self._load_btn.setText('Loading…')
         self.status_msg.emit(f'Parsing {fname}…')
         self._load_worker = _TableLoadWorker(path)
-        self._load_worker.finished.connect(self._on_load_done)
+        self._load_worker.done.connect(self._on_load_done)
         self._load_worker.error.connect(self._on_load_error)
         self._load_worker.start()
 
     def _on_load_done(self, h, r):
+        if self.sender() is not self._load_worker:
+            return  # stale result from a superseded load
         self._load_btn.setEnabled(True)
         self._load_btn.setText('Load')
         self._cov_header = None; self._cov_rows = None
@@ -233,6 +237,8 @@ class EvaluationTab(QWidget):
             self.status_msg.emit(f'Loaded {len(r):,} rows, {len(h)} columns — {fname}')
 
     def _on_load_error(self, msg):
+        if self.sender() is not self._load_worker:
+            return  # stale error from a superseded load
         self._load_btn.setEnabled(True)
         self._load_btn.setText('Load')
         self.status_msg.emit(f'Load error: {msg}')

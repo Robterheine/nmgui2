@@ -41,6 +41,7 @@ class RunPopup(QDialog):
         self._run_record = None
         self._finished = False
         self._run_ok   = False
+        self._delete_when_done = False   # set if closed while the run continued
 
         self.setWindowTitle(f'{stem} — {tool}')
         self.setObjectName('RunPopupDlg')
@@ -205,7 +206,7 @@ class RunPopup(QDialog):
 
         self._worker = RunWorker(self.cmd, self.cwd)
         self._worker.line_out.connect(self._on_line)
-        self._worker.finished.connect(self._on_done)
+        self._worker.done.connect(self._on_done)
         self._worker.start()
 
     def _on_line(self, line: str):
@@ -265,6 +266,12 @@ class RunPopup(QDialog):
         save_runs(runs)
 
         self.run_completed.emit(self.stem, self.cwd, rc)
+
+        # If the user closed this window while the run continued in the
+        # background, the worker is now finished — safe to delete the popup
+        # (its destroyed signal prunes it from the tab's _run_popups list).
+        if self._delete_when_done:
+            self.deleteLater()
 
     @staticmethod
     def _extract_termination(text: str) -> str:
@@ -333,7 +340,13 @@ class RunPopup(QDialog):
                 QMessageBox.StandardButton.No)
             if r == QMessageBox.StandardButton.No:
                 event.ignore(); return
+            # Worker still running — defer deletion until it finishes so the
+            # QThread is never destroyed mid-run.
+            self._delete_when_done = True
+            event.accept(); return
         event.accept()
+        # Run already finished — delete now; destroyed() prunes the tab list.
+        self.deleteLater()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

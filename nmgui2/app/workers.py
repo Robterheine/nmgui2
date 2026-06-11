@@ -7,6 +7,31 @@ from .tools import get_login_env
 
 _log = logging.getLogger(__name__)
 
+
+def retire_worker(holder: list, worker):
+    """Keep a still-running QThread referenced until its run() returns.
+
+    Reassigning a worker attribute (``self._worker = new``) while the old
+    thread is still running drops the old thread's last Python reference;
+    CPython can then destroy the underlying C++ QThread mid-run, which Qt
+    aborts on ("QThread: Destroyed while thread is still running"). Park the
+    superseded worker in ``holder`` and drop the reference only once the
+    built-in ``QThread.finished`` fires (it always fires when run() returns,
+    even on cancellation). Result slots remain connected, so result handlers
+    must ignore emissions from a worker that is no longer the current one.
+    """
+    if worker is None or not worker.isRunning():
+        return
+    holder.append(worker)
+
+    def _reap():
+        try:
+            holder.remove(worker)
+        except ValueError:
+            pass
+    worker.finished.connect(_reap)
+
+
 _RE_PROB   = re.compile(r'\$PROB(?:LEM)?\s+(.*?)(?:\n|\$)', re.IGNORECASE)
 _RE_DATA   = re.compile(r'\$DATA\s+(\S+)', re.IGNORECASE)
 _RE_BASEDON = re.compile(r'^;;\s*1\.\s*Based on:\s*(\S+)', re.MULTILINE | re.IGNORECASE)
@@ -154,7 +179,7 @@ class ScanWorker(QThread):
 
 class RunWorker(QThread):
     line_out = pyqtSignal(str)
-    finished = pyqtSignal(int)
+    done = pyqtSignal(int)   # renamed from 'finished' to not shadow QThread.finished
 
     def __init__(self, cmd, cwd):
         super().__init__()
@@ -171,9 +196,9 @@ class RunWorker(QThread):
             for line in iter(self._proc.stdout.readline, ''):
                 self.line_out.emit(line.rstrip())
             self._proc.wait()
-            self.finished.emit(self._proc.returncode)
+            self.done.emit(self._proc.returncode)
         except Exception as e:
-            self.line_out.emit(f'[ERROR] {e}'); self.finished.emit(-1)
+            self.line_out.emit(f'[ERROR] {e}'); self.done.emit(-1)
 
     def stop(self):
         self._send_signal(signal.SIGTERM if not IS_WIN else None, force=False)

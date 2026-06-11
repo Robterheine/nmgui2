@@ -36,7 +36,7 @@ from ...widgets._icons import _placeholder
 
 class _SimWorker(QThread):
     """Compute per-x-point quantiles across replicates in a background thread."""
-    finished = pyqtSignal(dict)   # keys: times, bands (list of lo/med/hi arrays)
+    done     = pyqtSignal(dict)   # keys: times, bands (renamed to not shadow QThread.finished)
     error    = pyqtSignal(str)
 
     def __init__(self, df, x_col, y_col, rep_col, band_pcts, filters, mdv_filter):
@@ -147,7 +147,7 @@ class _SimWorker(QThread):
                     'hi':  q_map[hi_pct  / 100.0],
                 })
 
-            self.finished.emit(result)
+            self.done.emit(result)
         except Exception as e:
             self.error.emit(str(e))
 

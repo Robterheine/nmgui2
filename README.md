@@ -637,6 +637,31 @@ Developed with [Anthropic Claude](https://claude.ai).
 
 ## Changelog
 
+### v2.9.29 — Fixes: background-thread crash safety
+
+A code audit found several ways the app could abort (especially on exit or when
+re-triggering an action) because a `QThread` was destroyed while still running. All fixed:
+
+- **Superseding a running background task could crash.** Loading a new table, re-scanning a
+  directory, re-running a VPC, or re-running bootstrap/SIR replaced the worker reference while
+  the old thread was still running, which can destroy a live `QThread` (Qt aborts). Superseded
+  workers are now parked until they finish (`retire_worker`), and result handlers ignore stale
+  workers via a sender-identity check.
+- **No worker shutdown on app close.** `closeEvent` now stops and joins (bounded) the
+  background analysis threads, preventing abort-on-exit.
+- **Unsafe `QThread.terminate()` removed.** The VPC stop button called the documented-unsafe
+  `terminate()` on a thread doing blocking I/O. It now just kills the subprocess, which makes
+  the worker exit on its own. The SIR/bootstrap worker's `terminate()` override (which also
+  froze the UI for up to 5 s) was renamed to a non-blocking `cancel()`.
+- **Cancelling a SIR/bootstrap run no longer double-reports.** A user cancel printed
+  `[Cancelled]` and then `[Failed] Cancelled by user`; the cancellation is now recognised and
+  not re-reported as a failure.
+- **Run popups no longer leak.** Finished/closed run windows (each holding a large console
+  buffer and a finished thread) were kept alive forever; they are now deleted once both closed
+  and finished.
+- Internally, worker `finished` signals that shadowed the built-in `QThread.finished` were
+  renamed to `done`, so the built-in can drive lifetime cleanup.
+
 ### v2.9.28 — Fixes: statistical & parser correctness
 
 A code audit surfaced several correctness bugs in the diagnostics. All are fixed and

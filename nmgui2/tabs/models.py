@@ -16,7 +16,7 @@ from ..app.config import load_meta, save_meta, get_meta_entry, load_settings, sa
 from ..app.format import fmt_ofv, fmt_num, fmt_rse
 from ..app.tools import find_tool, get_login_env, launch_rstudio
 from ..app.run_records import load_run_records
-from ..app.workers import ScanWorker
+from ..app.workers import ScanWorker, retire_worker
 from ..app import detached_runs as _dr
 from ..dialogs.run_popup import RunPopup, WatchLogPopup
 from ..app.model_io import _parse_param_names_from_mod, _align_param_names
@@ -239,6 +239,7 @@ class ModelsTab(QWidget):
         super().__init__(parent)
         self._directory = load_settings().get('working_directory', str(HOME))
         self._meta = load_meta(); self._scan_worker = None
+        self._retired_workers: list = []
         self._run_popups: list[RunPopup] = []
         self._watch_popups: list[WatchLogPopup] = []   # WatchLogPopup tracker for theme refresh
         self._detached_runs: list[dict] = []   # live detached run descriptors
@@ -668,19 +669,27 @@ class ModelsTab(QWidget):
         self.lst_output._browser.clear()
         self.lst_output._status_lbl.setText('No model selected')
         self.lst_output._browser_btn.setEnabled(False)
-        # Terminate any in-flight scan before starting a new one
+        # Supersede any in-flight scan. Request cooperative cancellation, then
+        # park the old worker so its reference survives until run() returns —
+        # waiting only 500 ms and dropping the reference could destroy a still
+        # running QThread (a hard crash). Stale results are ignored below via
+        # the sender identity check.
         if self._scan_worker and self._scan_worker.isRunning():
-            self._scan_worker.result.disconnect()
-            try: self._scan_worker.error.disconnect()
-            except Exception: pass
             self._scan_worker.cancel()  # Cooperative cancellation
-            self._scan_worker.wait(500)  # Wait up to 500ms
+            retire_worker(self._retired_workers, self._scan_worker)
         w = ScanWorker(d, self._meta)
         w.result.connect(self._on_scan)
-        w.error.connect(lambda e: self.status_msg.emit(f'Scan error: {e}'))
+        w.error.connect(self._on_scan_error)
         self._scan_worker = w; w.start()
 
+    def _on_scan_error(self, e):
+        if self.sender() is not self._scan_worker:
+            return  # stale error from a superseded scan
+        self.status_msg.emit(f'Scan error: {e}')
+
     def _on_scan(self, models):
+        if self.sender() is not self._scan_worker:
+            return  # stale result from a superseded scan
         t0 = time.time()
         self._all_models = models; self._table_model.load(models)
         self.table.setRowCount(len(models)); self.table.setSortingEnabled(False)

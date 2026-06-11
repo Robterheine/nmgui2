@@ -19,6 +19,7 @@ from ..app.constants import (IS_WIN, IS_MAC, BOOT_COMPLETION_PASS, BOOT_COMPLETI
                               SIR_ESS_PASS, SIR_ESS_WARN, SIR_ESS_FAIL,
                               SIR_ESS_ABS_WARN, SIR_ESS_ABS_FAIL)
 from ..app.tools import _check_psn_tools, get_login_env
+from ..app.workers import retire_worker
 from ..app import detached_runs as _dr
 from ..app.format import fmt_num
 
@@ -1165,7 +1166,7 @@ class SIRParser:
 class PsNWorker(QThread):
     """Worker thread for running PsN bootstrap or sir."""
     line_out = pyqtSignal(str)
-    finished = pyqtSignal(bool, str)  # success, folder_or_error
+    done = pyqtSignal(bool, str)  # success, folder_or_error (renamed to not shadow QThread.finished)
 
     def __init__(self, cmd: list, output_dir: str, env: dict):
         super().__init__()
@@ -1198,21 +1199,26 @@ class PsNWorker(QThread):
             self._process.wait()
 
             if self._cancelled:
-                self.finished.emit(False, 'Cancelled by user')
+                self.done.emit(False, 'Cancelled by user')
             elif self._process.returncode == 0:
-                self.finished.emit(True, self._output_dir)
+                self.done.emit(True, self._output_dir)
             else:
-                self.finished.emit(False, f'Process exited with code {self._process.returncode}')
+                self.done.emit(False, f'Process exited with code {self._process.returncode}')
 
         except Exception as e:
-            self.finished.emit(False, str(e))
+            self.done.emit(False, str(e))
 
-    def terminate(self):
+    def cancel(self):
+        """Request cancellation: kill the PsN subprocess so run() returns.
+
+        Named cancel() (not terminate()) so it does not shadow the unsafe
+        QThread.terminate(). Does not block the caller — the worker exits its
+        readline loop once the process dies and emits done(False, 'Cancelled').
+        """
         self._cancelled = True
-        if self._process:
+        if self._process and self._process.poll() is None:
             try:
                 self._process.terminate()
-                self._process.wait(timeout=5)
             except Exception:
                 try:
                     self._process.kill()
@@ -1228,6 +1234,7 @@ class ParameterUncertaintyTab(QWidget):
         super().__init__(parent)
         self._model = None
         self._worker = None
+        self._retired_workers: list = []
         self._results = None
         self._psn_available = {}
         self._is_ssh = bool(os.environ.get('SSH_CONNECTION') or
@@ -1754,27 +1761,46 @@ class ParameterUncertaintyTab(QWidget):
             self.run_btn.setEnabled(False)
             self.stop_btn.setEnabled(True)
 
+            # Supersede any worker still winding down so its reference is not
+            # dropped mid-run.
+            if self._worker and self._worker.isRunning():
+                self._worker.cancel()
+                retire_worker(self._retired_workers, self._worker)
             self._worker = PsNWorker(cmd, out_dir, get_login_env())
             self._worker.line_out.connect(self._on_line)
-            self._worker.finished.connect(self._on_run_done)
+            self._worker.done.connect(self._on_run_done)
             self._worker.start()
 
     def _stop(self):
-        if self._worker:
-            self._worker.terminate()
+        # Kill the PsN subprocess so run() returns; do not call the unsafe
+        # QThread.terminate(). The worker then emits done(False,'Cancelled by
+        # user'), which _on_run_done recognises as a cancellation (not a
+        # failure).
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
         self.console.appendPlainText('\n[Cancelled]')
 
     def _on_line(self, line: str):
+        if self.sender() is not self._worker:
+            return  # stale output from a superseded run
         self.console.appendPlainText(line)
         # Auto-scroll
         sb = self.console.verticalScrollBar()
         sb.setValue(sb.maximum())
 
     def _on_run_done(self, success: bool, folder_or_err: str):
+        if self.sender() is not self._worker:
+            return  # stale result from a superseded run
         self.run_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+
+        # User cancellation already printed '[Cancelled]' in _stop — don't also
+        # report it as a failure or trigger auto-recovery.
+        if not success and folder_or_err == 'Cancelled by user':
+            self._recovery_attempted = False
+            return
 
         if success:
             self.console.appendPlainText(f'\n[Completed] Output: {folder_or_err}')
@@ -1816,9 +1842,12 @@ class ParameterUncertaintyTab(QWidget):
         )
         self.run_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            retire_worker(self._retired_workers, self._worker)
         self._worker = PsNWorker(cmd, out_dir, get_login_env())
         self._worker.line_out.connect(self._on_line)
-        self._worker.finished.connect(self._on_run_done)
+        self._worker.done.connect(self._on_run_done)
         self._worker.start()
 
     def _load_results(self):

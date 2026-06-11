@@ -33,7 +33,7 @@ class _NormLoadWorker(QThread):
     Excludes EVID≠0 (dose/reset records) and MDV=1 (missing DV) rows.
     BLQ rows handled by M3/M4 are kept (they contribute to the likelihood).
     """
-    finished = pyqtSignal(dict)   # {float(subject_id): int(obs_count)}
+    done = pyqtSignal(dict)   # {float(subject_id): int(obs_count)} (renamed to not shadow QThread.finished)
     failed   = pyqtSignal(str)
 
     def __init__(self, dataset_path: str):
@@ -83,7 +83,7 @@ class _NormLoadWorker(QThread):
             if not counts:
                 self.failed.emit('No observations found after filtering EVID/MDV rows')
                 return
-            self.finished.emit(counts)
+            self.done.emit(counts)
         except Exception as e:
             self.failed.emit(str(e))
 
@@ -317,7 +317,7 @@ class WaterfallWidget(QWidget):
         self._norm_btn.setEnabled(False)
         self._show_status('Reading dataset…', C.fg2)
         self._norm_worker = _NormLoadWorker(self._dataset_path)
-        self._norm_worker.finished.connect(self._on_norm_loaded)
+        self._norm_worker.done.connect(self._on_norm_loaded)
         self._norm_worker.failed.connect(self._on_norm_failed)
         self._norm_worker.start()
 
